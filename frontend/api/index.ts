@@ -167,7 +167,7 @@ app.post('/auth/change-password', requireAuth, async (c) => {
 // ─── USERS ────────────────────────────────────────────────────────────────────
 app.get('/users', requireAuth, role('dg'), async (c) => {
   const { rows } = await pool.query(
-    'SELECT id,nom,prenom,email,role,statut,telephone,photo_path,created_at FROM users ORDER BY nom,prenom'
+    'SELECT id,nom,prenom,email,role,statut,telephone,photo_path,last_login_at,created_at FROM users ORDER BY nom,prenom'
   )
   return c.json(rows)
 })
@@ -943,12 +943,34 @@ app.get('/rapports', requireAuth, async (c) => {
 
 // ─── CONVERSATIONS ────────────────────────────────────────────────────────────
 app.get('/conversations', requireAuth, async (c) => {
+  const userId = u(c).id
   const { rows } = await pool.query(`
-    SELECT c.*, (SELECT COUNT(*)::int FROM messages m WHERE m.conversation_id = c.id) as message_count
+    SELECT
+      c.*,
+      COALESCE(
+        (SELECT json_agg(jsonb_build_object('id', us.id, 'nom', us.nom, 'prenom', us.prenom, 'role', us.role))
+         FROM conversation_participants cp2
+         JOIN users us ON cp2.user_id = us.id
+         WHERE cp2.conversation_id = c.id),
+        '[]'::json
+      ) AS participants,
+      (SELECT jsonb_build_object('contenu', m.contenu, 'created_at', m.created_at, 'sender',
+          CASE WHEN ms.id IS NOT NULL THEN ms.prenom || ' ' || ms.nom ELSE NULL END)
+       FROM messages m LEFT JOIN users ms ON m.sender_id = ms.id
+       WHERE m.conversation_id = c.id
+       ORDER BY m.created_at DESC LIMIT 1
+      ) AS dernier_message,
+      (SELECT COUNT(*)::int
+       FROM messages m2
+       LEFT JOIN conversation_participants cp3 ON cp3.conversation_id = m2.conversation_id AND cp3.user_id = $1
+       WHERE m2.conversation_id = c.id
+         AND (cp3.dernier_lu_at IS NULL OR m2.created_at > cp3.dernier_lu_at)
+         AND m2.sender_id != $1
+      ) AS nb_non_lus
     FROM conversations c
     WHERE EXISTS (SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id = c.id AND cp.user_id = $1)
-    ORDER BY c.updated_at DESC
-  `, [u(c).id])
+    ORDER BY COALESCE(c.updated_at, c.created_at) DESC
+  `, [userId])
   return c.json(rows)
 })
 
@@ -966,13 +988,17 @@ app.get('/conversations/:id', requireAuth, async (c) => {
 app.post('/conversations', requireAuth, async (c) => {
   const body = await c.req.json()
   const { rows } = await pool.query(
-    'INSERT INTO conversations (sujet,created_by) VALUES ($1,$2) RETURNING *',
-    [body.sujet || null, u(c).id]
+    "INSERT INTO conversations (nom,type,couleur,created_by) VALUES ($1,$2,$3,$4) RETURNING *",
+    [body.nom || null, body.type || 'direct', body.couleur || '#3b82f6', u(c).id]
   )
   const conv = rows[0]
   await pool.query('INSERT INTO conversation_participants (conversation_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [conv.id, u(c).id])
   if (Array.isArray(body.participant_ids)) {
     for (const pid of body.participant_ids)
+      await pool.query('INSERT INTO conversation_participants (conversation_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [conv.id, pid])
+  }
+  if (Array.isArray(body.user_ids)) {
+    for (const pid of body.user_ids)
       await pool.query('INSERT INTO conversation_participants (conversation_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [conv.id, pid])
   }
   return c.json(conv, 201)
