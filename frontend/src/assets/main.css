@@ -516,12 +516,100 @@ body {
   margin-bottom: 16px;
 }
 
+/* ── Dashboard grilles responsives ───────────────────────────── */
+.uc-dash-bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.uc-tres-subgrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+
+/* ── Hamburger ────────────────────────────────────────────────── */
+.uc-hamburger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: #111;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  margin-right: 4px;
+  transition: background 0.15s;
+}
+.uc-hamburger:hover { background: #f4f4f4; }
+
+/* ── Sidebar overlay (mobile) ─────────────────────────────────── */
+.uc-sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 99;
+}
+
 /* ── Responsive mobile ────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .uc-sidebar { display: none; }
+  /* Sidebar : masquée par défaut, slide depuis la gauche */
+  .uc-sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 100;
+  }
+  .uc-sidebar.uc-sidebar-open {
+    transform: translateX(0);
+  }
+
+  /* Hamburger visible */
+  .uc-hamburger { display: flex; }
+
+  /* Main sans marge sidebar */
   .uc-main { margin-left: 0; }
-  .uc-topbar { padding: 0 16px; height: 52px; }
-  .uc-content { padding: 14px; }
-  .uc-kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* Topbar compacte */
+  .uc-topbar { padding: 0 12px; height: 52px; gap: 8px; }
+  .uc-topbar-title { font-size: 14px; }
   .uc-topbar-date { display: none; }
+
+  /* Contenu avec padding réduit */
+  .uc-content { padding: 12px; }
+
+  /* KPI : 2 colonnes */
+  .uc-kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .uc-kpi-card { padding: 14px 14px; }
+  .uc-kpi-value { font-size: 20px; }
+
+  /* Dashboard grille du bas : 1 colonne */
+  .uc-dash-bottom-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  /* Trésorerie sub-grille : 1 colonne */
+  .uc-tres-subgrid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  /* Trésorerie card */
+  .uc-tres-card { padding: 16px; }
+  .uc-tres-card > div:nth-child(2) { font-size: 24px !important; }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  /* Tablette : sidebar toujours visible, grille 2 cols */
+  .uc-dash-bottom-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .uc-tres-subgrid {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
 }

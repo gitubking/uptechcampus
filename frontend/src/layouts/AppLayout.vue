@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+
+// ── Mobile sidebar toggle ──────────────────────────────────────────
+const sidebarOpen = ref(false)
+watch(() => route.path, () => { sidebarOpen.value = false })
 
 const roleLabel: Record<string, string> = {
   dg: 'Directeur Général',
@@ -254,8 +258,11 @@ const userInitials = computed(() => {
 <template>
   <div style="display:flex; min-height:100vh;">
 
+    <!-- ══════════════ OVERLAY MOBILE ══════════════ -->
+    <div v-if="sidebarOpen" class="uc-sidebar-overlay" @click="sidebarOpen = false"></div>
+
     <!-- ══════════════ SIDEBAR ══════════════ -->
-    <aside class="uc-sidebar">
+    <aside class="uc-sidebar" :class="{ 'uc-sidebar-open': sidebarOpen }">
 
       <!-- Logo -->
       <div class="uc-sidebar-logo">
@@ -303,6 +310,13 @@ const userInitials = computed(() => {
 
       <!-- Topbar -->
       <div class="uc-topbar">
+        <!-- Hamburger (mobile seulement) -->
+        <button class="uc-hamburger" @click="sidebarOpen = !sidebarOpen" aria-label="Menu">
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+              :d="sidebarOpen ? 'M6 18L18 6M6 6l12 12' : 'M4 6h16M4 12h16M4 18h16'" />
+          </svg>
+        </button>
         <h1 class="uc-topbar-title">
           {{ pageTitle }}
           <span class="uc-topbar-breadcrumb">/ {{ auth.user?.role ? roleLabel[auth.user.role] : '' }}</span>

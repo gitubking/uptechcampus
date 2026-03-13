@@ -128,7 +128,7 @@ onMounted(load)
         <div style="font-size:11px;color:rgba(255,255,255,0.35);">
           ● Calcul : total recettes encaissées − total dépenses enregistrées
         </div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px;">
+        <div class="uc-tres-subgrid">
           <div style="background:rgba(255,255,255,0.06);border-radius:4px;padding:12px;">
             <div style="font-size:10px;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">Encaissé ce mois</div>
             <div style="font-size:18px;font-weight:700;color:#4ade80;">{{ loading ? '…' : fmt(stats?.encaisse_ce_mois ?? 0) }}</div>
@@ -146,7 +146,7 @@ onMounted(load)
     </template>
 
     <!-- Grille inférieure -->
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div class="uc-dash-bottom-grid">
 
       <!-- Derniers paiements -->
       <div class="uc-card" v-if="canSeeFinance">
