@@ -13,7 +13,6 @@ class DatabaseSeeder extends Seeder
             AnneeAcademiqueSeeder::class,
             UserSeeder::class,
             FiliereSeeder::class,
-            ParcoursSeeder::class,
             ParametresSeeder::class,
         ]);
     }
