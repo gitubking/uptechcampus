@@ -1,19 +1,23 @@
 import { Hono } from 'hono'
-import { handle } from 'hono/vercel'
+import type { MiddlewareHandler } from 'hono'
 import { Pool } from 'pg'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
-
-export const runtime = 'nodejs'
+import type { IncomingMessage, ServerResponse } from 'http'
 
 // ─── DB ──────────────────────────────────────────────────────────────────────
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 5,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
-})
+// Strip sslmode from URL to avoid conflict with explicit ssl option
+function buildPoolConfig() {
+  const rawUrl = process.env.DATABASE_URL || 'postgresql://localhost/placeholder'
+  try {
+    const u = new URL(rawUrl)
+    u.searchParams.delete('sslmode')
+    return { connectionString: u.toString(), ssl: { rejectUnauthorized: false } }
+  } catch {
+    return { connectionString: rawUrl, ssl: { rejectUnauthorized: false } }
+  }
+}
+const pool = new Pool({ ...buildPoolConfig(), max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 })
 
 const JWT_SECRET = process.env.JWT_SECRET || 'uptech-dev-secret-2026'
 
@@ -22,6 +26,12 @@ type Env = { Variables: { user: Record<string, unknown> } }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 const app = new Hono<Env>().basePath('/api')
+
+// Global error handler — returns JSON with actual error message
+app.onError((err, c) => {
+  console.error('Hono error:', err.message, err.stack)
+  return c.json({ message: err.message, type: err.constructor.name }, 500)
+})
 
 // CORS
 app.use('*', async (c, next) => {
@@ -34,7 +44,7 @@ app.use('*', async (c, next) => {
 })
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
-const requireAuth = async (c: Parameters<typeof app.use>[1], next: () => Promise<void>) => {
+const requireAuth: MiddlewareHandler<Env> = async (c, next) => {
   const header = c.req.header('Authorization')
   if (!header?.startsWith('Bearer ')) return c.json({ message: 'Non authentifié.' }, 401)
   try {
@@ -50,12 +60,13 @@ const requireAuth = async (c: Parameters<typeof app.use>[1], next: () => Promise
   }
 }
 
-const role = (...roles: string[]) => async (c: Parameters<typeof app.use>[1], next: () => Promise<void>) => {
-  if (!roles.includes((c.get('user') as Record<string, string>).role)) return c.json({ message: 'Accès refusé.' }, 403)
+const role = (...roles: string[]): MiddlewareHandler<Env> => async (c, next) => {
+  if (!roles.includes((c.get('user') as Record<string, string>).role))
+    return c.json({ message: 'Accès refusé.' }, 403)
   await next()
 }
 
-const u = (c: Parameters<typeof app.use>[1]) => c.get('user') as Record<string, unknown>
+const u = (c: { get(key: 'user'): Record<string, unknown> }) => c.get('user')
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 function pad(n: number, len = 5) { return String(n).padStart(len, '0') }
@@ -796,7 +807,7 @@ app.get('/seances', requireAuth, async (c) => {
   return c.json(rows)
 })
 
-const seanceRoles = role('dg', 'dir_peda', 'coordinateur', 'secretariat', 'intervenant')
+const seanceRoles: MiddlewareHandler<Env> = role('dg', 'dir_peda', 'coordinateur', 'secretariat', 'intervenant')
 
 app.post('/seances', requireAuth, seanceRoles, async (c) => {
   const b = await c.req.json()
@@ -987,7 +998,7 @@ app.get('/annonces', requireAuth, async (c) => {
   return c.json(rows)
 })
 
-const annonceRoles = role('dg', 'dir_peda', 'coordinateur', 'secretariat')
+const annonceRoles: MiddlewareHandler<Env> = role('dg', 'dir_peda', 'coordinateur', 'secretariat')
 
 app.post('/annonces', requireAuth, annonceRoles, async (c) => {
   const b = await c.req.json()
@@ -1055,4 +1066,50 @@ app.get('/health', async (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-export default handle(app)
+// ─── Vercel handler ───────────────────────────────────────────────────────────
+export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const host = (req.headers.host as string) || 'localhost'
+    const url = new URL(req.url || '/', `https://${host}`)
+
+    // Collect body for non-GET requests
+    let bodyText: string | undefined
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      bodyText = await new Promise<string>((resolve, reject) => {
+        const chunks: Buffer[] = []
+        req.on('data', (chunk: Buffer) => chunks.push(chunk))
+        req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
+        req.on('error', reject)
+      })
+    }
+
+    // Build clean headers (no host/content-length to avoid conflicts)
+    const headers: Record<string, string> = {}
+    for (const [k, v] of Object.entries(req.headers)) {
+      if (v !== undefined && k !== 'host' && k !== 'content-length' && k !== 'transfer-encoding') {
+        headers[k] = Array.isArray(v) ? v.join(', ') : v
+      }
+    }
+
+    const request = new Request(url.toString(), {
+      method: req.method || 'GET',
+      headers,
+      body: bodyText || undefined,
+    })
+
+    const response = await app.fetch(request)
+    res.statusCode = response.status
+    response.headers.forEach((value: string, key: string) => {
+      res.setHeader(key, value)
+    })
+    const buf = Buffer.from(await response.arrayBuffer())
+    res.end(buf)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    const stack = err instanceof Error ? err.stack : undefined
+    console.error('API error:', message, stack)
+    res.statusCode = 500
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ message, stack }))
+  }
+}
