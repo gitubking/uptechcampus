@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
+import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 
 const auth = useAuthStore()
 
@@ -172,10 +173,7 @@ onMounted(load)
   <div class="uc-content">
 
     <!-- En-tête -->
-    <div style="margin-bottom:20px;">
-      <h1 style="font-size:18px;font-weight:700;color:#111;margin:0;">Émargement</h1>
-      <p style="font-size:12px;color:#888;margin:4px 0 0;">Saisie des présences par séance</p>
-    </div>
+    <UcPageHeader title="Émargement" subtitle="Saisie des présences par séance" />
 
     <div class="em-grid">
 

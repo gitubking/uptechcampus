@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader, UcTable } from '@/components/ui'
 
 const auth = useAuthStore()
 const canWrite = computed(() => auth.user?.role === 'dg')
@@ -236,258 +237,219 @@ onMounted(load)
   <div class="uc-content">
 
     <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-      <div>
-        <h1 style="font-size:18px;font-weight:700;color:#111;margin:0;font-family:'Poppins',sans-serif;">Filières</h1>
-        <p style="font-size:12px;color:#aaa;margin:3px 0 0;font-family:'Poppins',sans-serif;">Gestion des filières et programmes de formation</p>
-      </div>
-      <button v-if="canWrite" @click="openCreate" class="uc-btn-primary">+ Nouvelle filière</button>
-    </div>
+    <UcPageHeader
+      title="Filières"
+      subtitle="Gestion des filières et programmes de formation"
+    >
+      <template #actions>
+        <button v-if="canWrite" @click="openCreate" class="uc-btn-primary">+ Nouvelle filière</button>
+      </template>
+    </UcPageHeader>
 
     <!-- Table -->
-    <div class="fl-table-wrap">
-      <div v-if="loading" style="padding:40px;text-align:center;font-size:12px;color:#aaa;font-family:'Poppins',sans-serif;">Chargement…</div>
-      <div v-else-if="!filieres.length" style="padding:40px;text-align:center;font-size:12px;color:#aaa;font-family:'Poppins',sans-serif;">Aucune filière</div>
-      <table v-else>
-        <thead>
-          <tr>
-            <th>Code</th>
-            <th>Filière</th>
-            <th>Type</th>
-            <th>Frais inscr.</th>
-            <th>Mensualité</th>
-            <th>Durée</th>
-            <th>Matières</th>
-            <th>Statut</th>
-            <th style="text-align:right;">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="f in filieres" :key="f.id">
-            <td><span style="font-size:11px;font-weight:700;color:#888;font-family:monospace;">{{ f.code }}</span></td>
-            <td>
-              <p style="font-size:12.5px;font-weight:600;color:#111;margin:0;font-family:'Poppins',sans-serif;">{{ f.nom }}</p>
-              <p v-if="f.description" style="font-size:11px;color:#aaa;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;font-family:'Poppins',sans-serif;">{{ f.description }}</p>
-            </td>
-            <td style="font-size:12px;color:#555;font-family:'Poppins',sans-serif;">{{ f.type_formation?.nom ?? '—' }}</td>
-            <td style="font-size:12.5px;font-weight:600;color:#111;font-family:'Poppins',sans-serif;">{{ formatMontant(f.frais_inscription) }}</td>
-            <td style="font-size:12.5px;font-weight:600;color:#111;font-family:'Poppins',sans-serif;">{{ formatMontant(f.mensualite) }}</td>
-            <td style="font-size:12px;color:#555;font-family:'Poppins',sans-serif;">{{ f.duree_mois ? f.duree_mois + ' mois' : '—' }}</td>
-            <td>
-              <button @click="openMatieres(f)" class="fl-btn-matieres" title="Gérer les matières">
-                {{ f.matieres?.length ?? 0 }} matière{{ (f.matieres?.length ?? 0) !== 1 ? 's' : '' }}
-              </button>
-            </td>
-            <td>
-              <span :class="f.actif ? 'fl-badge-actif' : 'fl-badge-inactif'">{{ f.actif ? 'Active' : 'Inactive' }}</span>
-            </td>
-            <td style="text-align:right;">
-              <div style="display:flex;justify-content:flex-end;gap:4px;">
-                <button @click="openMatieres(f)" class="fl-btn-action" title="Matières">📚</button>
-                <button v-if="canWrite" @click="openEdit(f)" class="fl-btn-action" title="Modifier">✏️</button>
-                <button v-if="canWrite" @click="deleteTarget = f; confirmMsg = ''" class="fl-btn-action fl-btn-danger" title="Supprimer">🗑️</button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <div v-if="loading" style="padding:40px;text-align:center;font-size:12px;color:#aaa;font-family:'Poppins',sans-serif;">Chargement…</div>
+    <UcTable
+      v-else
+      :cols="[
+        { key: 'code',    label: 'Code' },
+        { key: 'filiere', label: 'Filière' },
+        { key: 'type',    label: 'Type' },
+        { key: 'frais',   label: 'Frais inscr.' },
+        { key: 'mens',    label: 'Mensualité' },
+        { key: 'duree',   label: 'Durée' },
+        { key: 'mat',     label: 'Matières' },
+        { key: 'statut',  label: 'Statut' },
+        { key: 'actions', label: 'Actions', align: 'right' },
+      ]"
+      :data="filieres"
+      empty-text="Aucune filière"
+    >
+      <template #row="{ item: f }">
+        <td><span style="font-size:11px;font-weight:700;color:#888;font-family:monospace;">{{ (f as any).code }}</span></td>
+        <td>
+          <p style="font-size:12.5px;font-weight:600;color:#111;margin:0;font-family:'Poppins',sans-serif;">{{ (f as any).nom }}</p>
+          <p v-if="(f as any).description" style="font-size:11px;color:#aaa;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;font-family:'Poppins',sans-serif;">{{ (f as any).description }}</p>
+        </td>
+        <td style="font-size:12px;color:#555;font-family:'Poppins',sans-serif;">{{ (f as any).type_formation?.nom ?? '—' }}</td>
+        <td style="font-size:12.5px;font-weight:600;color:#111;font-family:'Poppins',sans-serif;">{{ formatMontant((f as any).frais_inscription) }}</td>
+        <td style="font-size:12.5px;font-weight:600;color:#111;font-family:'Poppins',sans-serif;">{{ formatMontant((f as any).mensualite) }}</td>
+        <td style="font-size:12px;color:#555;font-family:'Poppins',sans-serif;">{{ (f as any).duree_mois ? (f as any).duree_mois + ' mois' : '—' }}</td>
+        <td>
+          <button @click="openMatieres(f as any)" class="fl-btn-matieres" title="Gérer les matières">
+            {{ (f as any).matieres?.length ?? 0 }} matière{{ ((f as any).matieres?.length ?? 0) !== 1 ? 's' : '' }}
+          </button>
+        </td>
+        <td>
+          <span :class="(f as any).actif ? 'fl-badge-actif' : 'fl-badge-inactif'">{{ (f as any).actif ? 'Active' : 'Inactive' }}</span>
+        </td>
+        <td style="text-align:right;">
+          <div style="display:flex;justify-content:flex-end;gap:4px;">
+            <button @click="openMatieres(f as any)" class="fl-btn-action" title="Matières">📚</button>
+            <button v-if="canWrite" @click="openEdit(f as any)" class="fl-btn-action" title="Modifier">✏️</button>
+            <button v-if="canWrite" @click="deleteTarget = (f as any); confirmMsg = ''" class="fl-btn-action fl-btn-danger" title="Supprimer">🗑️</button>
+          </div>
+        </td>
+      </template>
+    </UcTable>
 
     <!-- Modal Filière (create/edit) -->
-    <Teleport to="body">
-      <div v-if="showForm" style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;">
-        <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" @click="closeForm"></div>
-        <div class="fl-modal" style="position:relative;">
-          <div class="fl-modal-header">
-            <h2>{{ editTarget ? 'Modifier la filière' : 'Nouvelle filière' }}</h2>
-            <button @click="closeForm" style="background:none;border:none;cursor:pointer;color:#888;font-size:20px;line-height:1;">&times;</button>
-          </div>
-          <div style="padding:18px 22px;overflow-y:auto;max-height:calc(88vh - 130px);">
-            <div v-if="error" style="background:#fff0f0;border:1px solid #fecaca;border-radius:4px;padding:10px 14px;font-size:12px;color:#b91c1c;margin-bottom:14px;font-family:'Poppins',sans-serif;">{{ error }}</div>
-            <form @submit.prevent="save" style="display:flex;flex-direction:column;gap:14px;">
-              <div class="fl-form-grid-2">
-                <div class="fl-form-group">
-                  <label>Nom <span style="color:#E30613;">*</span></label>
-                  <input v-model="form.nom" required placeholder="Ex: Informatique" />
-                </div>
-                <div class="fl-form-group">
-                  <label>Code <span style="color:#E30613;">*</span></label>
-                  <input v-model="form.code" required placeholder="Ex: INFO" />
-                </div>
-              </div>
-              <div class="fl-form-group">
-                <label>Description</label>
-                <textarea v-model="form.description" rows="2" style="resize:none;"></textarea>
-              </div>
-              <div class="fl-form-group">
-                <label>Type de formation</label>
-                <select v-model="form.type_formation_id">
-                  <option :value="null">— Sélectionner —</option>
-                  <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }} ({{ t.code }})</option>
-                </select>
-              </div>
-              <div class="fl-form-grid-3">
-                <div class="fl-form-group">
-                  <label>Frais inscription (F) <span style="color:#E30613;">*</span></label>
-                  <input v-model.number="form.frais_inscription" type="number" min="0" step="500" required />
-                </div>
-                <div class="fl-form-group">
-                  <label>Mensualité (F) <span style="color:#E30613;">*</span></label>
-                  <input v-model.number="form.mensualite" type="number" min="0" step="500" required />
-                </div>
-                <div class="fl-form-group">
-                  <label>Durée (mois) <span style="color:#E30613;">*</span></label>
-                  <input v-model.number="form.duree_mois" type="number" min="1" max="120" required />
-                </div>
-              </div>
-              <div v-if="editTarget" style="display:flex;align-items:center;gap:10px;">
-                <label style="font-size:12px;font-weight:600;color:#333;text-transform:uppercase;letter-spacing:0.3px;font-family:'Poppins',sans-serif;">Filière active</label>
-                <input type="checkbox" v-model="form.actif" style="width:16px;height:16px;accent-color:#E30613;" />
-              </div>
-            </form>
-          </div>
-          <div class="fl-modal-footer">
-            <button @click="closeForm" class="fl-btn-cancel">Annuler</button>
-            <button @click="save" :disabled="saving" class="fl-btn-save">{{ saving ? 'Enregistrement…' : 'Enregistrer' }}</button>
-          </div>
+    <UcModal
+      v-model="showForm"
+      :title="editTarget ? 'Modifier la filière' : 'Nouvelle filière'"
+      width="560px"
+      @close="closeForm"
+    >
+      <div v-if="error" style="background:#fff0f0;border:1px solid #fecaca;border-radius:4px;padding:10px 14px;font-size:12px;color:#b91c1c;margin-bottom:14px;font-family:'Poppins',sans-serif;">{{ error }}</div>
+      <form @submit.prevent="save" style="display:flex;flex-direction:column;gap:14px;">
+        <UcFormGrid :cols="2">
+          <UcFormGroup label="Nom" :required="true">
+            <input v-model="form.nom" required placeholder="Ex: Informatique" />
+          </UcFormGroup>
+          <UcFormGroup label="Code" :required="true">
+            <input v-model="form.code" required placeholder="Ex: INFO" />
+          </UcFormGroup>
+        </UcFormGrid>
+        <UcFormGroup label="Description">
+          <textarea v-model="form.description" rows="2" style="resize:none;"></textarea>
+        </UcFormGroup>
+        <UcFormGroup label="Type de formation">
+          <select v-model="form.type_formation_id">
+            <option :value="null">— Sélectionner —</option>
+            <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }} ({{ t.code }})</option>
+          </select>
+        </UcFormGroup>
+        <UcFormGrid :cols="3">
+          <UcFormGroup label="Frais inscription (F)" :required="true">
+            <input v-model.number="form.frais_inscription" type="number" min="0" step="500" required />
+          </UcFormGroup>
+          <UcFormGroup label="Mensualité (F)" :required="true">
+            <input v-model.number="form.mensualite" type="number" min="0" step="500" required />
+          </UcFormGroup>
+          <UcFormGroup label="Durée (mois)" :required="true">
+            <input v-model.number="form.duree_mois" type="number" min="1" max="120" required />
+          </UcFormGroup>
+        </UcFormGrid>
+        <div v-if="editTarget" style="display:flex;align-items:center;gap:10px;">
+          <label style="font-size:12px;font-weight:600;color:#333;text-transform:uppercase;letter-spacing:0.3px;font-family:'Poppins',sans-serif;">Filière active</label>
+          <input type="checkbox" v-model="form.actif" style="width:16px;height:16px;accent-color:#E30613;" />
         </div>
-      </div>
-    </Teleport>
+      </form>
+      <template #footer>
+        <button @click="closeForm" class="fl-btn-cancel">Annuler</button>
+        <button @click="save" :disabled="saving" class="fl-btn-save">{{ saving ? 'Enregistrement…' : 'Enregistrer' }}</button>
+      </template>
+    </UcModal>
 
     <!-- Modal confirmation suppression -->
-    <Teleport to="body">
-      <div v-if="deleteTarget" style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;">
-        <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" @click="deleteTarget = null"></div>
-        <div style="position:relative;background:#fff;border-radius:8px;width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.25);padding:24px;">
-          <h3 style="font-size:15px;font-weight:700;color:#111;margin:0 0 8px;font-family:'Poppins',sans-serif;">Supprimer la filière ?</h3>
-          <p style="font-size:13px;color:#555;margin:0 0 4px;font-family:'Poppins',sans-serif;font-weight:600;">{{ deleteTarget.nom }}</p>
-          <p style="font-size:12px;color:#888;margin:0 0 6px;font-family:'Poppins',sans-serif;">Cette action est irréversible. La filière sera supprimée si aucune classe ou inscription ne l'utilise.</p>
-          <p v-if="confirmMsg" style="font-size:12px;color:#E30613;margin:0 0 6px;font-family:'Poppins',sans-serif;">{{ confirmMsg }}</p>
-          <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">
-            <button @click="deleteTarget = null" class="fl-btn-cancel">Annuler</button>
-            <button @click="confirmDelete" :disabled="deleting" style="background:#E30613;color:#fff;border:none;border-radius:4px;padding:9px 18px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;opacity:1;" :style="deleting ? 'opacity:0.6;cursor:not-allowed;' : ''">
-              {{ deleting ? 'Suppression…' : 'Supprimer' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <UcModal
+      :model-value="!!deleteTarget"
+      title="Supprimer la filière ?"
+      width="420px"
+      @close="deleteTarget = null"
+    >
+      <p style="font-size:13px;color:#555;margin:0 0 4px;font-family:'Poppins',sans-serif;font-weight:600;">{{ deleteTarget?.nom }}</p>
+      <p style="font-size:12px;color:#888;margin:0 0 6px;font-family:'Poppins',sans-serif;">Cette action est irréversible. La filière sera supprimée si aucune classe ou inscription ne l'utilise.</p>
+      <p v-if="confirmMsg" style="font-size:12px;color:#E30613;margin:0;font-family:'Poppins',sans-serif;">{{ confirmMsg }}</p>
+      <template #footer>
+        <button @click="deleteTarget = null" class="fl-btn-cancel">Annuler</button>
+        <button @click="confirmDelete" :disabled="deleting" class="fl-btn-save" :style="deleting ? 'opacity:0.6;cursor:not-allowed;' : ''">
+          {{ deleting ? 'Suppression…' : 'Supprimer' }}
+        </button>
+      </template>
+    </UcModal>
 
     <!-- Modal Matières d'une filière -->
-    <Teleport to="body">
-      <div v-if="showMatieres" style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;">
-        <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" @click="showMatieres = false"></div>
-        <div style="position:relative;background:#fff;border-radius:8px;width:100%;max-width:680px;box-shadow:0 20px 60px rgba(0,0,0,0.25);display:flex;flex-direction:column;max-height:85vh;">
+    <UcModal
+      v-model="showMatieres"
+      :title="`Matières — ${filiereForMatieres?.nom ?? ''}`"
+      :subtitle="`${filiereForMatieres?.matieres?.length ?? 0} matière(s) dans cette filière`"
+      width="680px"
+      @close="showMatieres = false"
+    >
+      <template #footer v-if="canWrite && !showAttachForm">
+        <button @click="showAttachForm = true" class="uc-btn-primary" style="font-size:12px;padding:7px 14px;">+ Ajouter une matière</button>
+      </template>
 
-          <!-- En-tête -->
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #f0f0f0;">
-            <div>
-              <h2 style="font-size:14px;font-weight:700;color:#111;margin:0;font-family:'Poppins',sans-serif;">Matières — {{ filiereForMatieres?.nom }}</h2>
-              <p style="font-size:11px;color:#aaa;margin:2px 0 0;font-family:'Poppins',sans-serif;">{{ filiereForMatieres?.matieres?.length ?? 0 }} matière(s) dans cette filière</p>
+      <!-- Formulaire d'ajout -->
+      <div v-if="showAttachForm" style="background:#f8f8ff;border:1px solid #e0e0f0;border-radius:6px;padding:16px;margin-bottom:16px;">
+        <h3 style="font-size:13px;font-weight:700;color:#333;margin:0 0 12px;font-family:'Poppins',sans-serif;">Associer une matière</h3>
+        <div v-if="loadingMatiereGlobales" style="font-size:12px;color:#aaa;text-align:center;padding:8px;font-family:'Poppins',sans-serif;">Chargement…</div>
+        <template v-else>
+          <div v-if="matieresDisponibles.length === 0" style="font-size:12px;color:#888;text-align:center;padding:8px;font-family:'Poppins',sans-serif;">
+            Toutes les matières ont déjà été ajoutées à cette filière.
+          </div>
+          <template v-else>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <UcFormGroup label="Matière" :required="true">
+                <select v-model="formAttach.matiere_id">
+                  <option :value="null">— Sélectionner une matière —</option>
+                  <option v-for="m in matieresDisponibles" :key="m.id" :value="m.id">{{ m.nom }} ({{ m.code }})</option>
+                </select>
+              </UcFormGroup>
+              <UcFormGrid :cols="3">
+                <UcFormGroup label="Coefficient" :required="true">
+                  <input v-model.number="formAttach.coefficient" type="number" min="0" step="0.5" />
+                </UcFormGroup>
+                <UcFormGroup label="Crédits ECTS">
+                  <input v-model.number="formAttach.credits" type="number" min="0" />
+                </UcFormGroup>
+                <UcFormGroup label="Ordre">
+                  <input v-model.number="formAttach.ordre" type="number" min="0" />
+                </UcFormGroup>
+              </UcFormGrid>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;">
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+              <button @click="showAttachForm = false" class="fl-btn-cancel" style="padding:7px 14px;">Annuler</button>
               <button
-                v-if="canWrite && !showAttachForm"
-                @click="showAttachForm = true"
-                class="uc-btn-primary"
-                style="font-size:12px;padding:7px 14px;"
-              >+ Ajouter une matière</button>
-              <button @click="showMatieres = false" style="background:none;border:none;cursor:pointer;color:#aaa;font-size:20px;line-height:1;padding:4px;">&times;</button>
+                @click="attachMatiere"
+                :disabled="!formAttach.matiere_id || attachingMatiere"
+                class="fl-btn-save"
+                style="padding:7px 14px;"
+              >{{ attachingMatiere ? 'Ajout…' : 'Ajouter' }}</button>
             </div>
-          </div>
-
-          <!-- Corps scrollable -->
-          <div style="flex:1;overflow-y:auto;padding:18px 22px;">
-
-            <!-- Formulaire d'ajout -->
-            <div v-if="showAttachForm" style="background:#f8f8ff;border:1px solid #e0e0f0;border-radius:6px;padding:16px;margin-bottom:16px;">
-              <h3 style="font-size:13px;font-weight:700;color:#333;margin:0 0 12px;font-family:'Poppins',sans-serif;">Associer une matière</h3>
-              <div v-if="loadingMatiereGlobales" style="font-size:12px;color:#aaa;text-align:center;padding:8px;font-family:'Poppins',sans-serif;">Chargement…</div>
-              <template v-else>
-                <div v-if="matieresDisponibles.length === 0" style="font-size:12px;color:#888;text-align:center;padding:8px;font-family:'Poppins',sans-serif;">
-                  Toutes les matières ont déjà été ajoutées à cette filière.
-                </div>
-                <template v-else>
-                  <div style="display:flex;flex-direction:column;gap:10px;">
-                    <div class="fl-form-group">
-                      <label>Matière <span style="color:#E30613;">*</span></label>
-                      <select v-model="formAttach.matiere_id">
-                        <option :value="null">— Sélectionner une matière —</option>
-                        <option v-for="m in matieresDisponibles" :key="m.id" :value="m.id">{{ m.nom }} ({{ m.code }})</option>
-                      </select>
-                    </div>
-                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
-                      <div class="fl-form-group">
-                        <label>Coefficient <span style="color:#E30613;">*</span></label>
-                        <input v-model.number="formAttach.coefficient" type="number" min="0" step="0.5" />
-                      </div>
-                      <div class="fl-form-group">
-                        <label>Crédits ECTS</label>
-                        <input v-model.number="formAttach.credits" type="number" min="0" />
-                      </div>
-                      <div class="fl-form-group">
-                        <label>Ordre</label>
-                        <input v-model.number="formAttach.ordre" type="number" min="0" />
-                      </div>
-                    </div>
-                  </div>
-                  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
-                    <button @click="showAttachForm = false" class="fl-btn-cancel" style="padding:7px 14px;">Annuler</button>
-                    <button
-                      @click="attachMatiere"
-                      :disabled="!formAttach.matiere_id || attachingMatiere"
-                      class="fl-btn-save"
-                      style="padding:7px 14px;"
-                    >{{ attachingMatiere ? 'Ajout…' : 'Ajouter' }}</button>
-                  </div>
-                </template>
-              </template>
-            </div>
-
-            <!-- Liste des matières actuelles -->
-            <div v-if="!filiereForMatieres?.matieres?.length" style="text-align:center;padding:40px 0;font-size:12px;color:#aaa;font-family:'Poppins',sans-serif;">
-              Aucune matière associée à cette filière.
-            </div>
-            <div v-else class="fl-table-wrap" style="margin-top:0;">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Matière</th>
-                    <th style="text-align:center;">Coefficient</th>
-                    <th style="text-align:center;">Crédits</th>
-                    <th style="text-align:center;">Ordre</th>
-                    <th v-if="canWrite" style="text-align:right;"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="m in filiereForMatieres?.matieres" :key="m.id">
-                    <td>
-                      <p style="font-size:12.5px;font-weight:600;color:#111;margin:0;font-family:'Poppins',sans-serif;">{{ m.nom }}</p>
-                      <span style="font-size:11px;font-family:monospace;color:#aaa;">{{ m.code }}</span>
-                    </td>
-                    <td style="text-align:center;">
-                      <span style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:28px;border-radius:4px;background:#fff8e6;color:#b45309;font-size:13px;font-weight:700;font-family:'Poppins',sans-serif;">{{ m.pivot?.coefficient ?? '—' }}</span>
-                    </td>
-                    <td style="text-align:center;">
-                      <span style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:28px;border-radius:4px;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:700;font-family:'Poppins',sans-serif;">{{ m.pivot?.credits ?? 0 }}</span>
-                    </td>
-                    <td style="text-align:center;font-size:12px;color:#aaa;font-family:'Poppins',sans-serif;">{{ m.pivot?.ordre ?? 0 }}</td>
-                    <td v-if="canWrite" style="text-align:right;">
-                      <button
-                        @click="detachMatiere(m.id)"
-                        :disabled="detachingMatiereId === m.id"
-                        class="fl-btn-action fl-btn-danger"
-                        title="Retirer de la filière"
-                      >&times;</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+          </template>
+        </template>
       </div>
-    </Teleport>
+
+      <!-- Liste des matières actuelles -->
+      <div v-if="!filiereForMatieres?.matieres?.length" style="text-align:center;padding:40px 0;font-size:12px;color:#aaa;font-family:'Poppins',sans-serif;">
+        Aucune matière associée à cette filière.
+      </div>
+      <UcTable
+        v-else
+        :cols="[
+          { key: 'matiere',    label: 'Matière' },
+          { key: 'coeff',      label: 'Coefficient', align: 'center' },
+          { key: 'credits',    label: 'Crédits',     align: 'center' },
+          { key: 'ordre',      label: 'Ordre',       align: 'center' },
+          ...(canWrite ? [{ key: 'actions', label: '', align: 'right' }] : []),
+        ]"
+        :data="filiereForMatieres?.matieres ?? []"
+        empty-text="Aucune matière"
+      >
+        <template #row="{ item: m }">
+          <td>
+            <p style="font-size:12.5px;font-weight:600;color:#111;margin:0;font-family:'Poppins',sans-serif;">{{ (m as any).nom }}</p>
+            <span style="font-size:11px;font-family:monospace;color:#aaa;">{{ (m as any).code }}</span>
+          </td>
+          <td style="text-align:center;">
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:28px;border-radius:4px;background:#fff8e6;color:#b45309;font-size:13px;font-weight:700;font-family:'Poppins',sans-serif;">{{ (m as any).pivot?.coefficient ?? '—' }}</span>
+          </td>
+          <td style="text-align:center;">
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:28px;border-radius:4px;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:700;font-family:'Poppins',sans-serif;">{{ (m as any).pivot?.credits ?? 0 }}</span>
+          </td>
+          <td style="text-align:center;font-size:12px;color:#aaa;font-family:'Poppins',sans-serif;">{{ (m as any).pivot?.ordre ?? 0 }}</td>
+          <td v-if="canWrite" style="text-align:right;">
+            <button
+              @click="detachMatiere((m as any).id)"
+              :disabled="detachingMatiereId === (m as any).id"
+              class="fl-btn-action fl-btn-danger"
+              title="Retirer de la filière"
+            >&times;</button>
+          </td>
+        </template>
+      </UcTable>
+    </UcModal>
 
   </div>
 </template>
@@ -520,49 +482,6 @@ onMounted(load)
 }
 .uc-btn-primary:hover {
   background: #c0040f;
-}
-
-/* ── Table wrapper ── */
-.fl-table-wrap {
-  background: #fff;
-  border-radius: 8px;
-  border: 1px solid #ebebeb;
-  overflow: hidden;
-}
-.fl-table-wrap table {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: 'Poppins', sans-serif;
-}
-.fl-table-wrap thead tr {
-  background: #fafafa;
-  border-bottom: 1px solid #ebebeb;
-}
-.fl-table-wrap th {
-  padding: 10px 14px;
-  font-size: 11px;
-  font-weight: 700;
-  color: #888;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  text-align: left;
-  white-space: nowrap;
-}
-.fl-table-wrap tbody tr {
-  border-bottom: 1px solid #f4f4f4;
-  transition: background 0.1s;
-}
-.fl-table-wrap tbody tr:last-child {
-  border-bottom: none;
-}
-.fl-table-wrap tbody tr:hover {
-  background: #fdf8f8;
-}
-.fl-table-wrap td {
-  padding: 11px 14px;
-  font-size: 12.5px;
-  color: #333;
-  vertical-align: middle;
 }
 
 /* ── Badges statut ── */
@@ -629,78 +548,6 @@ onMounted(load)
   background: #ede9fe;
 }
 
-/* ── Modal ── */
-.fl-modal {
-  background: #fff;
-  border-radius: 8px;
-  width: 100%;
-  max-width: 560px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
-  max-height: 92vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.fl-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 22px;
-  border-bottom: 1px solid #f0f0f0;
-}
-.fl-modal-header h2 {
-  font-size: 14px;
-  font-weight: 700;
-  color: #111;
-  margin: 0;
-  font-family: 'Poppins', sans-serif;
-}
-.fl-modal-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 14px 22px;
-  border-top: 1px solid #f0f0f0;
-  background: #fafafa;
-}
-
-/* ── Formulaire ── */
-.fl-form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.fl-form-group label {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #444;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  font-family: 'Poppins', sans-serif;
-}
-.fl-form-group input,
-.fl-form-group select,
-.fl-form-group textarea {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-  font-family: 'Poppins', sans-serif;
-  font-size: 12.5px;
-  color: #222;
-  background: #fff;
-  box-sizing: border-box;
-  outline: none;
-  transition: border-color 0.15s;
-}
-.fl-form-group input:focus,
-.fl-form-group select:focus,
-.fl-form-group textarea:focus {
-  border-color: #E30613;
-  box-shadow: 0 0 0 2px rgba(227, 6, 19, 0.08);
-}
-
 /* ── Boutons modal ── */
 .fl-btn-cancel {
   padding: 8px 18px;
@@ -735,13 +582,5 @@ onMounted(load)
 .fl-btn-save:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.fl-form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.fl-form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-
-@media (max-width: 768px) {
-  .fl-form-grid-2 { grid-template-columns: 1fr; }
-  .fl-form-grid-3 { grid-template-columns: 1fr; }
 }
 </style>

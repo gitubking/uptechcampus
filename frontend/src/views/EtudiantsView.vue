@@ -3,6 +3,8 @@ import { ref, watch, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import UcPageHeader from '@/components/ui/UcPageHeader.vue'
+import UcTable from '@/components/ui/UcTable.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -429,6 +431,14 @@ function statutDotClass(statut: string): string {
   return map[statut] ?? 'dot-gray'
 }
 
+const tableCols = [
+  { key: 'numero', label: 'N° Étudiant' },
+  { key: 'etudiant', label: 'Étudiant' },
+  { key: 'filiere', label: 'Filière / Parcours' },
+  { key: 'statut', label: 'Statut' },
+  { key: 'actions', label: 'Actions' },
+]
+
 onMounted(() => {
   fetchEtudiants()
   loadRefs()
@@ -439,15 +449,16 @@ onMounted(() => {
   <div class="uc-content">
 
     <!-- En-tête -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <div>
-        <h1 style="font-size:16px;font-weight:700;color:#111;">Étudiants</h1>
-        <p style="font-size:11.5px;color:#888;margin-top:2px;">{{ pagination.total }} étudiant{{ pagination.total !== 1 ? 's' : '' }} au total</p>
-      </div>
-      <button v-if="canWrite" @click="openInscrire" class="uc-btn-primary" style="display:flex;align-items:center;gap:6px;padding:9px 16px;font-size:12.5px;">
-        <span style="font-size:16px;line-height:1;">+</span> Nouvel étudiant
-      </button>
-    </div>
+    <UcPageHeader
+      title="Étudiants"
+      :subtitle="`${pagination.total} étudiant${pagination.total !== 1 ? 's' : ''} au total`"
+    >
+      <template #actions>
+        <button v-if="canWrite" @click="openInscrire" class="uc-btn-primary" style="display:flex;align-items:center;gap:6px;padding:9px 16px;font-size:12.5px;">
+          <span style="font-size:16px;line-height:1;">+</span> Nouvel étudiant
+        </button>
+      </template>
+    </UcPageHeader>
 
     <!-- Toolbar : Recherche -->
     <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;">
@@ -458,75 +469,50 @@ onMounted(() => {
     </div>
 
     <!-- Tableau -->
-    <div class="uc-table-wrap">
-      <table class="uc-table">
-        <thead>
-          <tr>
-            <th>N° Étudiant</th>
-            <th>Étudiant</th>
-            <th>Filière / Parcours</th>
-            <th>Statut</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="loading">
-            <td colspan="5" style="padding:32px;text-align:center;color:#aaa;font-size:12px;">
-              Chargement…
-            </td>
-          </tr>
-          <tr v-else-if="pagination.data.length === 0">
-            <td colspan="5" style="padding:32px;text-align:center;color:#aaa;font-size:12px;">
-              Aucun étudiant trouvé
-              <span v-if="search" style="display:block;font-size:11px;margin-top:4px;">Essayez d'autres termes de recherche</span>
-            </td>
-          </tr>
-          <tr v-else v-for="etudiant in pagination.data" :key="etudiant.id"
-            @click="router.push(`/etudiants/${etudiant.id}`)">
-            <td class="td-num">{{ etudiant.numero_etudiant }}</td>
-            <td>
-              <div class="student-name">
-                <div class="s-avatar" :style="{ background: avatarColor(etudiant.prenom, etudiant.nom) }">
-                  {{ (etudiant.prenom[0] ?? '') + (etudiant.nom[0] ?? '') }}
-                </div>
-                <div class="s-name">
-                  <strong>{{ etudiant.prenom }} {{ etudiant.nom }}</strong>
-                  <span>{{ etudiant.email }}</span>
-                </div>
-              </div>
-            </td>
-            <td>
-              <span v-if="etudiant.inscription_active?.filiere">
-                {{ etudiant.inscription_active.filiere.nom }}<br>
-                <span style="font-size:10.5px;color:#aaa;">{{ etudiant.inscription_active.filiere.code }}</span>
-              </span>
-              <span v-else style="color:#aaa;">—</span>
-            </td>
-            <td>
-              <span v-if="etudiant.inscription_active" class="uc-badge" :class="statutBadgeClass(etudiant.inscription_active.statut)">
-                <span class="badge-dot" :class="statutDotClass(etudiant.inscription_active.statut)"></span>
-                {{ statutLabel[etudiant.inscription_active.statut] ?? etudiant.inscription_active.statut }}
-              </span>
-              <span v-else class="uc-badge uc-badge-gray">Non inscrit</span>
-            </td>
-            <td @click.stop>
-              <div class="row-actions">
-                <button v-if="canWrite" @click="openEditEtudiant(etudiant)" class="row-btn" title="Modifier">Modifier</button>
-                <button v-if="canWrite && etudiant.inscription_active" @click="openGererInscription(etudiant)" class="row-btn" title="Gérer inscription">Inscription</button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <UcTable :cols="tableCols" :data="pagination.data" empty-text="Aucun étudiant trouvé">
+      <template #row="{ item: etudiant }">
+        <td class="td-num">{{ (etudiant as any).numero_etudiant }}</td>
+        <td>
+          <div class="student-name" style="cursor:pointer;" @click="router.push(`/etudiants/${(etudiant as any).id}`)">
+            <div class="s-avatar" :style="{ background: avatarColor((etudiant as any).prenom, (etudiant as any).nom) }">
+              {{ ((etudiant as any).prenom[0] ?? '') + ((etudiant as any).nom[0] ?? '') }}
+            </div>
+            <div class="s-name">
+              <strong>{{ (etudiant as any).prenom }} {{ (etudiant as any).nom }}</strong>
+              <span>{{ (etudiant as any).email }}</span>
+            </div>
+          </div>
+        </td>
+        <td @click="router.push(`/etudiants/${(etudiant as any).id}`)">
+          <span v-if="(etudiant as any).inscription_active?.filiere">
+            {{ (etudiant as any).inscription_active.filiere.nom }}<br>
+            <span style="font-size:10.5px;color:#aaa;">{{ (etudiant as any).inscription_active.filiere.code }}</span>
+          </span>
+          <span v-else style="color:#aaa;">—</span>
+        </td>
+        <td @click="router.push(`/etudiants/${(etudiant as any).id}`)">
+          <span v-if="(etudiant as any).inscription_active" class="uc-badge" :class="statutBadgeClass((etudiant as any).inscription_active.statut)">
+            <span class="badge-dot" :class="statutDotClass((etudiant as any).inscription_active.statut)"></span>
+            {{ statutLabel[(etudiant as any).inscription_active.statut] ?? (etudiant as any).inscription_active.statut }}
+          </span>
+          <span v-else class="uc-badge uc-badge-gray">Non inscrit</span>
+        </td>
+        <td>
+          <div class="row-actions">
+            <button v-if="canWrite" @click="openEditEtudiant(etudiant as any)" class="row-btn" title="Modifier">Modifier</button>
+            <button v-if="canWrite && (etudiant as any).inscription_active" @click="openGererInscription(etudiant as any)" class="row-btn" title="Gérer inscription">Inscription</button>
+          </div>
+        </td>
+      </template>
+    </UcTable>
 
-      <!-- Pagination -->
-      <div v-if="pagination.last_page > 1" class="uc-pagination">
-        <span class="uc-pagination-info">Page {{ pagination.current_page }} / {{ pagination.last_page }} — {{ pagination.total }} étudiants</span>
-        <div class="uc-pagination-btns">
-          <button :disabled="page <= 1" @click="page--" class="page-btn" :class="{ disabled: page <= 1 }">←</button>
-          <button class="page-btn active">{{ page }}</button>
-          <button :disabled="page >= pagination.last_page" @click="page++" class="page-btn" :class="{ disabled: page >= pagination.last_page }">→</button>
-        </div>
+    <!-- Pagination -->
+    <div v-if="pagination.last_page > 1" class="uc-pagination">
+      <span class="uc-pagination-info">Page {{ pagination.current_page }} / {{ pagination.last_page }} — {{ pagination.total }} étudiants</span>
+      <div class="uc-pagination-btns">
+        <button :disabled="page <= 1" @click="page--" class="page-btn" :class="{ disabled: page <= 1 }">←</button>
+        <button class="page-btn active">{{ page }}</button>
+        <button :disabled="page >= pagination.last_page" @click="page++" class="page-btn" :class="{ disabled: page >= pagination.last_page }">→</button>
       </div>
     </div>
 
@@ -1053,40 +1039,6 @@ onMounted(() => {
 .uc-search-input:focus { border-color: #E30613; }
 .uc-search-input::placeholder { color: #ccc; }
 
-/* Table */
-.uc-table-wrap {
-  background: #fff;
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-  overflow: hidden;
-}
-.uc-table { width: 100%; border-collapse: collapse; }
-.uc-table thead tr { background: #f9f9f9; border-bottom: 2px solid #f0f0f0; }
-.uc-table thead th {
-  padding: 11px 14px;
-  text-align: left;
-  font-size: 11px;
-  font-weight: 700;
-  color: #555;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  white-space: nowrap;
-}
-.uc-table tbody tr {
-  border-bottom: 1px solid #f5f5f5;
-  transition: background 0.12s;
-  cursor: pointer;
-}
-.uc-table tbody tr:last-child { border-bottom: none; }
-.uc-table tbody tr:hover { background: #fafafa; }
-.uc-table tbody td {
-  padding: 11px 14px;
-  font-size: 12.5px;
-  color: #222;
-  vertical-align: middle;
-}
-.td-num { font-size: 11px; font-weight: 600; color: #888; font-family: monospace; }
-
 /* Student avatar */
 .student-name { display: flex; align-items: center; gap: 9px; }
 .s-avatar {
@@ -1195,45 +1147,33 @@ onMounted(() => {
   flex: 1; padding: 10px; border: 1.5px solid #e5e5e5; border-radius: 4px;
   cursor: pointer; transition: all 0.15s;
 }
-.radio-card.active { border-color: #22c55e; background: #f0fdf4; }
-.radio-card.active.orange { border-color: #f59e0b; background: #fffbeb; }
+.radio-card.active { border-color: #E30613; background: #fff5f5; }
+.radio-card.orange.active { border-color: #f97316; background: #fff7ed; }
+.radio-card-title { font-size: 12.5px; font-weight: 700; color: #111; }
+.radio-card-sub { font-size: 11px; color: #888; margin-top: 1px; }
 
-/* Info rows (gestion inscription) */
-.info-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
-.info-label { font-size: 11.5px; color: #888; font-weight: 500; }
-.info-value { font-size: 12px; color: #111; font-weight: 600; }
+/* Info rows (gerer-inscription) */
+.info-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 12px; }
+.info-label { color: #888; font-weight: 500; }
+.info-value { color: #111; font-weight: 600; }
 
-/* Fin rows */
-.fin-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
-.fin-row span:first-child { color: #888; }
-.fin-row span:last-child { font-weight: 700; color: #111; }
-
-/* Action buttons */
-.action-btn {
-  width: 100%; padding: 10px; border-radius: 4px; font-family: 'Poppins', sans-serif;
-  font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all 0.15s;
-  display: flex; align-items: center; justify-content: center; gap: 7px;
-  border: none;
-}
-.action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Action buttons (gerer-inscription) */
+.action-btn { width: 100%; padding: 10px; border-radius: 4px; border: none; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; }
 .action-btn-green { background: #22c55e; color: #fff; }
-.action-btn-green:hover:not(:disabled) { background: #16a34a; }
-.action-btn-ghost { background: #fff; color: #555; border: 1.5px solid #e5e5e5; }
-.action-btn-ghost:hover:not(:disabled) { border-color: #111; color: #111; }
+.action-btn-green:hover { background: #16a34a; }
+.action-btn-green:disabled { opacity: 0.5; cursor: not-allowed; }
+.action-btn-ghost { background: #f5f5f5; color: #555; border: 1px solid #e5e5e5; }
+.action-btn-ghost:hover { background: #eee; }
 
-/* Footer ghost btn */
+/* ghost button */
 .btn-ghost {
-  border: 1.5px solid #e5e5e5; background: #fff; border-radius: 4px;
-  padding: 10px 20px; font-family: 'Poppins', sans-serif;
-  font-size: 13px; font-weight: 600; color: #555; cursor: pointer; transition: all 0.15s;
+  border: 1px solid #e5e5e5; background: #fff; border-radius: 4px;
+  padding: 8px 14px; font-size: 12px; font-weight: 600; color: #555;
+  cursor: pointer; transition: all 0.15s; font-family: 'Poppins', sans-serif;
 }
-.btn-ghost:hover { border-color: #111; color: #111; }
+.btn-ghost:hover { border-color: #ccc; background: #fafafa; }
 
-@media (max-width: 768px) {
-  .uc-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .uc-table { min-width: 520px; }
-  .form-row { grid-template-columns: 1fr; }
-  .uc-pagination { flex-direction: column; gap: 8px; align-items: flex-start; }
-  .row-actions { opacity: 1; }
-}
+.hidden { display: none; }
+
+.td-num { font-size: 11px; font-weight: 600; color: #888; font-family: monospace; }
 </style>

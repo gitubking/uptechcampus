@@ -2,6 +2,10 @@
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
+import UcModal from '@/components/ui/UcModal.vue'
+import UcFormGroup from '@/components/ui/UcFormGroup.vue'
+import UcFormGrid from '@/components/ui/UcFormGrid.vue'
+import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 
 const auth = useAuthStore()
 
@@ -322,17 +326,12 @@ const intervenantsForClasse = computed(() => {
 })
 
 // Matières disponibles pour le formulaire avec volume horaire et filtrage
-// Logique : intervenant sélectionné → ses matières pour cette filière
-//           sinon → toutes les matières de la filière
-// Filtre  : uniquement les matières avec des heures restantes (volumeTotal > 0 && restantes > 0)
-//           ou dont le volume n'est pas configuré (volumeTotal = 0)
 const matieresForForm = computed((): MatiereOption[] => {
   const fId = filiereIdForClasse(form.value.classe_id)
   if (!fId) return []
 
   const allMatieres = matieresOfFiliere(fId)
 
-  // Candidats : matières de l'intervenant ou toutes les matières de la filière
   let candidates: FiliereMatiere[]
   if (form.value.intervenant_id) {
     const interv = intervenants.value.find(i => String(i.id) === String(form.value.intervenant_id))
@@ -343,7 +342,6 @@ const matieresForForm = computed((): MatiereOption[] => {
         .filter(Boolean)
     )]
     if (assignedNoms.length > 0) {
-      // Retrouver les objets FiliereMatiere (avec pivot) pour avoir le volume horaire
       candidates = assignedNoms.map(nom =>
         allMatieres.find(m => m.nom === nom) ?? { id: 0, nom, code: nom }
       )
@@ -354,7 +352,6 @@ const matieresForForm = computed((): MatiereOption[] => {
     candidates = allMatieres
   }
 
-  // Enrichir avec les heures et filtrer les matières déjà couvertes
   return candidates
     .map((m): MatiereOption => {
       const volumeTotal = m.pivot?.credits ?? 0
@@ -366,7 +363,6 @@ const matieresForForm = computed((): MatiereOption[] => {
       return { ...m, volumeTotal, heuresPlanifiees: planifiees, heuresRestantes: restantes, label }
     })
     .filter(m =>
-      // Garder si volume non configuré OU s'il reste des heures
       m.volumeTotal === 0 || m.heuresRestantes > 0
     )
 })
@@ -392,19 +388,19 @@ onMounted(load)
 <template>
   <div class="uc-content">
 
-    <!-- En-tête -->
-    <div class="edt-header">
-      <div>
-        <h1 class="edt-title">Emplois du temps</h1>
-        <p class="edt-subtitle">Planning des séances de cours</p>
-      </div>
-      <button v-if="canWrite" @click="openCreate" class="uc-btn-primary">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
-        Ajouter une séance
-      </button>
-    </div>
+    <UcPageHeader
+      title="Emplois du temps"
+      subtitle="Planning des séances de cours"
+    >
+      <template #actions>
+        <button v-if="canWrite" @click="openCreate" class="uc-btn-primary">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          Ajouter une séance
+        </button>
+      </template>
+    </UcPageHeader>
 
     <!-- Toolbar -->
     <div class="edt-toolbar">
@@ -548,158 +544,137 @@ onMounted(load)
     </Teleport>
 
     <!-- Modal création/édition -->
-    <Teleport to="body">
-      <div v-if="showModal" class="edt-modal-overlay">
-        <div class="edt-modal">
-          <div class="edt-modal-header">
-            <h2 class="edt-modal-title">{{ editId ? 'Modifier la séance' : 'Nouvelle séance' }}</h2>
-            <button @click="showModal = false" class="edt-close-btn">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-          <div class="edt-modal-body">
-
-            <!-- Alerte conflit -->
-            <div v-if="hasConflict()" class="edt-alert-warning">
-              <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-              </svg>
-              Cet intervenant a déjà une séance sur ce créneau.
-            </div>
-
-            <div v-if="error" class="edt-alert-error">{{ error }}</div>
-
-            <div class="edt-form-grid">
-              <!-- Classe -->
-              <div class="edt-form-group">
-                <label class="edt-form-label">Classe *</label>
-                <select v-model="form.classe_id" required class="edt-select" @change="onClasseChange">
-                  <option value="">Sélectionner…</option>
-                  <option v-for="c in classes" :key="c.id" :value="String(c.id)">{{ c.nom }}</option>
-                </select>
-              </div>
-
-              <!-- Intervenant — filtré sur la filière de la classe -->
-              <div class="edt-form-group">
-                <label class="edt-form-label">Intervenant</label>
-                <select v-model="form.intervenant_id" class="edt-select" @change="onIntervenantChange"
-                  :disabled="!form.classe_id"
-                  :style="!form.classe_id ? 'opacity:0.5;cursor:not-allowed;' : ''">
-                  <option value="">— Sans intervenant —</option>
-                  <option v-for="i in intervenantsForClasse" :key="i.id" :value="String(i.id)">
-                    {{ i.prenom }} {{ i.nom }}
-                  </option>
-                </select>
-              </div>
-
-              <!-- Matière — liste intelligente (filière + intervenant + heures restantes) -->
-              <div class="edt-form-group edt-form-group--full">
-                <label class="edt-form-label">Matière *</label>
-
-                <!-- Select quand il y a des matières disponibles -->
-                <template v-if="matieresForForm.length > 0">
-                  <select v-model="form.matiere" required class="edt-select" style="width:100%;">
-                    <option value="">— Sélectionner une matière —</option>
-                    <option v-for="m in matieresForForm" :key="m.id || m.nom" :value="m.nom">
-                      {{ m.label }}
-                    </option>
-                  </select>
-
-                  <!-- Encadré récapitulatif des heures pour la matière choisie -->
-                  <div v-if="selectedMatiereInfo && selectedMatiereInfo.volumeTotal > 0"
-                    class="edt-vol-bar">
-                    <div class="edt-vol-bar-track">
-                      <div class="edt-vol-bar-fill"
-                        :style="{
-                          width: Math.min(100, Math.round(
-                            (selectedMatiereInfo.heuresPlanifiees / selectedMatiereInfo.volumeTotal) * 100
-                          )) + '%'
-                        }">
-                      </div>
-                    </div>
-                    <div class="edt-vol-stats">
-                      <span class="edt-vol-stat edt-vol-stat--done">
-                        {{ roundHalf(selectedMatiereInfo.heuresPlanifiees) }}h planifiées
-                      </span>
-                      <span class="edt-vol-stat edt-vol-stat--total">
-                        / {{ selectedMatiereInfo.volumeTotal }}h total
-                      </span>
-                      <span class="edt-vol-stat edt-vol-stat--rest">
-                        · {{ roundHalf(selectedMatiereInfo.heuresRestantes) }}h restantes
-                      </span>
-                    </div>
-                  </div>
-                </template>
-
-                <!-- Saisie libre si aucune matière liée ou filière non choisie -->
-                <template v-else>
-                  <input v-model="form.matiere" type="text" required
-                    :placeholder="form.classe_id ? 'Saisir le nom de la matière' : 'Sélectionnez d\'abord une classe'"
-                    class="edt-input"
-                    :disabled="!form.classe_id"
-                    :style="!form.classe_id ? 'opacity:0.5;cursor:not-allowed;' : ''" />
-                  <span v-if="form.classe_id && filiereIdForClasse(form.classe_id)"
-                    style="font-size:11px;color:#9ca3af;margin-top:2px;">
-                    Toutes les matières de cette filière sont déjà couvertes — saisie libre
-                  </span>
-                </template>
-              </div>
-              <div class="edt-form-group">
-                <label class="edt-form-label">Date *</label>
-                <input v-model="form.date" type="date" required class="edt-input" />
-              </div>
-              <div class="edt-form-group">
-                <label class="edt-form-label">Heure début *</label>
-                <input v-model="form.heure_debut" type="time" required class="edt-input" />
-              </div>
-              <div class="edt-form-group">
-                <label class="edt-form-label">Heure fin *</label>
-                <input v-model="form.heure_fin" type="time" required class="edt-input" />
-              </div>
-              <div class="edt-form-group">
-                <label class="edt-form-label">Mode *</label>
-                <select v-model="form.mode" class="edt-select">
-                  <option value="presentiel">Présentiel</option>
-                  <option value="en_ligne">En ligne</option>
-                  <option value="hybride">Hybride</option>
-                  <option value="exam">Examen</option>
-                </select>
-              </div>
-              <div v-if="form.mode !== 'en_ligne'" class="edt-form-group">
-                <label class="edt-form-label">Salle</label>
-                <input v-model="form.salle" type="text" placeholder="Ex : Salle A" class="edt-input" />
-              </div>
-              <div v-if="form.mode !== 'presentiel' && form.mode !== 'exam'" class="edt-form-group edt-form-group--full">
-                <label class="edt-form-label">Lien visio</label>
-                <input v-model="form.lien_visio" type="url" placeholder="https://meet.google.com/…" class="edt-input" />
-              </div>
-            </div>
-            <div class="edt-form-group edt-form-group--full" style="margin-top:12px;">
-              <label class="edt-form-label">Notes</label>
-              <textarea v-model="form.notes" rows="2" placeholder="Remarques éventuelles…" class="edt-input edt-textarea"></textarea>
-            </div>
-          </div>
-          <div class="edt-modal-footer">
-            <button @click="showModal = false" class="edt-btn-secondary">Annuler</button>
-            <button @click="save" :disabled="saving || !form.classe_id || !form.matiere" class="uc-btn-primary" style="flex:1;">
-              {{ saving ? 'Enregistrement…' : (editId ? 'Modifier' : 'Créer') }}
-            </button>
-          </div>
-        </div>
+    <UcModal
+      v-model="showModal"
+      :title="editId ? 'Modifier la séance' : 'Nouvelle séance'"
+      @close="showModal = false"
+    >
+      <!-- Alerte conflit -->
+      <div v-if="hasConflict()" class="edt-alert-warning">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+        </svg>
+        Cet intervenant a déjà une séance sur ce créneau.
       </div>
-    </Teleport>
+
+      <div v-if="error" class="edt-alert-error">{{ error }}</div>
+
+      <UcFormGrid :cols="2">
+        <!-- Classe -->
+        <UcFormGroup label="Classe" :required="true">
+          <select v-model="form.classe_id" required class="edt-select" @change="onClasseChange">
+            <option value="">Sélectionner…</option>
+            <option v-for="c in classes" :key="c.id" :value="String(c.id)">{{ c.nom }}</option>
+          </select>
+        </UcFormGroup>
+
+        <!-- Intervenant — filtré sur la filière de la classe -->
+        <UcFormGroup label="Intervenant">
+          <select v-model="form.intervenant_id" class="edt-select" @change="onIntervenantChange"
+            :disabled="!form.classe_id"
+            :style="!form.classe_id ? 'opacity:0.5;cursor:not-allowed;' : ''">
+            <option value="">— Sans intervenant —</option>
+            <option v-for="i in intervenantsForClasse" :key="i.id" :value="String(i.id)">
+              {{ i.prenom }} {{ i.nom }}
+            </option>
+          </select>
+        </UcFormGroup>
+      </UcFormGrid>
+
+      <!-- Matière — liste intelligente (filière + intervenant + heures restantes) -->
+      <UcFormGroup label="Matière" :required="true" style="margin-top:12px;">
+        <!-- Select quand il y a des matières disponibles -->
+        <template v-if="matieresForForm.length > 0">
+          <select v-model="form.matiere" required class="edt-select" style="width:100%;">
+            <option value="">— Sélectionner une matière —</option>
+            <option v-for="m in matieresForForm" :key="m.id || m.nom" :value="m.nom">
+              {{ m.label }}
+            </option>
+          </select>
+
+          <!-- Encadré récapitulatif des heures pour la matière choisie -->
+          <div v-if="selectedMatiereInfo && selectedMatiereInfo.volumeTotal > 0"
+            class="edt-vol-bar">
+            <div class="edt-vol-bar-track">
+              <div class="edt-vol-bar-fill"
+                :style="{
+                  width: Math.min(100, Math.round(
+                    (selectedMatiereInfo.heuresPlanifiees / selectedMatiereInfo.volumeTotal) * 100
+                  )) + '%'
+                }">
+              </div>
+            </div>
+            <div class="edt-vol-stats">
+              <span class="edt-vol-stat edt-vol-stat--done">
+                {{ roundHalf(selectedMatiereInfo.heuresPlanifiees) }}h planifiées
+              </span>
+              <span class="edt-vol-stat edt-vol-stat--total">
+                / {{ selectedMatiereInfo.volumeTotal }}h total
+              </span>
+              <span class="edt-vol-stat edt-vol-stat--rest">
+                · {{ roundHalf(selectedMatiereInfo.heuresRestantes) }}h restantes
+              </span>
+            </div>
+          </div>
+        </template>
+
+        <!-- Saisie libre si aucune matière liée ou filière non choisie -->
+        <template v-else>
+          <input v-model="form.matiere" type="text" required
+            :placeholder="form.classe_id ? 'Saisir le nom de la matière' : 'Sélectionnez d\'abord une classe'"
+            class="edt-input"
+            :disabled="!form.classe_id"
+            :style="!form.classe_id ? 'opacity:0.5;cursor:not-allowed;' : ''" />
+          <span v-if="form.classe_id && filiereIdForClasse(form.classe_id)"
+            style="font-size:11px;color:#9ca3af;margin-top:2px;">
+            Toutes les matières de cette filière sont déjà couvertes — saisie libre
+          </span>
+        </template>
+      </UcFormGroup>
+
+      <UcFormGrid :cols="2" style="margin-top:12px;">
+        <UcFormGroup label="Date" :required="true">
+          <input v-model="form.date" type="date" required class="edt-input" />
+        </UcFormGroup>
+        <UcFormGroup label="Heure début" :required="true">
+          <input v-model="form.heure_debut" type="time" required class="edt-input" />
+        </UcFormGroup>
+        <UcFormGroup label="Heure fin" :required="true">
+          <input v-model="form.heure_fin" type="time" required class="edt-input" />
+        </UcFormGroup>
+        <UcFormGroup label="Mode" :required="true">
+          <select v-model="form.mode" class="edt-select">
+            <option value="presentiel">Présentiel</option>
+            <option value="en_ligne">En ligne</option>
+            <option value="hybride">Hybride</option>
+            <option value="exam">Examen</option>
+          </select>
+        </UcFormGroup>
+        <UcFormGroup v-if="form.mode !== 'en_ligne'" label="Salle">
+          <input v-model="form.salle" type="text" placeholder="Ex : Salle A" class="edt-input" />
+        </UcFormGroup>
+        <UcFormGroup v-if="form.mode !== 'presentiel' && form.mode !== 'exam'" label="Lien visio" style="grid-column:1/-1;">
+          <input v-model="form.lien_visio" type="url" placeholder="https://meet.google.com/…" class="edt-input" />
+        </UcFormGroup>
+      </UcFormGrid>
+
+      <UcFormGroup label="Notes" style="margin-top:12px;">
+        <textarea v-model="form.notes" rows="2" placeholder="Remarques éventuelles…" class="edt-input edt-textarea"></textarea>
+      </UcFormGroup>
+
+      <template #footer>
+        <button @click="showModal = false" class="edt-btn-secondary">Annuler</button>
+        <button @click="save" :disabled="saving || !form.classe_id || !form.matiere" class="uc-btn-primary" style="flex:1;">
+          {{ saving ? 'Enregistrement…' : (editId ? 'Modifier' : 'Créer') }}
+        </button>
+      </template>
+    </UcModal>
 
   </div>
 </template>
 
 <style scoped>
 .uc-content { padding: 24px; max-width: 1280px; background: #f4f4f4; min-height: 100vh; font-family: 'Poppins', sans-serif; }
-
-.edt-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
-.edt-title { font-size: 22px; font-weight: 700; color: #111111; margin: 0; }
-.edt-subtitle { font-size: 13px; color: #6b7280; margin: 2px 0 0; }
 
 .edt-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
 .edt-select { padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; font-family: 'Poppins', sans-serif; background: #fff; color: #111; outline: none; }
@@ -767,20 +742,9 @@ onMounted(load)
 .edt-btn-cancel { flex: 1; padding: 8px 12px; font-size: 13px; font-weight: 500; background: #fff1f2; color: #E30613; border: none; border-radius: 6px; cursor: pointer; }
 .edt-btn-cancel:hover { background: #ffe4e6; }
 
-.edt-modal-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.4); padding: 16px; }
-.edt-modal { background: #fff; border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }
-.edt-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 16px; border-bottom: 1px solid #e5e7eb; }
-.edt-modal-title { font-size: 16px; font-weight: 600; color: #111; margin: 0; }
-.edt-modal-body { padding: 20px 24px; }
-.edt-modal-footer { display: flex; gap: 12px; padding: 16px 24px; border-top: 1px solid #e5e7eb; }
-
 .edt-alert-warning { display: flex; align-items: flex-start; gap: 8px; padding: 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; font-size: 13px; color: #92400e; margin-bottom: 16px; }
 .edt-alert-error { padding: 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; font-size: 13px; color: #be123c; margin-bottom: 16px; }
 
-.edt-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.edt-form-group { display: flex; flex-direction: column; gap: 4px; }
-.edt-form-group--full { grid-column: 1 / -1; }
-.edt-form-label { font-size: 12px; font-weight: 500; color: #374151; }
 .edt-input { padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; font-family: 'Poppins', sans-serif; outline: none; width: 100%; box-sizing: border-box; }
 .edt-input:focus { border-color: #E30613; box-shadow: 0 0 0 2px rgba(227,6,19,0.12); }
 .edt-textarea { resize: none; }
@@ -803,10 +767,8 @@ onMounted(load)
 .uc-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 @media (max-width: 768px) {
-  /* Emplois du temps : grille hebdo → scroll horizontal */
   .edt-grid-header { overflow-x: auto; min-width: 0; grid-template-columns: 48px repeat(5, minmax(90px, 1fr)); }
   .edt-grid-body { overflow-x: auto; min-width: 0; grid-template-columns: 48px repeat(5, minmax(90px, 1fr)); }
-  .edt-form-grid { grid-template-columns: 1fr !important; }
   .edt-card { overflow-x: auto; }
 }
 </style>

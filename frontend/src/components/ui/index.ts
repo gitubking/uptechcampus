@@ -1,0 +1,5 @@
+export { default as UcModal } from './UcModal.vue'
+export { default as UcFormGroup } from './UcFormGroup.vue'
+export { default as UcFormGrid } from './UcFormGrid.vue'
+export { default as UcPageHeader } from './UcPageHeader.vue'
+export { default as UcTable } from './UcTable.vue'

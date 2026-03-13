@@ -2,6 +2,11 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
+import UcModal from '@/components/ui/UcModal.vue'
+import UcFormGroup from '@/components/ui/UcFormGroup.vue'
+import UcFormGrid from '@/components/ui/UcFormGrid.vue'
+import UcPageHeader from '@/components/ui/UcPageHeader.vue'
+import UcTable from '@/components/ui/UcTable.vue'
 
 const auth = useAuthStore()
 const canWrite = computed(() =>
@@ -210,13 +215,10 @@ onMounted(load)
 <template>
   <div class="uc-content">
 
-    <!-- En-tête -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-      <div>
-        <h1 style="font-size:18px;font-weight:700;color:#111;margin:0;">Notes & Bulletins</h1>
-        <p style="font-size:12px;color:#888;margin:4px 0 0;">Saisie des notes, jury et édition des bulletins</p>
-      </div>
-    </div>
+    <UcPageHeader
+      title="Notes & Bulletins"
+      subtitle="Saisie des notes, jury et édition des bulletins"
+    />
 
     <!-- Sélecteurs + tabs -->
     <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
@@ -306,45 +308,43 @@ onMounted(load)
         <div class="nb-table-toolbar">
           <span style="font-size:12px;color:#555;font-weight:600;">Récapitulatif jury — Session {{ filterSession }}</span>
         </div>
-        <table class="nb-table">
-          <thead>
-            <tr>
-              <th>Étudiant</th>
-              <th style="text-align:center;">Moyenne</th>
-              <th style="text-align:center;">Mention</th>
-              <th style="text-align:center;">Crédits ECTS</th>
-              <th style="text-align:center;">Décision</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="insc in inscriptions" :key="insc.id">
-              <td style="font-weight:600;color:#333;">{{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}</td>
-              <td style="text-align:center;">
-                <span style="font-size:16px;font-weight:800;" :style="{ color: (moyennePonderee(insc.id) ?? 0) >= 10 ? '#16a34a' : '#ea580c' }">
-                  {{ moyennePonderee(insc.id)?.toFixed(2) ?? '—' }}
-                </span>
-                <span style="font-size:10px;color:#aaa;">/20</span>
-              </td>
-              <td style="text-align:center;font-weight:600;" :class="mentionColor(mention(moyennePonderee(insc.id)))">
-                {{ mention(moyennePonderee(insc.id)) }}
-              </td>
-              <td style="text-align:center;color:#555;font-size:13px;">
-                <span v-if="moyennePonderee(insc.id) !== null">
-                  {{ ues.filter(ue => {
-                    const v = localNotes[insc.id]?.[ue.id]
-                    return v !== '' && !isNaN(parseFloat(v ?? '')) && parseFloat(v ?? '') >= 10
-                  }).reduce((s, ue) => s + ue.credits_ects, 0) }}/{{ ues.reduce((s, ue) => s + ue.credits_ects, 0) }}
-                </span>
-                <span v-else style="color:#ccc;">—</span>
-              </td>
-              <td style="text-align:center;">
-                <span class="nb-decision-badge" :class="decisionClass(moyennePonderee(insc.id))">
-                  {{ decisionLabel(moyennePonderee(insc.id)) }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <UcTable
+          :cols="[
+            { key: 'etudiant', label: 'Étudiant' },
+            { key: 'moyenne', label: 'Moyenne', align: 'center' },
+            { key: 'mention', label: 'Mention', align: 'center' },
+            { key: 'credits', label: 'Crédits ECTS', align: 'center' },
+            { key: 'decision', label: 'Décision', align: 'center' },
+          ]"
+          :data="inscriptions"
+        >
+          <template #row="{ item: insc }">
+            <td style="font-weight:600;color:#333;">{{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}</td>
+            <td style="text-align:center;">
+              <span style="font-size:16px;font-weight:800;" :style="{ color: (moyennePonderee(insc.id) ?? 0) >= 10 ? '#16a34a' : '#ea580c' }">
+                {{ moyennePonderee(insc.id)?.toFixed(2) ?? '—' }}
+              </span>
+              <span style="font-size:10px;color:#aaa;">/20</span>
+            </td>
+            <td style="text-align:center;font-weight:600;" :class="mentionColor(mention(moyennePonderee(insc.id)))">
+              {{ mention(moyennePonderee(insc.id)) }}
+            </td>
+            <td style="text-align:center;color:#555;font-size:13px;">
+              <span v-if="moyennePonderee(insc.id) !== null">
+                {{ ues.filter(ue => {
+                  const v = localNotes[insc.id]?.[ue.id]
+                  return v !== '' && !isNaN(parseFloat(v ?? '')) && parseFloat(v ?? '') >= 10
+                }).reduce((s, ue) => s + ue.credits_ects, 0) }}/{{ ues.reduce((s, ue) => s + ue.credits_ects, 0) }}
+              </span>
+              <span v-else style="color:#ccc;">—</span>
+            </td>
+            <td style="text-align:center;">
+              <span class="nb-decision-badge" :class="decisionClass(moyennePonderee(insc.id))">
+                {{ decisionLabel(moyennePonderee(insc.id)) }}
+              </span>
+            </td>
+          </template>
+        </UcTable>
       </div>
     </div>
 
@@ -353,156 +353,161 @@ onMounted(load)
       <div v-if="loading" class="nb-loading">Chargement…</div>
       <div v-else-if="!inscriptions.length" class="nb-empty-state">Aucun étudiant inscrit dans cette classe.</div>
       <div v-else class="nb-table-wrap">
-        <table class="nb-table">
-          <thead>
-            <tr>
-              <th>Étudiant</th>
-              <th style="text-align:center;">Moyenne</th>
-              <th style="text-align:center;">Décision</th>
-              <th style="text-align:center;">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="insc in inscriptions" :key="insc.id">
-              <td style="font-weight:600;color:#333;">{{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}</td>
-              <td style="text-align:center;font-weight:800;" :style="{ color: (moyennePonderee(insc.id) ?? 0) >= 10 ? '#16a34a' : '#ea580c' }">
-                {{ moyennePonderee(insc.id)?.toFixed(2) ?? '—' }}
-              </td>
-              <td style="text-align:center;">
-                <span class="nb-decision-badge" :class="decisionClass(moyennePonderee(insc.id))">
-                  {{ decisionLabel(moyennePonderee(insc.id)) }}
-                </span>
-              </td>
-              <td style="text-align:center;">
-                <button @click="voirBulletin(insc)" class="nb-btn-bulletin">📄 Voir bulletin</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <UcTable
+          :cols="[
+            { key: 'etudiant', label: 'Étudiant' },
+            { key: 'moyenne', label: 'Moyenne', align: 'center' },
+            { key: 'decision', label: 'Décision', align: 'center' },
+            { key: 'actions', label: 'Actions', align: 'center' },
+          ]"
+          :data="inscriptions"
+        >
+          <template #row="{ item: insc }">
+            <td style="font-weight:600;color:#333;">{{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}</td>
+            <td style="text-align:center;font-weight:800;" :style="{ color: (moyennePonderee(insc.id) ?? 0) >= 10 ? '#16a34a' : '#ea580c' }">
+              {{ moyennePonderee(insc.id)?.toFixed(2) ?? '—' }}
+            </td>
+            <td style="text-align:center;">
+              <span class="nb-decision-badge" :class="decisionClass(moyennePonderee(insc.id))">
+                {{ decisionLabel(moyennePonderee(insc.id)) }}
+              </span>
+            </td>
+            <td style="text-align:center;">
+              <button @click="voirBulletin(insc)" class="nb-btn-bulletin">📄 Voir bulletin</button>
+            </td>
+          </template>
+        </UcTable>
       </div>
     </div>
 
     <!-- Modal UE CRUD -->
-    <Teleport to="body">
-      <div v-if="showUeModal" class="nb-overlay" @click.self="showUeModal = false">
-        <div class="nb-modal">
-          <div class="nb-modal-header">
-            <h2 class="nb-modal-title">{{ editUeId ? 'Modifier l\'UE' : 'Gérer les UEs' }}</h2>
-            <button @click="showUeModal = false" class="nb-close-btn">✕</button>
-          </div>
-          <!-- UEs existantes -->
-          <div v-if="!editUeId && ues.length" style="padding:16px 20px;border-bottom:1px solid #f0f0f0;">
-            <p style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;margin-bottom:8px;">UEs de la classe</p>
-            <div style="max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;">
-              <div v-for="ue in ues" :key="ue.id" style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#f9f9f9;border-radius:4px;">
-                <span style="font-size:12px;color:#333;"><strong>{{ ue.code }}</strong> — {{ ue.intitule }} <span style="color:#aaa;">(coef. {{ ue.coefficient }})</span></span>
-                <div style="display:flex;gap:4px;">
-                  <button @click="openUeEdit(ue)" style="background:none;border:none;cursor:pointer;color:#aaa;font-size:13px;padding:2px 5px;">✏️</button>
-                  <button @click="deleteUe(ue)" style="background:none;border:none;cursor:pointer;color:#aaa;font-size:13px;padding:2px 5px;">🗑</button>
-                </div>
-              </div>
+    <UcModal
+      v-model="showUeModal"
+      :title="editUeId ? 'Modifier l\'UE' : 'Gérer les UEs'"
+      width="480px"
+      @close="showUeModal = false"
+    >
+      <!-- UEs existantes -->
+      <div v-if="!editUeId && ues.length" style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #f0f0f0;">
+        <p style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;margin-bottom:8px;">UEs de la classe</p>
+        <div style="max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;">
+          <div v-for="ue in ues" :key="ue.id" style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#f9f9f9;border-radius:4px;">
+            <span style="font-size:12px;color:#333;"><strong>{{ ue.code }}</strong> — {{ ue.intitule }} <span style="color:#aaa;">(coef. {{ ue.coefficient }})</span></span>
+            <div style="display:flex;gap:4px;">
+              <button @click="openUeEdit(ue)" style="background:none;border:none;cursor:pointer;color:#aaa;font-size:13px;padding:2px 5px;">✏️</button>
+              <button @click="deleteUe(ue)" style="background:none;border:none;cursor:pointer;color:#aaa;font-size:13px;padding:2px 5px;">🗑</button>
             </div>
-            <hr style="margin:12px 0;">
-            <p style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;margin-bottom:8px;">Ajouter une UE</p>
-          </div>
-          <div style="padding:16px 20px;display:flex;flex-direction:column;gap:12px;">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-              <div><label class="nb-label">Code *</label><input v-model="ueForm.code" type="text" placeholder="UE-INFO-01" class="nb-input" style="width:100%;box-sizing:border-box;" /></div>
-              <div><label class="nb-label">Coefficient *</label><input v-model="ueForm.coefficient" type="number" min="0" step="0.5" class="nb-input" style="width:100%;box-sizing:border-box;" /></div>
-            </div>
-            <div><label class="nb-label">Intitulé *</label><input v-model="ueForm.intitule" type="text" placeholder="Ex : Algorithmique…" class="nb-input" style="width:100%;box-sizing:border-box;" /></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-              <div><label class="nb-label">Crédits ECTS</label><input v-model="ueForm.credits_ects" type="number" min="0" class="nb-input" style="width:100%;box-sizing:border-box;" /></div>
-              <div><label class="nb-label">Ordre affichage</label><input v-model="ueForm.ordre" type="number" min="0" class="nb-input" style="width:100%;box-sizing:border-box;" /></div>
-            </div>
-            <div>
-              <label class="nb-label">Intervenant</label>
-              <select v-model="ueForm.intervenant_id" class="nb-input" style="width:100%;box-sizing:border-box;">
-                <option value="">— Sans intervenant —</option>
-                <option v-for="i in intervenants" :key="i.id" :value="String(i.id)">{{ i.prenom }} {{ i.nom }}</option>
-              </select>
-            </div>
-          </div>
-          <div class="nb-modal-footer">
-            <button @click="showUeModal = false" class="nb-btn-cancel">Fermer</button>
-            <button @click="saveUe" :disabled="savingUe || !ueForm.code || !ueForm.intitule" class="nb-btn-save">
-              {{ savingUe ? 'Enregistrement…' : (editUeId ? 'Modifier' : 'Ajouter') }}
-            </button>
           </div>
         </div>
+        <hr style="margin:12px 0;">
+        <p style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;margin-bottom:8px;">Ajouter une UE</p>
       </div>
-    </Teleport>
+
+      <UcFormGrid :cols="2">
+        <UcFormGroup label="Code" :required="true">
+          <input v-model="ueForm.code" type="text" placeholder="UE-INFO-01" class="nb-input" style="width:100%;box-sizing:border-box;" />
+        </UcFormGroup>
+        <UcFormGroup label="Coefficient" :required="true">
+          <input v-model="ueForm.coefficient" type="number" min="0" step="0.5" class="nb-input" style="width:100%;box-sizing:border-box;" />
+        </UcFormGroup>
+      </UcFormGrid>
+      <UcFormGroup label="Intitulé" :required="true" style="margin-top:12px;">
+        <input v-model="ueForm.intitule" type="text" placeholder="Ex : Algorithmique…" class="nb-input" style="width:100%;box-sizing:border-box;" />
+      </UcFormGroup>
+      <UcFormGrid :cols="2" style="margin-top:12px;">
+        <UcFormGroup label="Crédits ECTS">
+          <input v-model="ueForm.credits_ects" type="number" min="0" class="nb-input" style="width:100%;box-sizing:border-box;" />
+        </UcFormGroup>
+        <UcFormGroup label="Ordre affichage">
+          <input v-model="ueForm.ordre" type="number" min="0" class="nb-input" style="width:100%;box-sizing:border-box;" />
+        </UcFormGroup>
+      </UcFormGrid>
+      <UcFormGroup label="Intervenant" style="margin-top:12px;">
+        <select v-model="ueForm.intervenant_id" class="nb-input" style="width:100%;box-sizing:border-box;">
+          <option value="">— Sans intervenant —</option>
+          <option v-for="i in intervenants" :key="i.id" :value="String(i.id)">{{ i.prenom }} {{ i.nom }}</option>
+        </select>
+      </UcFormGroup>
+
+      <template #footer>
+        <button @click="showUeModal = false" class="nb-btn-cancel">Fermer</button>
+        <button @click="saveUe" :disabled="savingUe || !ueForm.code || !ueForm.intitule" class="nb-btn-save">
+          {{ savingUe ? 'Enregistrement…' : (editUeId ? 'Modifier' : 'Ajouter') }}
+        </button>
+      </template>
+    </UcModal>
 
     <!-- Modal Bulletin -->
-    <Teleport to="body">
-      <div v-if="showBulletin" class="nb-overlay" @click.self="showBulletin = false">
-        <div class="nb-modal nb-modal-bulletin">
-          <div class="nb-modal-header">
-            <h2 class="nb-modal-title">Bulletin de notes</h2>
-            <button @click="showBulletin = false" class="nb-close-btn">✕</button>
-          </div>
-          <div v-if="loadingBulletin" class="nb-loading">Chargement…</div>
-          <div v-else-if="bulletin" style="padding:20px;overflow-y:auto;">
-            <!-- En-tête bulletin -->
-            <div style="text-align:center;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #f0f0f0;">
-              <p style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.1em;">Uptech Campus</p>
-              <h3 style="font-size:18px;font-weight:800;color:#111;margin:6px 0 0;">
-                {{ bulletin.inscription.etudiant?.prenom }} {{ bulletin.inscription.etudiant?.nom }}
-              </h3>
-              <p style="font-size:12px;color:#888;margin:4px 0 0;">
-                {{ bulletin.inscription.classe?.filiere?.nom ?? '—' }} · {{ bulletin.inscription.annee_academique?.libelle ?? '—' }}
-              </p>
-              <div style="display:flex;justify-content:center;gap:32px;margin-top:16px;">
-                <div style="text-align:center;">
-                  <p style="font-size:28px;font-weight:800;margin:0;" :style="{ color: (bulletin.moyenne ?? 0) >= 10 ? '#16a34a' : '#E30613' }">{{ bulletin.moyenne?.toFixed(2) ?? '—' }}</p>
-                  <p style="font-size:10px;color:#aaa;margin:2px 0 0;">Moyenne générale</p>
-                </div>
-                <div style="text-align:center;">
-                  <p style="font-size:18px;font-weight:700;margin:0;" :class="mentionColor(bulletin.mention)">{{ bulletin.mention ?? '—' }}</p>
-                  <p style="font-size:10px;color:#aaa;margin:2px 0 0;">Mention</p>
-                </div>
-                <div style="text-align:center;">
-                  <p style="font-size:18px;font-weight:700;color:#E30613;margin:0;">{{ bulletin.credits_valides }}/{{ bulletin.credits_total }}</p>
-                  <p style="font-size:10px;color:#aaa;margin:2px 0 0;">Crédits ECTS</p>
-                </div>
-              </div>
+    <UcModal
+      v-model="showBulletin"
+      title="Bulletin de notes"
+      width="640px"
+      @close="showBulletin = false"
+    >
+      <div v-if="loadingBulletin" class="nb-loading">Chargement…</div>
+      <div v-else-if="bulletin" style="overflow-y:auto;">
+        <!-- En-tête bulletin -->
+        <div style="text-align:center;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #f0f0f0;">
+          <p style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.1em;">Uptech Campus</p>
+          <h3 style="font-size:18px;font-weight:800;color:#111;margin:6px 0 0;">
+            {{ bulletin.inscription.etudiant?.prenom }} {{ bulletin.inscription.etudiant?.nom }}
+          </h3>
+          <p style="font-size:12px;color:#888;margin:4px 0 0;">
+            {{ bulletin.inscription.classe?.filiere?.nom ?? '—' }} · {{ bulletin.inscription.annee_academique?.libelle ?? '—' }}
+          </p>
+          <div style="display:flex;justify-content:center;gap:32px;margin-top:16px;">
+            <div style="text-align:center;">
+              <p style="font-size:28px;font-weight:800;margin:0;" :style="{ color: (bulletin.moyenne ?? 0) >= 10 ? '#16a34a' : '#E30613' }">{{ bulletin.moyenne?.toFixed(2) ?? '—' }}</p>
+              <p style="font-size:10px;color:#aaa;margin:2px 0 0;">Moyenne générale</p>
             </div>
-            <!-- Tableau UEs -->
-            <table class="nb-table" style="margin-bottom:16px;">
-              <thead><tr><th>UE</th><th>Intitulé</th><th style="text-align:center;">Coef.</th><th style="text-align:center;">Note</th><th style="text-align:center;">Points</th><th style="text-align:center;">Crédits</th></tr></thead>
-              <tbody>
-                <tr v-for="ue in bulletin.ues" :key="ue.id">
-                  <td style="font-family:monospace;font-size:11px;color:#888;">{{ ue.code }}</td>
-                  <td style="color:#333;">{{ ue.intitule }}</td>
-                  <td style="text-align:center;color:#555;">{{ ue.coefficient }}</td>
-                  <td style="text-align:center;font-weight:800;" :style="{ color: ue.note !== null ? (ue.note >= 10 ? '#16a34a' : '#E30613') : '#ccc' }">{{ ue.note !== null ? ue.note : '—' }}</td>
-                  <td style="text-align:center;color:#555;">{{ ue.points ?? '—' }}</td>
-                  <td style="text-align:center;">
-                    <span v-if="ue.note !== null" style="padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;" :style="{ background: ue.valide ? '#f0fdf4' : '#fff0f0', color: ue.valide ? '#16a34a' : '#E30613' }">
-                      {{ ue.valide ? `✓ ${ue.credits_ects}` : `✗ ${ue.credits_ects}` }}
-                    </span>
-                    <span v-else style="color:#ccc;">—</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <!-- Décision jury -->
-            <div style="padding:14px;border-radius:6px;border:1px solid;" :style="{ background: bulletin.decision === 'admis' ? '#f0fdf4' : bulletin.decision === 'rattrapage' ? '#fff7ed' : '#fff0f0', borderColor: bulletin.decision === 'admis' ? '#bbf7d0' : bulletin.decision === 'rattrapage' ? '#fed7aa' : '#fca5a5' }">
-              <p style="font-size:10px;color:#aaa;text-transform:uppercase;margin:0 0 4px;">Décision du jury</p>
-              <p style="font-size:16px;font-weight:800;margin:0;" :style="{ color: bulletin.decision === 'admis' ? '#16a34a' : bulletin.decision === 'rattrapage' ? '#c2410c' : '#E30613' }">
-                {{ bulletin.decision === 'admis' ? '✓ Admis(e)' : bulletin.decision === 'rattrapage' ? '↻ Admis(e) en rattrapage' : bulletin.decision === 'redoublant' ? '✗ Redoublant(e)' : 'En attente' }}
-              </p>
+            <div style="text-align:center;">
+              <p style="font-size:18px;font-weight:700;margin:0;" :class="mentionColor(bulletin.mention)">{{ bulletin.mention ?? '—' }}</p>
+              <p style="font-size:10px;color:#aaa;margin:2px 0 0;">Mention</p>
             </div>
-            <!-- Signatures -->
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:24px;text-align:center;">
-              <div style="border-top:1px solid #999;padding-top:6px;"><p style="font-size:10px;color:#888;">Le Directeur Pédagogique</p></div>
-              <div style="border-top:1px solid #999;padding-top:6px;"><p style="font-size:10px;color:#888;">Le Directeur Général</p></div>
-              <div style="border-top:1px solid #999;padding-top:6px;"><p style="font-size:10px;color:#888;">Cachet de l'école</p></div>
+            <div style="text-align:center;">
+              <p style="font-size:18px;font-weight:700;color:#E30613;margin:0;">{{ bulletin.credits_valides }}/{{ bulletin.credits_total }}</p>
+              <p style="font-size:10px;color:#aaa;margin:2px 0 0;">Crédits ECTS</p>
             </div>
           </div>
         </div>
+        <!-- Tableau UEs -->
+        <table class="nb-table" style="margin-bottom:16px;">
+          <thead><tr><th>UE</th><th>Intitulé</th><th style="text-align:center;">Coef.</th><th style="text-align:center;">Note</th><th style="text-align:center;">Points</th><th style="text-align:center;">Crédits</th></tr></thead>
+          <tbody>
+            <tr v-for="ue in bulletin.ues" :key="ue.id">
+              <td style="font-family:monospace;font-size:11px;color:#888;">{{ ue.code }}</td>
+              <td style="color:#333;">{{ ue.intitule }}</td>
+              <td style="text-align:center;color:#555;">{{ ue.coefficient }}</td>
+              <td style="text-align:center;font-weight:800;" :style="{ color: ue.note !== null ? (ue.note >= 10 ? '#16a34a' : '#E30613') : '#ccc' }">{{ ue.note !== null ? ue.note : '—' }}</td>
+              <td style="text-align:center;color:#555;">{{ ue.points ?? '—' }}</td>
+              <td style="text-align:center;">
+                <span v-if="ue.note !== null" style="padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;" :style="{ background: ue.valide ? '#f0fdf4' : '#fff0f0', color: ue.valide ? '#16a34a' : '#E30613' }">
+                  {{ ue.valide ? `✓ ${ue.credits_ects}` : `✗ ${ue.credits_ects}` }}
+                </span>
+                <span v-else style="color:#ccc;">—</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <!-- Décision jury -->
+        <div style="padding:14px;border-radius:6px;border:1px solid;" :style="{ background: bulletin.decision === 'admis' ? '#f0fdf4' : bulletin.decision === 'rattrapage' ? '#fff7ed' : '#fff0f0', borderColor: bulletin.decision === 'admis' ? '#bbf7d0' : bulletin.decision === 'rattrapage' ? '#fed7aa' : '#fca5a5' }">
+          <p style="font-size:10px;color:#aaa;text-transform:uppercase;margin:0 0 4px;">Décision du jury</p>
+          <p style="font-size:16px;font-weight:800;margin:0;" :style="{ color: bulletin.decision === 'admis' ? '#16a34a' : bulletin.decision === 'rattrapage' ? '#c2410c' : '#E30613' }">
+            {{ bulletin.decision === 'admis' ? '✓ Admis(e)' : bulletin.decision === 'rattrapage' ? '↻ Admis(e) en rattrapage' : bulletin.decision === 'redoublant' ? '✗ Redoublant(e)' : 'En attente' }}
+          </p>
+        </div>
+        <!-- Signatures -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:24px;text-align:center;">
+          <div style="border-top:1px solid #999;padding-top:6px;"><p style="font-size:10px;color:#888;">Le Directeur Pédagogique</p></div>
+          <div style="border-top:1px solid #999;padding-top:6px;"><p style="font-size:10px;color:#888;">Le Directeur Général</p></div>
+          <div style="border-top:1px solid #999;padding-top:6px;"><p style="font-size:10px;color:#888;">Cachet de l'école</p></div>
+        </div>
       </div>
-    </Teleport>
+
+      <template #footer>
+        <button @click="showBulletin = false" class="nb-btn-cancel">Fermer</button>
+      </template>
+    </UcModal>
   </div>
 </template>
 
@@ -540,15 +545,6 @@ onMounted(load)
 .nb-btn-bulletin { background:#f9f9f9; color:#333; border:1.5px solid #e5e5e5; border-radius:4px; padding:5px 10px; font-size:11px; font-weight:600; cursor:pointer; font-family:'Poppins',sans-serif; }
 .nb-btn-bulletin:hover { background:#f0f0f0; }
 
-/* Modal */
-.nb-overlay { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.4); padding:16px; }
-.nb-modal { background:#fff; border-radius:8px; width:100%; max-width:480px; max-height:90vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,0.2); }
-.nb-modal-bulletin { max-width:640px; }
-.nb-modal-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; flex-shrink:0; }
-.nb-modal-title { font-size:15px; font-weight:700; color:#111; margin:0; }
-.nb-modal-footer { display:flex; gap:10px; padding:14px 20px; border-top:1px solid #f0f0f0; flex-shrink:0; }
-.nb-close-btn { background:none; border:none; cursor:pointer; color:#aaa; font-size:16px; }
-.nb-label { display:block; font-size:11px; font-weight:600; color:#555; text-transform:uppercase; margin-bottom:4px; }
 .nb-input { border:1.5px solid #e5e5e5; border-radius:4px; padding:8px 10px; font-family:'Poppins',sans-serif; font-size:13px; color:#333; }
 .nb-input:focus { outline:none; border-color:#E30613; }
 .nb-btn-cancel { flex:1; border:1.5px solid #e5e5e5; background:#fff; color:#555; border-radius:4px; padding:9px; font-size:13px; font-weight:600; cursor:pointer; font-family:'Poppins',sans-serif; }

@@ -2,6 +2,9 @@
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import UcPageHeader from '@/components/ui/UcPageHeader.vue'
+import UcModal from '@/components/ui/UcModal.vue'
+import UcFormGroup from '@/components/ui/UcFormGroup.vue'
 
 const auth = useAuthStore()
 
@@ -274,15 +277,11 @@ function toggleChip(arr: string[], val: string) {
   <div class="uc-content cm-layout" style="padding:0">
 
     <!-- Header page -->
-    <div class="cm-header">
-      <div>
-        <h1 class="cm-header-title">Communication & Messagerie</h1>
-        <p class="cm-header-sub">
-          {{ conversations.reduce((s, c) => s + c.nb_non_lus, 0) }} message(s) non lu(s) ·
-          {{ annonces.filter(a => a.statut === 'brouillon').length }} annonce(s) en attente
-        </p>
-      </div>
-      <div class="cm-header-actions">
+    <UcPageHeader
+      title="Communication & Messagerie"
+      :subtitle="`${conversations.reduce((s, c) => s + c.nb_non_lus, 0)} message(s) non lu(s) · ${annonces.filter(a => a.statut === 'brouillon').length} annonce(s) en attente`"
+    >
+      <template #actions>
         <button v-if="canWrite" @click="showModalAnnonce = true" class="cm-btn-outline">
           <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
@@ -292,8 +291,8 @@ function toggleChip(arr: string[], val: string) {
         <button @click="showModalNouveauMsg = true" class="uc-btn-primary">
           + Nouveau message
         </button>
-      </div>
-    </div>
+      </template>
+    </UcPageHeader>
 
     <!-- Corps 3 colonnes -->
     <div class="cm-body">
@@ -453,113 +452,82 @@ function toggleChip(arr: string[], val: string) {
   </div>
 
   <!-- ── Modal : Nouvelle annonce ─────────────────────────────────── -->
-  <Teleport to="body">
-    <div v-if="showModalAnnonce" class="cm-overlay" @click.self="showModalAnnonce = false">
-      <div class="cm-modal cm-modal--lg">
-        <div class="cm-modal-header">
-          <h2 class="cm-modal-title">Nouvelle annonce</h2>
-          <button @click="showModalAnnonce = false" class="cm-modal-close">✕</button>
-        </div>
-        <div class="cm-modal-body">
-          <div class="cm-field">
-            <label class="cm-label">Titre</label>
-            <input v-model="formAnnonce.titre" type="text" placeholder="Titre de l'annonce" class="cm-input" />
-          </div>
-          <div class="cm-field">
-            <label class="cm-label">Type</label>
-            <select v-model="formAnnonce.type" class="cm-input">
-              <option value="info">Info</option>
-              <option value="urgent">Urgent</option>
-              <option value="alerte">Alerte</option>
-              <option value="evenement">Événement</option>
-            </select>
-          </div>
-          <div class="cm-field">
-            <label class="cm-label">Message <span style="color:#aaa;font-weight:400">({{ formAnnonce.contenu.length }}/500)</span></label>
-            <textarea v-model="formAnnonce.contenu" rows="4" maxlength="500" placeholder="Contenu de l'annonce…" class="cm-input" style="resize:none"></textarea>
-          </div>
-          <div class="cm-field">
-            <label class="cm-label">Destinataires</label>
-            <div class="cm-chips">
-              <button v-for="d in ['tous', 'etudiants', 'intervenants', 'administration']" :key="d"
-                @click="toggleChip(formAnnonce.destinataires, d)"
-                class="cm-chip"
-                :class="formAnnonce.destinataires.includes(d) ? 'cm-chip--active' : ''">
-                {{ d }}
-              </button>
-            </div>
-          </div>
-          <div class="cm-field">
-            <label class="cm-label">Canal de diffusion</label>
-            <div class="cm-chips">
-              <button v-for="c in ['messagerie', 'sms', 'email']" :key="c"
-                @click="toggleChip(formAnnonce.canaux, c)"
-                class="cm-chip"
-                :class="formAnnonce.canaux.includes(c) ? 'cm-chip--canal' : ''">
-                {{ c }}
-              </button>
-            </div>
-          </div>
-          <div class="cm-field">
-            <label class="cm-label">Programmer pour plus tard (optionnel)</label>
-            <input v-model="formAnnonce.publie_at" type="datetime-local" class="cm-input" />
-          </div>
-        </div>
-        <div class="cm-modal-footer">
-          <button @click="showModalAnnonce = false" class="cm-btn-cancel">Annuler</button>
-          <button @click="saveAnnonce(false)" :disabled="savingAnnonce" class="cm-btn-draft">Brouillon</button>
-          <button @click="saveAnnonce(true)" :disabled="savingAnnonce || !formAnnonce.titre || !formAnnonce.contenu" class="uc-btn-primary" :style="(savingAnnonce || !formAnnonce.titre || !formAnnonce.contenu) ? 'opacity:0.4' : ''">
-            {{ savingAnnonce ? 'Publication…' : 'Publier maintenant' }}
+  <UcModal v-model="showModalAnnonce" title="Nouvelle annonce" width="520px" @close="showModalAnnonce = false">
+    <div class="cm-modal-form-body">
+      <UcFormGroup label="Titre" :required="true">
+        <input v-model="formAnnonce.titre" type="text" placeholder="Titre de l'annonce" class="cm-input" />
+      </UcFormGroup>
+      <UcFormGroup label="Type" :required="true">
+        <select v-model="formAnnonce.type" class="cm-input">
+          <option value="info">Info</option>
+          <option value="urgent">Urgent</option>
+          <option value="alerte">Alerte</option>
+          <option value="evenement">Événement</option>
+        </select>
+      </UcFormGroup>
+      <UcFormGroup :label="`Message (${formAnnonce.contenu.length}/500)`">
+        <textarea v-model="formAnnonce.contenu" rows="4" maxlength="500" placeholder="Contenu de l'annonce…" class="cm-input" style="resize:none"></textarea>
+      </UcFormGroup>
+      <UcFormGroup label="Destinataires">
+        <div class="cm-chips">
+          <button v-for="d in ['tous', 'etudiants', 'intervenants', 'administration']" :key="d"
+            @click="toggleChip(formAnnonce.destinataires, d)"
+            class="cm-chip"
+            :class="formAnnonce.destinataires.includes(d) ? 'cm-chip--active' : ''">
+            {{ d }}
           </button>
         </div>
-      </div>
+      </UcFormGroup>
+      <UcFormGroup label="Canal de diffusion">
+        <div class="cm-chips">
+          <button v-for="c in ['messagerie', 'sms', 'email']" :key="c"
+            @click="toggleChip(formAnnonce.canaux, c)"
+            class="cm-chip"
+            :class="formAnnonce.canaux.includes(c) ? 'cm-chip--canal' : ''">
+            {{ c }}
+          </button>
+        </div>
+      </UcFormGroup>
+      <UcFormGroup label="Programmer pour plus tard (optionnel)">
+        <input v-model="formAnnonce.publie_at" type="datetime-local" class="cm-input" />
+      </UcFormGroup>
     </div>
-  </Teleport>
+
+    <template #footer>
+      <button @click="showModalAnnonce = false" class="cm-btn-cancel">Annuler</button>
+      <button @click="saveAnnonce(false)" :disabled="savingAnnonce" class="cm-btn-draft">Brouillon</button>
+      <button @click="saveAnnonce(true)" :disabled="savingAnnonce || !formAnnonce.titre || !formAnnonce.contenu" class="uc-btn-primary" :style="(savingAnnonce || !formAnnonce.titre || !formAnnonce.contenu) ? 'opacity:0.4' : ''">
+        {{ savingAnnonce ? 'Publication…' : 'Publier maintenant' }}
+      </button>
+    </template>
+  </UcModal>
 
   <!-- ── Modal : Nouveau message ──────────────────────────────────── -->
-  <Teleport to="body">
-    <div v-if="showModalNouveauMsg" class="cm-overlay" @click.self="showModalNouveauMsg = false">
-      <div class="cm-modal">
-        <div class="cm-modal-header">
-          <h2 class="cm-modal-title">Nouveau message</h2>
-          <button @click="showModalNouveauMsg = false" class="cm-modal-close">✕</button>
-        </div>
-        <div class="cm-modal-body">
-          <div class="cm-field">
-            <label class="cm-label">Destinataire(s)</label>
-            <input v-model="formMsg.destinataires" type="text" placeholder="Nom, groupe ou filière…" class="cm-input" />
-          </div>
-          <div class="cm-field">
-            <label class="cm-label">Sujet (optionnel)</label>
-            <input v-model="formMsg.sujet" type="text" class="cm-input" />
-          </div>
-          <div class="cm-field">
-            <label class="cm-label">Message</label>
-            <textarea v-model="formMsg.message" rows="5" class="cm-input" style="resize:none"></textarea>
-          </div>
-        </div>
-        <div class="cm-modal-footer">
-          <button @click="showModalNouveauMsg = false" class="cm-btn-cancel">Annuler</button>
-          <button @click="sendNewMessage" :disabled="!formMsg.message.trim() || sendingNewMsg" class="uc-btn-primary" :style="(!formMsg.message.trim() || sendingNewMsg) ? 'opacity:0.4' : ''">
-            {{ sendingNewMsg ? 'Envoi…' : 'Envoyer' }}
-          </button>
-        </div>
-      </div>
+  <UcModal v-model="showModalNouveauMsg" title="Nouveau message" width="420px" @close="showModalNouveauMsg = false">
+    <div class="cm-modal-form-body">
+      <UcFormGroup label="Destinataire(s)" :required="true">
+        <input v-model="formMsg.destinataires" type="text" placeholder="Nom, groupe ou filière…" class="cm-input" />
+      </UcFormGroup>
+      <UcFormGroup label="Sujet (optionnel)">
+        <input v-model="formMsg.sujet" type="text" class="cm-input" />
+      </UcFormGroup>
+      <UcFormGroup label="Message" :required="true">
+        <textarea v-model="formMsg.message" rows="5" class="cm-input" style="resize:none"></textarea>
+      </UcFormGroup>
     </div>
-  </Teleport>
+
+    <template #footer>
+      <button @click="showModalNouveauMsg = false" class="cm-btn-cancel">Annuler</button>
+      <button @click="sendNewMessage" :disabled="!formMsg.message.trim() || sendingNewMsg" class="uc-btn-primary" :style="(!formMsg.message.trim() || sendingNewMsg) ? 'opacity:0.4' : ''">
+        {{ sendingNewMsg ? 'Envoi…' : 'Envoyer' }}
+      </button>
+    </template>
+  </UcModal>
 </template>
 
 <style scoped>
 /* Layout */
 .cm-layout { display:flex; flex-direction:column; height:calc(100vh - 4rem); }
-
-/* Header */
-.cm-header { display:flex; align-items:center; justify-content:space-between; padding:14px 22px; background:#fff; border-bottom:1px solid #eee; flex-shrink:0; }
-.cm-header-title { font-size:17px; font-weight:700; color:#111; }
-.cm-header-sub { font-size:12.5px; color:#888; margin-top:2px; }
-.cm-header-actions { display:flex; gap:8px; align-items:center; }
-.cm-btn-outline { display:flex; align-items:center; gap:6px; padding:7px 14px; font-size:13px; font-weight:500; border:1px solid #ddd; border-radius:7px; background:#fff; color:#444; cursor:pointer; }
-.cm-btn-outline:hover { background:#f9f9f9; }
 
 /* Body 3 columns */
 .cm-body { display:flex; flex:1; overflow:hidden; }
@@ -639,25 +607,12 @@ function toggleChip(arr: string[], val: string) {
 .cm-avatar--sm { width:36px; height:36px; font-size:12px; }
 .cm-avatar--xs { width:28px; height:28px; font-size:11px; }
 
-/* Modal */
-.cm-overlay { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.4); padding:16px; }
-.cm-modal { background:#fff; border-radius:12px; width:100%; max-width:420px; box-shadow:0 20px 60px rgba(0,0,0,0.2); display:flex; flex-direction:column; max-height:90vh; }
-.cm-modal--lg { max-width:520px; }
-.cm-modal-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px 12px; border-bottom:1px solid #f0f0f0; }
-.cm-modal-title { font-size:15px; font-weight:700; color:#111; }
-.cm-modal-close { width:26px; height:26px; display:flex; align-items:center; justify-content:center; border:none; background:none; cursor:pointer; color:#aaa; font-size:14px; border-radius:6px; }
-.cm-modal-close:hover { background:#f5f5f5; }
-.cm-modal-body { padding:16px 20px; display:flex; flex-direction:column; gap:12px; overflow-y:auto; }
-.cm-modal-footer { display:flex; justify-content:flex-end; gap:8px; padding:12px 20px 16px; border-top:1px solid #f0f0f0; }
-.cm-btn-cancel { padding:8px 14px; font-size:13px; color:#555; border:1px solid #ddd; background:#fff; border-radius:7px; cursor:pointer; }
-.cm-btn-cancel:hover { background:#f9f9f9; }
-.cm-btn-draft { padding:8px 14px; font-size:13px; color:#444; border:1px solid #ddd; background:#fff; border-radius:7px; cursor:pointer; }
-.cm-btn-draft:hover { background:#f9f9f9; }
-.cm-btn-draft:disabled { opacity:0.4; cursor:not-allowed; }
+/* Announcement header button */
+.cm-btn-outline { display:flex; align-items:center; gap:6px; padding:7px 14px; font-size:13px; font-weight:500; border:1px solid #ddd; border-radius:7px; background:#fff; color:#444; cursor:pointer; }
+.cm-btn-outline:hover { background:#f9f9f9; }
 
-/* Form */
-.cm-field { display:flex; flex-direction:column; }
-.cm-label { font-size:11.5px; font-weight:600; color:#555; margin-bottom:5px; }
+/* Modal form internals */
+.cm-modal-form-body { display:flex; flex-direction:column; gap:12px; }
 .cm-input { width:100%; padding:8px 12px; border:1px solid #e0e0e0; border-radius:7px; font-size:13px; color:#111; outline:none; box-sizing:border-box; font-family:inherit; }
 .cm-input:focus { border-color:#E30613; box-shadow:0 0 0 2px rgba(227,6,19,0.08); }
 
@@ -668,15 +623,19 @@ function toggleChip(arr: string[], val: string) {
 .cm-chip--active { background:#E30613; color:#fff; border-color:#E30613; }
 .cm-chip--canal { background:#111; color:#fff; border-color:#111; }
 
+/* Modal footer buttons */
+.cm-btn-cancel { padding:8px 14px; font-size:13px; color:#555; border:1px solid #ddd; background:#fff; border-radius:7px; cursor:pointer; }
+.cm-btn-cancel:hover { background:#f9f9f9; }
+.cm-btn-draft { padding:8px 14px; font-size:13px; color:#444; border:1px solid #ddd; background:#fff; border-radius:7px; cursor:pointer; }
+.cm-btn-draft:hover { background:#f9f9f9; }
+.cm-btn-draft:disabled { opacity:0.4; cursor:not-allowed; }
+
 /* Empty */
 .cm-empty-text { text-align:center; font-size:13px; color:#aaa; padding:16px; }
 
 @media (max-width: 768px) {
-  /* Chat : colonne unique (liste conversations au-dessus du chat) */
   .cm-body { flex-direction: column; overflow: auto; }
   .cm-col-left { width: 100%; flex-shrink: 0; max-height: 280px; border-right: none; border-bottom: 1px solid #eee; }
   .cm-conv-list { max-height: 200px; }
-  .cm-header { padding: 10px 14px; flex-wrap: wrap; gap: 8px; }
-  .cm-header-actions { width: 100%; justify-content: flex-end; }
 }
 </style>
