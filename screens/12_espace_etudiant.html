@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UPTECH Campus — Espace Étudiant</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Poppins',sans-serif;background:#f4f4f4;color:#111;min-height:100vh;}
+
+/* TOPBAR ÉTUDIANT */
+.student-topbar{background:#111;padding:0 24px;height:58px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.student-topbar img{height:32px;}
+.topbar-center{display:flex;gap:4px;background:rgba(255,255,255,0.08);border-radius:10px;padding:4px;}
+.top-nav-btn{padding:6px 16px;border-radius:7px;border:none;background:transparent;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:500;cursor:pointer;color:rgba(255,255,255,0.65);transition:.2s;}
+.top-nav-btn.active{background:#E30613;color:#fff;font-weight:600;}
+.topbar-right{display:flex;align-items:center;gap:10px;}
+.notif-btn{position:relative;width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,0.1);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.notif-btn svg{width:18px;height:18px;stroke:#fff;}
+.notif-dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:#E30613;border:2px solid #111;}
+.stu-avatar{width:36px;height:36px;border-radius:50%;background:#E30613;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;cursor:pointer;}
+
+/* HERO */
+.hero{background:#111;padding:28px 32px;display:flex;align-items:center;justify-content:space-between;gap:20px;}
+.hero-left h2{font-size:20px;font-weight:700;color:#fff;margin-bottom:4px;}
+.hero-left p{font-size:13px;color:rgba(255,255,255,0.6);}
+.hero-tags{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+.hero-tag{padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;}
+.hero-tag.filiere{background:#E30613;color:#fff;}
+.hero-tag.niveau{background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.8);}
+.hero-tag.annee{background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.8);}
+.hero-right{display:flex;gap:16px;flex-shrink:0;}
+.hero-stat{text-align:center;background:rgba(255,255,255,0.07);border-radius:12px;padding:14px 18px;}
+.hero-stat .val{font-size:22px;font-weight:700;color:#fff;}
+.hero-stat .lbl{font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;}
+.hero-stat.red .val{color:#E30613;}
+
+/* CONTENT */
+.content{padding:24px 32px;max-width:1280px;margin:0 auto;}
+
+/* SECTIONS */
+.section-title{font-size:15px;font-weight:700;color:#111;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;}
+.section-title a{font-size:12px;font-weight:500;color:#E30613;text-decoration:none;}
+
+/* GRID */
+.main-grid{display:grid;grid-template-columns:1fr 320px;gap:20px;}
+.left-col{display:flex;flex-direction:column;gap:20px;}
+.right-col{display:flex;flex-direction:column;gap:20px;}
+
+/* CARDS */
+.card{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06);}
+.card-head{padding:16px 20px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;}
+.card-head h3{font-size:14px;font-weight:700;}
+.card-body{padding:16px 20px;}
+
+/* ALERT PAIEMENT */
+.alert-paiement{background:#fef2f2;border:1.5px solid #E30613;border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px;margin-bottom:20px;}
+.alert-paiement svg{width:22px;height:22px;stroke:#E30613;flex-shrink:0;}
+.alert-paiement .msg{flex:1;}
+.alert-paiement .msg strong{display:block;font-size:13px;color:#E30613;}
+.alert-paiement .msg span{font-size:12px;color:#888;}
+.btn-pay{padding:8px 16px;background:#E30613;color:#fff;border:none;border-radius:8px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;flex-shrink:0;}
+
+/* EMPLOI DU TEMPS */
+.edt-day{margin-bottom:4px;}
+.edt-day-label{font-size:11px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:.8px;}
+.cours-item{display:flex;align-items:stretch;gap:10px;margin-bottom:8px;}
+.cours-time{width:60px;flex-shrink:0;text-align:right;padding-top:2px;}
+.cours-time .start{font-size:12px;font-weight:600;color:#111;}
+.cours-time .end{font-size:10.5px;color:#aaa;}
+.cours-line{width:3px;border-radius:2px;flex-shrink:0;}
+.cours-info{flex:1;background:#f9f9f9;border-radius:8px;padding:8px 12px;}
+.cours-info .nom{font-size:13px;font-weight:600;color:#111;}
+.cours-info .details{font-size:11.5px;color:#888;margin-top:2px;}
+.cours-info .mode-badge{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:10px;margin-top:4px;}
+.mode-presentiel{background:#dcfce7;color:#16a34a;}
+.mode-ligne{background:#dbeafe;color:#1d4ed8;}
+.mode-hybride{background:#fef3c7;color:#b45309;}
+.cours-today{border-left:3px solid #E30613;}
+
+/* NOTES */
+.notes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.note-card{border-radius:10px;padding:12px 14px;background:#f9f9f9;border:1.5px solid #f0f0f0;}
+.note-card .ue{font-size:11.5px;color:#888;margin-bottom:4px;}
+.note-card .note{font-size:20px;font-weight:700;color:#111;}
+.note-card .note sub{font-size:12px;color:#aaa;}
+.note-card .coeff{font-size:11px;color:#aaa;}
+.note-card.good .note{color:#10b981;}
+.note-card.warn .note{color:#f59e0b;}
+.note-card.bad .note{color:#E30613;}
+.moyenne-bloc{display:flex;align-items:center;gap:16px;background:#111;border-radius:10px;padding:14px 18px;margin-top:14px;}
+.moyenne-bloc .val{font-size:26px;font-weight:700;color:#fff;}
+.moyenne-bloc .sub{font-size:12px;color:rgba(255,255,255,0.5);margin-top:2px;}
+.mention-badge{padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:#E30613;color:#fff;margin-left:auto;}
+
+/* PAIEMENTS */
+.paiement-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f5f5f5;}
+.paiement-row:last-child{border-bottom:none;}
+.paiement-label{font-size:13px;font-weight:500;color:#333;}
+.paiement-date{font-size:11.5px;color:#aaa;margin-top:1px;}
+.paiement-right{text-align:right;}
+.paiement-montant{font-size:13px;font-weight:700;color:#111;}
+.badge{display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
+.badge-green{background:#dcfce7;color:#16a34a;}
+.badge-red{background:#fee2e2;color:#dc2626;}
+.badge-orange{background:#fef3c7;color:#d97706;}
+.badge-dot{width:5px;height:5px;border-radius:50%;background:currentColor;}
+
+/* PROGRESS BAR */
+.progress-wrap{margin-bottom:12px;}
+.progress-label{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;}
+.progress-label span:first-child{color:#555;font-weight:500;}
+.progress-label span:last-child{font-weight:700;color:#111;}
+.progress-track{height:8px;background:#f0f0f0;border-radius:4px;overflow:hidden;}
+.progress-fill{height:100%;border-radius:4px;background:#10b981;}
+.progress-fill.warn{background:#f59e0b;}
+.progress-fill.bad{background:#E30613;}
+
+/* MESSAGES MINI */
+.msg-mini{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #f5f5f5;cursor:pointer;}
+.msg-mini:last-child{border-bottom:none;}
+.msg-mini:hover .msg-mini-name{color:#E30613;}
+.msg-mini-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;}
+.msg-mini-name{font-size:13px;font-weight:600;color:#111;}
+.msg-mini-preview{font-size:12px;color:#aaa;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;}
+.msg-mini-time{font-size:10.5px;color:#ccc;margin-left:auto;flex-shrink:0;}
+.unread-dot{width:8px;height:8px;border-radius:50%;background:#E30613;margin-top:4px;flex-shrink:0;}
+
+/* ANNONCES MINI */
+.annonce-mini{padding:10px 0;border-bottom:1px solid #f5f5f5;cursor:pointer;}
+.annonce-mini:last-child{border-bottom:none;}
+.annonce-mini-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;margin-bottom:4px;}
+.annonce-mini-title{font-size:13px;font-weight:600;color:#111;}
+.annonce-mini-time{font-size:11px;color:#aaa;margin-top:3px;}
+
+/* DOCUMENTS */
+.doc-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f5f5f5;cursor:pointer;}
+.doc-item:last-child{border-bottom:none;}
+.doc-icon{width:36px;height:36px;border-radius:8px;background:#fef2f2;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.doc-icon svg{width:18px;height:18px;stroke:#E30613;}
+.doc-name{font-size:13px;font-weight:600;color:#111;flex:1;}
+.doc-date{font-size:11px;color:#aaa;}
+.doc-dl{width:30px;height:30px;border-radius:7px;border:1.5px solid #eee;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.doc-dl:hover{border-color:#E30613;}
+.doc-dl svg{width:14px;height:14px;stroke:#888;}
+
+/* MODAL BULLETIN */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:none;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:#fff;border-radius:16px;width:700px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.25);}
+.modal-head{padding:18px 24px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:2;}
+.modal-head h2{font-size:15px;font-weight:700;}
+.modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:#888;}
+.modal-body{padding:22px 24px;}
+.bul-head{background:#111;border-radius:10px;padding:20px 24px;display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;}
+.bul-head .school{font-size:15px;font-weight:700;color:#fff;}
+.bul-head .sub{font-size:12px;color:rgba(255,255,255,.6);margin-top:2px;}
+.bul-head-right{text-align:right;}
+.bul-ref{font-size:14px;font-weight:700;color:#E30613;}
+.bul-bar{height:4px;background:#E30613;border-radius:2px;margin-bottom:18px;}
+.bul-etudiant{background:#f9f9f9;border-radius:8px;padding:12px 16px;margin-bottom:18px;display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.bul-etudiant-item{font-size:12.5px;color:#555;}
+.bul-etudiant-item strong{display:block;color:#111;font-size:13px;}
+.bul-table{width:100%;border-collapse:collapse;margin-bottom:16px;}
+.bul-table thead th{background:#111;color:#fff;padding:9px 12px;text-align:left;font-size:12px;}
+.bul-table tbody td{padding:9px 12px;font-size:12.5px;border-bottom:1px solid #f0f0f0;}
+.bul-table tbody tr:nth-child(even){background:#fafafa;}
+.bul-synthese{background:#111;border-radius:10px;padding:14px 18px;display:flex;justify-content:space-around;margin-bottom:16px;}
+.bul-syn-item{text-align:center;}
+.bul-syn-item .v{font-size:20px;font-weight:700;color:#fff;}
+.bul-syn-item .v.red{color:#E30613;}
+.bul-syn-item .l{font-size:11px;color:rgba(255,255,255,.5);margin-top:2px;}
+.bul-decision{border:2px solid #E30613;border-radius:8px;padding:12px 16px;text-align:center;margin-bottom:16px;}
+.bul-decision .label{font-size:12px;color:#888;margin-bottom:4px;}
+.bul-decision .val{font-size:16px;font-weight:700;color:#E30613;}
+.modal-footer{padding:14px 24px;border-top:1px solid #f0f0f0;display:flex;gap:10px;justify-content:flex-end;}
+.btn{padding:8px 18px;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;}
+.btn-red{background:#E30613;color:#fff;}
+.btn-outline{background:#fff;color:#111;border:1.5px solid #ddd;}
+
+/* MOBILE */
+.hamburger-top,.bottom-nav-stu{display:none;}
+@media(max-width:768px){
+  .student-topbar{padding:0 16px;}
+  .topbar-center{display:none;}
+  .hero{padding:20px 16px;flex-direction:column;align-items:flex-start;}
+  .hero-right{display:grid;grid-template-columns:repeat(3,1fr);width:100%;}
+  .content{padding:16px;}
+  .main-grid{grid-template-columns:1fr;}
+  .notes-grid{grid-template-columns:1fr 1fr;}
+  .hamburger-top{display:flex;}
+  .bottom-nav-stu{display:flex;position:fixed;bottom:0;left:0;right:0;background:#111;z-index:150;border-top:2px solid #E30613;}
+  .bottom-nav-stu a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;color:rgba(255,255,255,0.5);text-decoration:none;font-size:10px;gap:3px;}
+  .bottom-nav-stu a.active{color:#E30613;}
+  .bottom-nav-stu a svg{width:20px;height:20px;}
+  body{padding-bottom:65px;}
+}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="student-topbar">
+  <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH">
+  <div class="topbar-center">
+    <button class="top-nav-btn active" onclick="switchSection(this,'accueil')">Accueil</button>
+    <button class="top-nav-btn" onclick="switchSection(this,'notes')">Notes</button>
+    <button class="top-nav-btn" onclick="switchSection(this,'edt')">Emploi du temps</button>
+    <button class="top-nav-btn" onclick="switchSection(this,'paiements')">Paiements</button>
+    <button class="top-nav-btn" onclick="switchSection(this,'documents')">Documents</button>
+    <button class="top-nav-btn" onclick="switchSection(this,'messages')">Messages</button>
+  </div>
+  <div class="topbar-right">
+    <button class="notif-btn">
+      <svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <div class="notif-dot"></div>
+    </button>
+    <div class="stu-avatar">AK</div>
+  </div>
+</div>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-left">
+    <h2>Bonjour, Aminata Keita</h2>
+    <p>Bienvenue sur votre espace étudiant — Samedi 7 mars 2026</p>
+    <div class="hero-tags">
+      <span class="hero-tag filiere">Informatique</span>
+      <span class="hero-tag niveau">Licence 2</span>
+      <span class="hero-tag annee">2025–2026</span>
+    </div>
+  </div>
+  <div class="hero-right">
+    <div class="hero-stat">
+      <div class="val">13.8</div>
+      <div class="lbl">Moyenne générale</div>
+    </div>
+    <div class="hero-stat">
+      <div class="val">92%</div>
+      <div class="lbl">Assiduité</div>
+    </div>
+    <div class="hero-stat red">
+      <div class="val">125 000</div>
+      <div class="lbl">FCFA restant dû</div>
+    </div>
+  </div>
+</div>
+
+<!-- CONTENT -->
+<div class="content">
+
+  <!-- ALERTE PAIEMENT -->
+  <div class="alert-paiement">
+    <svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <div class="msg">
+      <strong>Solde impayé : 125 000 FCFA</strong>
+      <span>Votre tranche 3 est en retard de 18 jours. Veuillez régulariser pour éviter le blocage d'accès.</span>
+    </div>
+    <button class="btn-pay" onclick="openBulletin()">Payer maintenant</button>
+  </div>
+
+  <div class="main-grid">
+    <!-- LEFT -->
+    <div class="left-col">
+
+      <!-- EMPLOI DU TEMPS SEMAINE -->
+      <div class="card">
+        <div class="card-head">
+          <h3>Cours cette semaine</h3>
+          <a href="06_emplois_du_temps.html">Voir tout l'emploi du temps</a>
+        </div>
+        <div class="card-body">
+          <!-- Lundi -->
+          <div class="edt-day">
+            <div class="edt-day-label">Lundi 9 mars</div>
+            <div class="cours-item">
+              <div class="cours-time"><div class="start">08h00</div><div class="end">10h00</div></div>
+              <div class="cours-line" style="background:#3b82f6;"></div>
+              <div class="cours-info cours-today">
+                <div class="nom">Développement Web — React.js</div>
+                <div class="details">M. Amadou Diallo · Salle B</div>
+                <span class="mode-badge mode-presentiel">Présentiel</span>
+              </div>
+            </div>
+            <div class="cours-item">
+              <div class="cours-time"><div class="start">10h30</div><div class="end">12h30</div></div>
+              <div class="cours-line" style="background:#f59e0b;"></div>
+              <div class="cours-info">
+                <div class="nom">Bases du numérique (Tronc commun)</div>
+                <div class="details">M. Amadou Diallo · Salle A</div>
+                <span class="mode-badge mode-presentiel">Présentiel</span>
+              </div>
+            </div>
+          </div>
+          <!-- Mardi -->
+          <div class="edt-day" style="margin-top:12px;">
+            <div class="edt-day-label">Mardi 10 mars</div>
+            <div class="cours-item">
+              <div class="cours-time"><div class="start">14h00</div><div class="end">16h00</div></div>
+              <div class="cours-line" style="background:#8b5cf6;"></div>
+              <div class="cours-info">
+                <div class="nom">Réseaux & Sécurité</div>
+                <div class="details">M. Ousmane Ba · En ligne</div>
+                <span class="mode-badge mode-ligne">En ligne</span>
+              </div>
+            </div>
+          </div>
+          <!-- Jeudi -->
+          <div class="edt-day" style="margin-top:12px;">
+            <div class="edt-day-label">Jeudi 12 mars</div>
+            <div class="cours-item">
+              <div class="cours-time"><div class="start">08h00</div><div class="end">10h00</div></div>
+              <div class="cours-line" style="background:#10b981;"></div>
+              <div class="cours-info">
+                <div class="nom">Anglais Professionnel</div>
+                <div class="details">Mme Aïssatou Ndiaye · Salle C</div>
+                <span class="mode-badge mode-hybride">Hybride</span>
+              </div>
+            </div>
+            <div class="cours-item">
+              <div class="cours-time"><div class="start">10h30</div><div class="end">12h30</div></div>
+              <div class="cours-line" style="background:#E30613;"></div>
+              <div class="cours-info" style="border-left:3px solid #E30613;">
+                <div class="nom" style="color:#E30613;">EXAMEN — Développement Web</div>
+                <div class="details">Salle Examen D · Documents interdits</div>
+                <span class="mode-badge" style="background:#fee2e2;color:#dc2626;">Examen</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- NOTES -->
+      <div class="card">
+        <div class="card-head">
+          <h3>Mes notes — Session 1</h3>
+          <a href="#" onclick="openBulletin();return false;">Voir bulletin complet</a>
+        </div>
+        <div class="card-body">
+          <div class="notes-grid">
+            <div class="note-card good">
+              <div class="ue">Développement Web</div>
+              <div class="note">16.5<sub>/20</sub></div>
+              <div class="coeff">Coeff. 4</div>
+            </div>
+            <div class="note-card good">
+              <div class="ue">Réseaux & Sécurité</div>
+              <div class="note">14.0<sub>/20</sub></div>
+              <div class="coeff">Coeff. 3</div>
+            </div>
+            <div class="note-card warn">
+              <div class="ue">Anglais Pro</div>
+              <div class="note">12.5<sub>/20</sub></div>
+              <div class="coeff">Coeff. 2</div>
+            </div>
+            <div class="note-card good">
+              <div class="ue">Bases Numérique</div>
+              <div class="note">15.0<sub>/20</sub></div>
+              <div class="coeff">Coeff. 3</div>
+            </div>
+            <div class="note-card warn">
+              <div class="ue">Droit des affaires</div>
+              <div class="note">11.0<sub>/20</sub></div>
+              <div class="coeff">Coeff. 2</div>
+            </div>
+            <div class="note-card bad">
+              <div class="ue">Marketing Digital</div>
+              <div class="note">08.5<sub>/20</sub></div>
+              <div class="coeff">Coeff. 2</div>
+            </div>
+          </div>
+          <div class="moyenne-bloc">
+            <div>
+              <div class="val">13.8 <span style="font-size:14px;font-weight:400;color:rgba(255,255,255,0.5);">/20</span></div>
+              <div class="sub">Moyenne générale pondérée</div>
+            </div>
+            <div style="margin-left:16px;">
+              <div style="font-size:12px;color:rgba(255,255,255,0.5);">Rang promo</div>
+              <div style="font-size:18px;font-weight:700;color:#fff;">4<sup style="font-size:12px;">e</sup> / 28</div>
+            </div>
+            <span class="mention-badge">Assez bien</span>
+          </div>
+          <div style="margin-top:12px;">
+            <div class="progress-wrap">
+              <div class="progress-label"><span>UE à rattraper</span><span style="color:#f59e0b;">Marketing Digital (8.5)</span></div>
+              <div class="progress-track"><div class="progress-fill bad" style="width:42%;"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUIVI FINANCIER -->
+      <div class="card">
+        <div class="card-head"><h3>Suivi financier</h3><a href="#">Historique complet</a></div>
+        <div class="card-body">
+          <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+            <div style="flex:1;background:#f9f9f9;border-radius:10px;padding:12px 14px;">
+              <div style="font-size:11.5px;color:#888;">Frais totaux</div>
+              <div style="font-size:18px;font-weight:700;color:#111;">700 000 <span style="font-size:12px;font-weight:400;">FCFA</span></div>
+            </div>
+            <div style="flex:1;background:#dcfce7;border-radius:10px;padding:12px 14px;">
+              <div style="font-size:11.5px;color:#15803d;">Payé</div>
+              <div style="font-size:18px;font-weight:700;color:#15803d;">575 000 <span style="font-size:12px;font-weight:400;">FCFA</span></div>
+            </div>
+            <div style="flex:1;background:#fee2e2;border-radius:10px;padding:12px 14px;">
+              <div style="font-size:11.5px;color:#dc2626;">Restant dû</div>
+              <div style="font-size:18px;font-weight:700;color:#dc2626;">125 000 <span style="font-size:12px;font-weight:400;">FCFA</span></div>
+            </div>
+          </div>
+          <div class="progress-wrap">
+            <div class="progress-label"><span>Avancement paiement</span><span>82%</span></div>
+            <div class="progress-track"><div class="progress-fill warn" style="width:82%;"></div></div>
+          </div>
+          <div class="paiement-row">
+            <div><div class="paiement-label">Tranche 1 — Inscription</div><div class="paiement-date">15 sept. 2025</div></div>
+            <div class="paiement-right"><div class="paiement-montant">250 000 FCFA</div><span class="badge badge-green"><span class="badge-dot"></span>Payé · Wave</span></div>
+          </div>
+          <div class="paiement-row">
+            <div><div class="paiement-label">Tranche 2 — Octobre</div><div class="paiement-date">05 oct. 2025</div></div>
+            <div class="paiement-right"><div class="paiement-montant">200 000 FCFA</div><span class="badge badge-green"><span class="badge-dot"></span>Payé · OM</span></div>
+          </div>
+          <div class="paiement-row">
+            <div><div class="paiement-label">Tranche 3 — Janvier</div><div class="paiement-date">Dû le 17 fév. 2026</div></div>
+            <div class="paiement-right"><div class="paiement-montant">125 000 FCFA</div><span class="badge badge-red"><span class="badge-dot"></span>En retard J+18</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right-col">
+
+      <!-- ASSIDUITÉ -->
+      <div class="card">
+        <div class="card-head"><h3>Assiduité</h3><span style="font-size:12px;color:#888;">Mars 2026</span></div>
+        <div class="card-body">
+          <div style="text-align:center;margin-bottom:14px;">
+            <div style="font-size:36px;font-weight:700;color:#10b981;">92%</div>
+            <div style="font-size:12px;color:#888;">Taux de présence global</div>
+          </div>
+          <div class="progress-wrap">
+            <div class="progress-label"><span>Présent</span><span>46 séances</span></div>
+            <div class="progress-track"><div class="progress-fill" style="width:92%;"></div></div>
+          </div>
+          <div class="progress-wrap">
+            <div class="progress-label"><span>Retard</span><span>2 séances</span></div>
+            <div class="progress-track"><div class="progress-fill warn" style="width:4%;"></div></div>
+          </div>
+          <div class="progress-wrap">
+            <div class="progress-label"><span>Absent</span><span>2 séances</span></div>
+            <div class="progress-track"><div class="progress-fill bad" style="width:4%;"></div></div>
+          </div>
+          <div style="background:#fef3c7;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-top:6px;">
+            2 absences injustifiées. Au-delà de 3, une convocation est générée.
+          </div>
+        </div>
+      </div>
+
+      <!-- ANNONCES -->
+      <div class="card">
+        <div class="card-head"><h3>Annonces</h3><a href="#">Toutes</a></div>
+        <div class="card-body" style="padding:0 20px;">
+          <div class="annonce-mini">
+            <span class="annonce-mini-badge" style="background:#fef3c7;color:#b45309;">Urgent</span>
+            <div class="annonce-mini-title">Salle B — Lundi 9 mars</div>
+            <div class="annonce-mini-time">Il y a 2h</div>
+          </div>
+          <div class="annonce-mini">
+            <span class="annonce-mini-badge" style="background:#dcfce7;color:#15803d;">Événement</span>
+            <div class="annonce-mini-title">Journée portes ouvertes 15 mars</div>
+            <div class="annonce-mini-time">Il y a 1 jour</div>
+          </div>
+          <div class="annonce-mini">
+            <span class="annonce-mini-badge" style="background:#dbeafe;color:#1d4ed8;">Info</span>
+            <div class="annonce-mini-title">Calendrier examens — Session 1</div>
+            <div class="annonce-mini-time">Il y a 3 jours</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MESSAGES -->
+      <div class="card">
+        <div class="card-head"><h3>Messages récents</h3><a href="11_communication.html">Voir tout</a></div>
+        <div class="card-body" style="padding:0 20px;">
+          <div class="msg-mini">
+            <div class="msg-mini-avatar" style="background:#E30613;">DG</div>
+            <div style="flex:1;min-width:0;">
+              <div class="msg-mini-name">Direction</div>
+              <div class="msg-mini-preview">Les bulletins sont disponibles dès ce soir</div>
+            </div>
+            <div class="msg-mini-time">10:32</div>
+            <div class="unread-dot"></div>
+          </div>
+          <div class="msg-mini">
+            <div class="msg-mini-avatar" style="background:#3b82f6;">PI</div>
+            <div style="flex:1;min-width:0;">
+              <div class="msg-mini-name">Promo Informatique L2</div>
+              <div class="msg-mini-preview">Ousmane : Moyenne promo 13.4/20</div>
+            </div>
+            <div class="msg-mini-time">10:05</div>
+            <div class="unread-dot"></div>
+          </div>
+          <div class="msg-mini">
+            <div class="msg-mini-avatar" style="background:#10b981;">FK</div>
+            <div style="flex:1;min-width:0;">
+              <div class="msg-mini-name">Mme Fatou Koné</div>
+              <div class="msg-mini-preview">N'oubliez pas de rendre le TP vendredi</div>
+            </div>
+            <div class="msg-mini-time">Hier</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DOCUMENTS -->
+      <div class="card">
+        <div class="card-head"><h3>Mes documents</h3><a href="#">Voir tout</a></div>
+        <div class="card-body" style="padding:0 20px;">
+          <div class="doc-item" onclick="openBulletin()">
+            <div class="doc-icon"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div>
+            <div style="flex:1;">
+              <div class="doc-name">Bulletin S1 — 2025/2026</div>
+              <div class="doc-date">Publié le 06/03/2026</div>
+            </div>
+            <div class="doc-dl"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+          </div>
+          <div class="doc-item">
+            <div class="doc-icon"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div>
+            <div style="flex:1;">
+              <div class="doc-name">Certificat de scolarité 2025/2026</div>
+              <div class="doc-date">Disponible à la demande</div>
+            </div>
+            <div class="doc-dl"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+          </div>
+          <div class="doc-item">
+            <div class="doc-icon"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></div>
+            <div style="flex:1;">
+              <div class="doc-name">Reçu paiement — Tranche 2</div>
+              <div class="doc-date">05 oct. 2025 · 200 000 FCFA</div>
+            </div>
+            <div class="doc-dl"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM NAV MOBILE -->
+<nav class="bottom-nav-stu">
+  <a href="#" class="active" onclick="switchSection(null,'accueil')">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+    Accueil
+  </a>
+  <a href="#">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+    Notes
+  </a>
+  <a href="#">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    Emploi
+  </a>
+  <a href="11_communication.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    Messages
+  </a>
+  <a href="#">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    Profil
+  </a>
+</nav>
+
+<!-- MODAL BULLETIN -->
+<div class="modal-overlay" id="bulletinModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Bulletin de notes — Semestre 1</h2>
+      <button class="modal-close" onclick="closeBulletin()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="bul-head">
+        <div>
+          <div class="school">Institut UPTECH Formation</div>
+          <div class="sub">Dakar, Sénégal — www.uptechformation.com</div>
+        </div>
+        <div class="bul-head-right">
+          <div class="bul-ref">BUL-2026-L2I-004</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.5);">Session 1 — 2025/2026</div>
+        </div>
+      </div>
+      <div class="bul-bar"></div>
+      <div class="bul-etudiant">
+        <div class="bul-etudiant-item"><strong>Aminata Keita</strong>Étudiante</div>
+        <div class="bul-etudiant-item"><strong>INF-L2-2025-048</strong>Numéro étudiant</div>
+        <div class="bul-etudiant-item"><strong>Informatique — Licence 2</strong>Filière & Niveau</div>
+        <div class="bul-etudiant-item"><strong>2025–2026</strong>Année académique</div>
+      </div>
+      <table class="bul-table">
+        <thead>
+          <tr>
+            <th>UE / Module</th>
+            <th>CC</th>
+            <th>Exam</th>
+            <th>Moy.</th>
+            <th>Coeff.</th>
+            <th>Points</th>
+            <th>Résultat</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Développement Web</td>
+            <td>17</td>
+            <td>16</td>
+            <td><strong>16.5</strong></td>
+            <td>4</td>
+            <td>66</td>
+            <td><span class="badge badge-green">Validé</span></td>
+          </tr>
+          <tr>
+            <td>Réseaux & Sécurité</td>
+            <td>13</td>
+            <td>15</td>
+            <td><strong>14.0</strong></td>
+            <td>3</td>
+            <td>42</td>
+            <td><span class="badge badge-green">Validé</span></td>
+          </tr>
+          <tr>
+            <td>Bases du numérique</td>
+            <td>15</td>
+            <td>15</td>
+            <td><strong>15.0</strong></td>
+            <td>3</td>
+            <td>45</td>
+            <td><span class="badge badge-green">Validé</span></td>
+          </tr>
+          <tr>
+            <td>Anglais professionnel</td>
+            <td>12</td>
+            <td>13</td>
+            <td><strong>12.5</strong></td>
+            <td>2</td>
+            <td>25</td>
+            <td><span class="badge badge-green">Validé</span></td>
+          </tr>
+          <tr>
+            <td>Droit des affaires</td>
+            <td>10</td>
+            <td>12</td>
+            <td><strong>11.0</strong></td>
+            <td>2</td>
+            <td>22</td>
+            <td><span class="badge badge-green">Validé</span></td>
+          </tr>
+          <tr>
+            <td>Marketing Digital</td>
+            <td>09</td>
+            <td>08</td>
+            <td><strong style="color:#E30613;">8.5</strong></td>
+            <td>2</td>
+            <td>17</td>
+            <td><span class="badge badge-orange">Rattrapage</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="bul-synthese">
+        <div class="bul-syn-item"><div class="v">16</div><div class="l">Total coefficients</div></div>
+        <div class="bul-syn-item"><div class="v">217</div><div class="l">Total points</div></div>
+        <div class="bul-syn-item"><div class="v">13.8</div><div class="l">Moyenne générale</div></div>
+        <div class="bul-syn-item"><div class="v red">1 UE</div><div class="l">À rattraper</div></div>
+      </div>
+      <div class="bul-decision">
+        <div class="label">Décision du jury</div>
+        <div class="val">Passage conditionnel — Rattrapage Marketing Digital requis</div>
+      </div>
+      <div style="border:1px solid #f0f0f0;border-radius:8px;padding:10px 14px;font-size:11.5px;color:#888;text-align:center;">
+        Document officiel UPTECH Formation · Non modifiable · Toute falsification expose à des poursuites
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeBulletin()">Fermer</button>
+      <button class="btn btn-red">
+        <svg width="14" height="14" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Télécharger PDF
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openBulletin(){document.getElementById('bulletinModal').classList.add('open');}
+function closeBulletin(){document.getElementById('bulletinModal').classList.remove('open');}
+document.getElementById('bulletinModal').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
+function switchSection(el,sec){
+  document.querySelectorAll('.top-nav-btn').forEach(b=>b.classList.remove('active'));
+  if(el) el.classList.add('active');
+}
+</script>
+</body>
+</html>

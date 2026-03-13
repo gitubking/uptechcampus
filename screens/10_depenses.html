@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UPTECH Campus — Dépenses</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Poppins',sans-serif;background:#f4f4f4;color:#111;display:flex;min-height:100vh;}
+
+/* SIDEBAR */
+.sidebar{width:240px;min-height:100vh;background:#111;display:flex;flex-direction:column;position:fixed;left:0;top:0;z-index:100;}
+.sidebar-logo{padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,0.08);}
+.sidebar-logo img{height:36px;}
+.sidebar-section{padding:16px 20px 4px;font-size:11px;font-weight:600;color:#fff;letter-spacing:1.2px;text-transform:uppercase;}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10px 20px;color:#fff;cursor:pointer;transition:.2s;font-size:13.5px;font-weight:400;text-decoration:none;}
+.nav-item:hover{background:rgba(255,255,255,0.07);}
+.nav-item.active{background:#E30613;color:#fff;font-weight:600;}
+.nav-item svg{width:18px;height:18px;flex-shrink:0;opacity:.85;}
+.sidebar-bottom{margin-top:auto;padding:16px 20px;border-top:1px solid rgba(255,255,255,0.08);}
+.sidebar-user{display:flex;align-items:center;gap:10px;}
+.sidebar-user .avatar{width:34px;height:34px;border-radius:50%;background:#E30613;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;}
+.sidebar-user .info{font-size:12px;color:#fff;}
+.sidebar-user .info span{display:block;font-size:10.5px;color:rgba(255,255,255,0.5);}
+
+/* MAIN */
+.main{margin-left:240px;flex:1;display:flex;flex-direction:column;min-height:100vh;}
+
+/* TOPBAR */
+.topbar{background:#fff;border-bottom:1px solid #e8e8e8;padding:0 28px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:90;}
+.topbar-left h1{font-size:17px;font-weight:700;color:#111;}
+.topbar-left p{font-size:12px;color:#888;}
+.topbar-right{display:flex;align-items:center;gap:10px;}
+.btn{padding:8px 18px;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.2s;}
+.btn-red{background:#E30613;color:#fff;}
+.btn-red:hover{background:#c0000f;}
+.btn-outline{background:#fff;color:#111;border:1.5px solid #ddd;}
+.btn-outline:hover{border-color:#E30613;color:#E30613;}
+
+/* CONTENT */
+.content{padding:24px 28px;flex:1;}
+
+/* STATS */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+.stat-card{background:#fff;border-radius:12px;padding:18px 20px;}
+.stat-card.red{border-left:4px solid #E30613;}
+.stat-card.black{border-left:4px solid #111;background:#111;}
+.stat-card.orange{border-left:4px solid #f59e0b;}
+.stat-card.green{border-left:4px solid #10b981;}
+.stat-label{font-size:11.5px;color:#888;margin-bottom:4px;}
+.stat-card.black .stat-label{color:rgba(255,255,255,0.6);}
+.stat-value{font-size:22px;font-weight:700;color:#111;}
+.stat-card.black .stat-value{color:#fff;}
+.stat-card.orange .stat-value{color:#f59e0b;}
+.stat-card.green .stat-value{color:#10b981;}
+.stat-card.red .stat-value{color:#E30613;}
+.stat-sub{font-size:11px;color:#aaa;margin-top:2px;}
+.stat-card.black .stat-sub{color:rgba(255,255,255,0.4);}
+.trend{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;padding:2px 7px;border-radius:10px;margin-top:4px;}
+.trend.up{background:#fee2e2;color:#dc2626;}
+.trend.down{background:#dcfce7;color:#16a34a;}
+
+/* LAYOUT */
+.two-col{display:grid;grid-template-columns:1fr 320px;gap:20px;margin-bottom:20px;}
+.full-col{margin-bottom:20px;}
+
+/* CARDS */
+.card{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06);}
+.card-head{display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid #f0f0f0;gap:8px;}
+.card-head h3{font-size:14px;font-weight:700;flex:1;color:#111;}
+.card-body{padding:16px 20px;}
+
+/* TOOLBAR */
+.toolbar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap;}
+.search-box{flex:1;min-width:180px;max-width:280px;position:relative;}
+.search-box input{width:100%;padding:9px 14px 9px 36px;border:1.5px solid #e0e0e0;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;outline:none;}
+.search-box input:focus{border-color:#E30613;}
+.search-box svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#aaa;width:15px;height:15px;}
+.filter-select{padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;outline:none;background:#fff;}
+.filter-select:focus{border-color:#E30613;}
+
+/* TABLE */
+table{width:100%;border-collapse:collapse;}
+thead th{padding:10px 16px;text-align:left;font-size:11.5px;font-weight:600;color:#888;background:#fafafa;border-bottom:1px solid #f0f0f0;white-space:nowrap;}
+tbody tr{border-bottom:1px solid #f7f7f7;transition:.15s;cursor:pointer;}
+tbody tr:hover{background:#fef2f2;}
+tbody tr:last-child{border-bottom:none;}
+td{padding:12px 16px;font-size:13px;vertical-align:middle;}
+
+/* BADGES */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+.badge-green{background:#dcfce7;color:#16a34a;}
+.badge-red{background:#fee2e2;color:#dc2626;}
+.badge-orange{background:#fef3c7;color:#d97706;}
+.badge-blue{background:#dbeafe;color:#2563eb;}
+.badge-gray{background:#f3f4f6;color:#6b7280;}
+.badge-purple{background:#ede9fe;color:#7c3aed;}
+.badge-dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+
+/* CATEGORY TAG */
+.cat-tag{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:6px;font-size:11.5px;font-weight:600;}
+.cat-loyer{background:#dbeafe;color:#1d4ed8;}
+.cat-salaire{background:#dcfce7;color:#15803d;}
+.cat-materiel{background:#ede9fe;color:#6d28d9;}
+.cat-fourniture{background:#fef3c7;color:#b45309;}
+.cat-internet{background:#cffafe;color:#0e7490;}
+.cat-entretien{background:#f3f4f6;color:#374151;}
+.cat-communication{background:#fce7f3;color:#be185d;}
+.cat-autre{background:#f9fafb;color:#6b7280;}
+
+/* MONTANT */
+.montant-neg{font-weight:700;color:#E30613;font-size:13.5px;}
+.montant-pos{font-weight:700;color:#10b981;font-size:13.5px;}
+
+/* CHART BAR */
+.chart-wrap{padding:4px 0;}
+.chart-bar-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.chart-bar-label{font-size:12px;color:#555;width:100px;flex-shrink:0;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;}
+.chart-bar-track{flex:1;height:10px;background:#f0f0f0;border-radius:5px;overflow:hidden;}
+.chart-bar-fill{height:100%;border-radius:5px;background:#E30613;}
+.chart-bar-fill.b2{background:#111;}
+.chart-bar-fill.b3{background:#f59e0b;}
+.chart-bar-fill.b4{background:#3b82f6;}
+.chart-bar-fill.b5{background:#10b981;}
+.chart-bar-fill.b6{background:#8b5cf6;}
+.chart-bar-val{font-size:11.5px;font-weight:600;color:#111;width:80px;text-align:right;flex-shrink:0;}
+
+/* DONUT */
+.donut-wrap{position:relative;width:140px;height:140px;margin:0 auto 16px;}
+.donut-wrap svg{transform:rotate(-90deg);}
+.donut-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;}
+.donut-center .val{font-size:18px;font-weight:700;color:#111;}
+.donut-center .lbl{font-size:10px;color:#aaa;}
+.legend-item{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;}
+.legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+
+/* BUDGET LINE */
+.budget-line{margin-bottom:14px;}
+.budget-line-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;}
+.budget-line-label{font-size:13px;font-weight:500;color:#333;}
+.budget-line-val{font-size:12px;color:#888;}
+.budget-line-val strong{color:#111;}
+.budget-track{height:8px;background:#f0f0f0;border-radius:4px;overflow:hidden;}
+.budget-fill{height:100%;border-radius:4px;background:#10b981;}
+.budget-fill.warn{background:#f59e0b;}
+.budget-fill.over{background:#E30613;}
+
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;display:none;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:#fff;border-radius:16px;width:600px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);}
+.modal-head{padding:20px 24px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:2;}
+.modal-head h2{font-size:15px;font-weight:700;}
+.modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:#888;line-height:1;}
+.modal-body{padding:22px 24px;}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.form-group{display:flex;flex-direction:column;gap:5px;}
+.form-group.full{grid-column:1/-1;}
+.form-group label{font-size:12px;font-weight:600;color:#555;}
+.form-group input,.form-group select,.form-group textarea{padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;outline:none;}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#E30613;}
+.modal-footer{padding:14px 24px;border-top:1px solid #f0f0f0;display:flex;gap:10px;justify-content:flex-end;}
+
+/* UPLOAD ZONE */
+.upload-zone{border:2px dashed #ddd;border-radius:10px;padding:22px;text-align:center;cursor:pointer;transition:.2s;}
+.upload-zone:hover{border-color:#E30613;background:#fef2f2;}
+
+/* ALERT BANNER */
+.alert-banner{background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px;margin-bottom:20px;font-size:13px;color:#92400e;}
+.alert-banner svg{flex-shrink:0;color:#d97706;}
+
+/* MOBILE */
+.hamburger,.bottom-nav{display:none;}
+@media(max-width:768px){
+  .sidebar{transform:translateX(-100%);transition:.3s;}
+  .sidebar.open{transform:translateX(0);}
+  .main{margin-left:0;}
+  .topbar{padding:0 16px;}
+  .content{padding:16px;}
+  .stats-row{grid-template-columns:1fr 1fr;}
+  .two-col{grid-template-columns:1fr;}
+  .hamburger{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;background:none;cursor:pointer;}
+  .bottom-nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:#111;z-index:150;border-top:2px solid #E30613;}
+  .bottom-nav a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;color:rgba(255,255,255,0.5);text-decoration:none;font-size:10px;gap:3px;}
+  .bottom-nav a.active{color:#E30613;}
+  .bottom-nav a svg{width:20px;height:20px;}
+  .main{padding-bottom:65px;}
+}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH">
+  </div>
+  <div class="sidebar-section">Principal</div>
+  <a class="nav-item" href="03_dashboard_dg.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    Tableau de bord
+  </a>
+  <a class="nav-item" href="04_etudiants.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    Étudiants
+  </a>
+  <a class="nav-item" href="05_paiements.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+    Paiements
+  </a>
+  <div class="sidebar-section">Pédagogie</div>
+  <a class="nav-item" href="06_emplois_du_temps.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    Emplois du temps
+  </a>
+  <a class="nav-item" href="07_emargement.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    Émargement
+  </a>
+  <a class="nav-item" href="08_notes_bulletins.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+    Notes & Bulletins
+  </a>
+  <div class="sidebar-section">RH & Finance</div>
+  <a class="nav-item" href="09_intervenants.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    Intervenants
+  </a>
+  <a class="nav-item active" href="10_depenses.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    Dépenses
+  </a>
+  <div class="sidebar-section">Autre</div>
+  <a class="nav-item" href="11_communication.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    Communication
+  </a>
+  <a class="nav-item" href="13_rapports.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+    Rapports
+  </a>
+  <a class="nav-item" href="14_parametres.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+    Paramètres
+  </a>
+  <div class="sidebar-bottom">
+    <div class="sidebar-user">
+      <div class="avatar">DG</div>
+      <div class="info">Directeur Général<span>Direction</span></div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="hamburger" onclick="document.getElementById('sidebar').classList.toggle('open')">
+        <svg width="22" height="22" fill="none" stroke="#111" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="topbar-left">
+        <h1>Dépenses</h1>
+        <p>Mars 2026 — Suivi budgétaire mensuel</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button class="btn btn-outline">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Exporter
+      </button>
+      <button class="btn btn-red" onclick="openModal()">+ Nouvelle dépense</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ALERT -->
+    <div class="alert-banner">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span>Le poste <strong>Loyer & Charges</strong> a dépassé 90% du budget mensuel alloué. Vérifiez avant d'engager de nouvelles dépenses.</span>
+    </div>
+
+    <!-- STATS -->
+    <div class="stats-row">
+      <div class="stat-card red">
+        <div class="stat-label">Total dépenses — Mars</div>
+        <div class="stat-value">4 820 000</div>
+        <div class="stat-sub">FCFA engagés</div>
+        <div class="trend up">▲ +8% vs fév.</div>
+      </div>
+      <div class="stat-card black">
+        <div class="stat-label">Budget mensuel alloué</div>
+        <div class="stat-value">6 000 000</div>
+        <div class="stat-sub">FCFA</div>
+      </div>
+      <div class="stat-card orange">
+        <div class="stat-label">Reste à dépenser</div>
+        <div class="stat-value">1 180 000</div>
+        <div class="stat-sub">FCFA — 19.6% restant</div>
+        <div class="trend up">Attention seuil 20%</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">Dépenses validées</div>
+        <div class="stat-value">3 950 000</div>
+        <div class="stat-sub">870 000 FCFA en attente</div>
+        <div class="trend down">▼ Bien suivi</div>
+      </div>
+    </div>
+
+    <!-- TWO COL -->
+    <div class="two-col">
+      <!-- TABLE -->
+      <div class="card">
+        <div class="card-head">
+          <h3>Journal des dépenses</h3>
+          <span style="font-size:12px;color:#aaa;">38 entrées</span>
+        </div>
+        <div class="card-body" style="padding:14px 0 0;">
+          <div class="toolbar" style="padding:0 16px 14px;">
+            <div class="search-box">
+              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" placeholder="Rechercher…">
+            </div>
+            <select class="filter-select">
+              <option>Toutes catégories</option>
+              <option>Loyer & Charges</option>
+              <option>Salaires</option>
+              <option>Matériel</option>
+              <option>Fournitures</option>
+              <option>Internet & Tél.</option>
+              <option>Entretien</option>
+              <option>Communication</option>
+            </select>
+            <select class="filter-select">
+              <option>Tous statuts</option>
+              <option>Validée</option>
+              <option>En attente</option>
+              <option>Rejetée</option>
+            </select>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Libellé</th>
+                <th>Catégorie</th>
+                <th>Mode</th>
+                <th>Montant</th>
+                <th>Statut</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr onclick="openDetailModal('Loyer mars 2026','Loyer & Charges','1 500 000','Virement')">
+                <td style="color:#888;font-size:12px;">01/03/2026</td>
+                <td><div style="font-weight:600;font-size:13px;">Loyer mensuel — Immeuble Dakar</div><div style="font-size:11px;color:#aaa;">Bailleur : M. Diouf</div></td>
+                <td><span class="cat-tag cat-loyer">Loyer</span></td>
+                <td><span class="badge badge-blue">Virement</span></td>
+                <td><span class="montant-neg">1 500 000</span></td>
+                <td><span class="badge badge-green"><span class="badge-dot"></span>Validée</span></td>
+                <td><button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;" onclick="event.stopPropagation();openDetailModal('Loyer mars 2026','Loyer & Charges','1 500 000','Virement')">Voir</button></td>
+              </tr>
+              <tr onclick="openDetailModal('Salaires admin mars','Salaires','850 000','Virement')">
+                <td style="color:#888;font-size:12px;">02/03/2026</td>
+                <td><div style="font-weight:600;font-size:13px;">Salaires personnel administratif</div><div style="font-size:11px;color:#aaa;">4 agents — Mars 2026</div></td>
+                <td><span class="cat-tag cat-salaire">Salaires</span></td>
+                <td><span class="badge badge-blue">Virement</span></td>
+                <td><span class="montant-neg">850 000</span></td>
+                <td><span class="badge badge-green"><span class="badge-dot"></span>Validée</span></td>
+                <td><button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;" onclick="event.stopPropagation();">Voir</button></td>
+              </tr>
+              <tr>
+                <td style="color:#888;font-size:12px;">03/03/2026</td>
+                <td><div style="font-weight:600;font-size:13px;">Achat vidéoprojecteur</div><div style="font-size:11px;color:#aaa;">Salle B — Réf. facture FAC-2026-218</div></td>
+                <td><span class="cat-tag cat-materiel">Matériel</span></td>
+                <td><span class="badge badge-orange">Wave</span></td>
+                <td><span class="montant-neg">320 000</span></td>
+                <td><span class="badge badge-orange"><span class="badge-dot"></span>En attente</span></td>
+                <td><button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;">Voir</button></td>
+              </tr>
+              <tr>
+                <td style="color:#888;font-size:12px;">04/03/2026</td>
+                <td><div style="font-weight:600;font-size:13px;">Abonnement fibre optique</div><div style="font-size:11px;color:#aaa;">Orange Sénégal — 100 Mbps</div></td>
+                <td><span class="cat-tag cat-internet">Internet</span></td>
+                <td><span class="badge badge-gray">Prélèvement</span></td>
+                <td><span class="montant-neg">85 000</span></td>
+                <td><span class="badge badge-green"><span class="badge-dot"></span>Validée</span></td>
+                <td><button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;">Voir</button></td>
+              </tr>
+              <tr>
+                <td style="color:#888;font-size:12px;">05/03/2026</td>
+                <td><div style="font-weight:600;font-size:13px;">Fournitures de bureau</div><div style="font-size:11px;color:#aaa;">Ramettes, stylos, classeurs…</div></td>
+                <td><span class="cat-tag cat-fourniture">Fournitures</span></td>
+                <td><span class="badge badge-gray">Cash</span></td>
+                <td><span class="montant-neg">47 500</span></td>
+                <td><span class="badge badge-green"><span class="badge-dot"></span>Validée</span></td>
+                <td><button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;">Voir</button></td>
+              </tr>
+              <tr>
+                <td style="color:#888;font-size:12px;">06/03/2026</td>
+                <td><div style="font-weight:600;font-size:13px;">Entretien climatiseurs</div><div style="font-size:11px;color:#aaa;">3 salles de cours</div></td>
+                <td><span class="cat-tag cat-entretien">Entretien</span></td>
+                <td><span class="badge badge-gray">Cash</span></td>
+                <td><span class="montant-neg">62 000</span></td>
+                <td><span class="badge badge-red"><span class="badge-dot"></span>Rejetée</span></td>
+                <td><button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;">Voir</button></td>
+              </tr>
+              <tr>
+                <td style="color:#888;font-size:12px;">06/03/2026</td>
+                <td><div style="font-weight:600;font-size:13px;">Campagne réseaux sociaux</div><div style="font-size:11px;color:#aaa;">Facebook + Instagram Ads — Mars</div></td>
+                <td><span class="cat-tag cat-communication">Communication</span></td>
+                <td><span class="badge badge-orange">Wave</span></td>
+                <td><span class="montant-neg">150 000</span></td>
+                <td><span class="badge badge-orange"><span class="badge-dot"></span>En attente</span></td>
+                <td><button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;">Voir</button></td>
+              </tr>
+              <tr>
+                <td style="color:#888;font-size:12px;">07/03/2026</td>
+                <td><div style="font-weight:600;font-size:13px;">Achat tableaux blancs (x4)</div><div style="font-size:11px;color:#aaa;">Nouvelles salles — Agrandissement</div></td>
+                <td><span class="cat-tag cat-materiel">Matériel</span></td>
+                <td><span class="badge badge-blue">Virement</span></td>
+                <td><span class="montant-neg">96 000</span></td>
+                <td><span class="badge badge-green"><span class="badge-dot"></span>Validée</span></td>
+                <td><button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;">Voir</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- RIGHT PANEL -->
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <!-- DONUT PAR CATEGORIE -->
+        <div class="card">
+          <div class="card-head"><h3>Répartition par catégorie</h3></div>
+          <div class="card-body">
+            <div class="donut-wrap">
+              <svg width="140" height="140" viewBox="0 0 140 140">
+                <!-- Loyer 31% -->
+                <circle cx="70" cy="70" r="54" fill="none" stroke="#E30613" stroke-width="18" stroke-dasharray="105 234" stroke-dashoffset="0"/>
+                <!-- Salaires 28% -->
+                <circle cx="70" cy="70" r="54" fill="none" stroke="#111" stroke-width="18" stroke-dasharray="95 244" stroke-dashoffset="-105"/>
+                <!-- Intervenants 18% -->
+                <circle cx="70" cy="70" r="54" fill="none" stroke="#f59e0b" stroke-width="18" stroke-dasharray="61 278" stroke-dashoffset="-200"/>
+                <!-- Matériel 12% -->
+                <circle cx="70" cy="70" r="54" fill="none" stroke="#3b82f6" stroke-width="18" stroke-dasharray="41 298" stroke-dashoffset="-261"/>
+                <!-- Autre 11% -->
+                <circle cx="70" cy="70" r="54" fill="none" stroke="#10b981" stroke-width="18" stroke-dasharray="37 302" stroke-dashoffset="-302"/>
+              </svg>
+              <div class="donut-center"><div class="val">4.82M</div><div class="lbl">FCFA</div></div>
+            </div>
+            <div class="legend-item"><div class="legend-dot" style="background:#E30613;"></div><span style="flex:1;">Loyer & Charges</span><strong>31%</strong></div>
+            <div class="legend-item"><div class="legend-dot" style="background:#111;"></div><span style="flex:1;">Salaires</span><strong>28%</strong></div>
+            <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;"></div><span style="flex:1;">Intervenants</span><strong>18%</strong></div>
+            <div class="legend-item"><div class="legend-dot" style="background:#3b82f6;"></div><span style="flex:1;">Matériel</span><strong>12%</strong></div>
+            <div class="legend-item"><div class="legend-dot" style="background:#10b981;"></div><span style="flex:1;">Autre</span><strong>11%</strong></div>
+          </div>
+        </div>
+
+        <!-- BUDGET PAR POSTE -->
+        <div class="card">
+          <div class="card-head"><h3>Suivi budgétaire</h3><span style="font-size:11.5px;color:#aaa;">Mars 2026</span></div>
+          <div class="card-body">
+            <div class="budget-line">
+              <div class="budget-line-top">
+                <span class="budget-line-label">Loyer & Charges</span>
+                <span class="budget-line-val"><strong>1 500 000</strong> / 1 650 000</span>
+              </div>
+              <div class="budget-track"><div class="budget-fill over" style="width:91%;"></div></div>
+            </div>
+            <div class="budget-line">
+              <div class="budget-line-top">
+                <span class="budget-line-label">Salaires admin.</span>
+                <span class="budget-line-val"><strong>850 000</strong> / 1 000 000</span>
+              </div>
+              <div class="budget-track"><div class="budget-fill warn" style="width:85%;"></div></div>
+            </div>
+            <div class="budget-line">
+              <div class="budget-line-top">
+                <span class="budget-line-label">Intervenants</span>
+                <span class="budget-line-val"><strong>870 000</strong> / 1 200 000</span>
+              </div>
+              <div class="budget-track"><div class="budget-fill" style="width:73%;"></div></div>
+            </div>
+            <div class="budget-line">
+              <div class="budget-line-top">
+                <span class="budget-line-label">Matériel</span>
+                <span class="budget-line-val"><strong>416 000</strong> / 800 000</span>
+              </div>
+              <div class="budget-track"><div class="budget-fill" style="width:52%;"></div></div>
+            </div>
+            <div class="budget-line">
+              <div class="budget-line-top">
+                <span class="budget-line-label">Internet & Tél.</span>
+                <span class="budget-line-val"><strong>85 000</strong> / 150 000</span>
+              </div>
+              <div class="budget-track"><div class="budget-fill" style="width:57%;"></div></div>
+            </div>
+            <div class="budget-line">
+              <div class="budget-line-top">
+                <span class="budget-line-label">Communication</span>
+                <span class="budget-line-val"><strong>150 000</strong> / 500 000</span>
+              </div>
+              <div class="budget-track"><div class="budget-fill" style="width:30%;"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EVOLUTION PAR MOIS -->
+    <div class="card full-col">
+      <div class="card-head"><h3>Évolution mensuelle des dépenses</h3><span style="font-size:11.5px;color:#aaa;">Jan — Mars 2026</span></div>
+      <div class="card-body">
+        <div class="chart-wrap">
+          <div class="chart-bar-row"><div class="chart-bar-label">Janvier 2026</div><div class="chart-bar-track"><div class="chart-bar-fill b2" style="width:72%;"></div></div><div class="chart-bar-val">4 320 000 F</div></div>
+          <div class="chart-bar-row"><div class="chart-bar-label">Février 2026</div><div class="chart-bar-track"><div class="chart-bar-fill b2" style="width:74%;"></div></div><div class="chart-bar-val">4 460 000 F</div></div>
+          <div class="chart-bar-row"><div class="chart-bar-label">Mars 2026</div><div class="chart-bar-track"><div class="chart-bar-fill" style="width:80%;"></div></div><div class="chart-bar-val">4 820 000 F</div></div>
+        </div>
+        <div style="display:flex;gap:20px;margin-top:14px;flex-wrap:wrap;">
+          <div style="font-size:12.5px;color:#555;">Moyenne 3 mois : <strong style="color:#111;">4 533 333 FCFA</strong></div>
+          <div style="font-size:12.5px;color:#555;">Tendance : <strong style="color:#E30613;">▲ +8.5%</strong></div>
+          <div style="font-size:12.5px;color:#555;">Budget annuel estimé : <strong style="color:#111;">54 400 000 FCFA</strong></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <a href="03_dashboard_dg.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    Dashboard
+  </a>
+  <a href="04_etudiants.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+    Étudiants
+  </a>
+  <a href="05_paiements.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+    Paiements
+  </a>
+  <a href="10_depenses.html" class="active">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    Dépenses
+  </a>
+  <a href="13_rapports.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+    Rapports
+  </a>
+</nav>
+
+<!-- MODAL NOUVELLE DEPENSE -->
+<div class="modal-overlay" id="mainModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Nouvelle dépense</h2>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label>Libellé</label><input type="text" placeholder="Ex : Achat matériel informatique"></div>
+        <div class="form-group"><label>Date</label><input type="date" value="2026-03-07"></div>
+        <div class="form-group"><label>Montant (FCFA)</label><input type="number" placeholder="Ex : 150000"></div>
+        <div class="form-group"><label>Catégorie</label>
+          <select>
+            <option>Loyer & Charges</option>
+            <option>Salaires</option>
+            <option>Matériel</option>
+            <option>Fournitures</option>
+            <option>Internet & Téléphone</option>
+            <option>Entretien</option>
+            <option>Communication</option>
+            <option>Autre</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Mode de paiement</label>
+          <select>
+            <option>Virement bancaire</option>
+            <option>Wave</option>
+            <option>Orange Money</option>
+            <option>Cash</option>
+            <option>Chèque</option>
+            <option>Prélèvement auto</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Bénéficiaire / Fournisseur</label><input type="text" placeholder="Ex : Orange Sénégal"></div>
+        <div class="form-group full"><label>Référence facture</label><input type="text" placeholder="Ex : FAC-2026-XXX"></div>
+        <div class="form-group full"><label>Notes</label><textarea rows="2" placeholder="Informations complémentaires…"></textarea></div>
+        <div class="form-group full">
+          <label>Justificatif (facture / reçu)</label>
+          <div class="upload-zone" onclick="this.querySelector('input').click()">
+            <svg width="28" height="28" fill="none" stroke="#ccc" stroke-width="1.5" viewBox="0 0 24 24" style="margin:0 auto 8px;display:block;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div style="font-size:13px;color:#aaa;">Glisser un fichier ou <span style="color:#E30613;font-weight:600;">parcourir</span></div>
+            <div style="font-size:11px;color:#ccc;margin-top:4px;">PDF, JPG, PNG — max 5 Mo</div>
+            <input type="file" style="display:none;">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-red" onclick="closeModal()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETAIL DEPENSE -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-head">
+      <div>
+        <h2 id="detail-title">Loyer mars 2026</h2>
+        <div style="font-size:12px;color:#888;margin-top:2px;">01/03/2026</div>
+      </div>
+      <button class="modal-close" onclick="closeDetailModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:#fafafa;border-radius:10px;padding:16px 18px;margin-bottom:18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span id="detail-cat" class="cat-tag cat-loyer">Loyer</span>
+          <span class="badge badge-green"><span class="badge-dot"></span>Validée</span>
+        </div>
+        <div style="font-size:28px;font-weight:700;color:#E30613;" id="detail-montant">1 500 000 FCFA</div>
+        <div style="font-size:12px;color:#888;margin-top:4px;">Mode : <strong id="detail-mode">Virement</strong></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;">
+        <div style="font-size:12.5px;color:#555;">Bénéficiaire<br><strong style="color:#111;">M. Diouf Mamadou</strong></div>
+        <div style="font-size:12.5px;color:#555;">Réf. facture<br><strong style="color:#111;">FAC-2026-0089</strong></div>
+        <div style="font-size:12.5px;color:#555;">Saisi par<br><strong style="color:#111;">Resp. Financier</strong></div>
+        <div style="font-size:12.5px;color:#555;">Validé par<br><strong style="color:#111;">DG — 01/03/2026</strong></div>
+      </div>
+      <div style="border:1.5px dashed #ddd;border-radius:8px;padding:14px;text-align:center;color:#aaa;">
+        <svg width="24" height="24" fill="none" stroke="#ddd" stroke-width="1.5" viewBox="0 0 24 24" style="display:block;margin:0 auto 6px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+        <div style="font-size:12px;">Justificatif : <strong style="color:#111;">facture_loyer_mars.pdf</strong></div>
+        <button class="btn btn-outline" style="margin-top:8px;font-size:11.5px;padding:5px 14px;">Télécharger</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeDetailModal()">Fermer</button>
+      <button class="btn btn-outline" style="color:#E30613;border-color:#E30613;">Rejeter</button>
+      <button class="btn btn-red" onclick="closeDetailModal()">Valider (DG)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openModal(){document.getElementById('mainModal').classList.add('open');}
+function closeModal(){document.getElementById('mainModal').classList.remove('open');}
+function openDetailModal(title,cat,montant,mode){
+  document.getElementById('detail-title').textContent=title;
+  document.getElementById('detail-montant').textContent=montant+' FCFA';
+  document.getElementById('detail-mode').textContent=mode;
+  document.getElementById('detailModal').classList.add('open');
+}
+function closeDetailModal(){document.getElementById('detailModal').classList.remove('open');}
+['mainModal','detailModal'].forEach(id=>{
+  document.getElementById(id).addEventListener('click',function(e){
+    if(e.target===this) this.classList.remove('open');
+  });
+});
+</script>
+</body>
+</html>

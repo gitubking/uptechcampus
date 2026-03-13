@@ -1,0 +1,1477 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>UPTECH Campus — Etudiants</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: #f4f4f4;
+      display: flex;
+      min-height: 100vh;
+      font-size: 13px;
+    }
+
+    /* ══════════════════════════
+       SIDEBAR (identique dashboard)
+    ══════════════════════════ */
+    .sidebar {
+      width: 230px;
+      background: #111111;
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top:0; left:0; bottom:0;
+      z-index: 100;
+    }
+
+    .sidebar-logo {
+      padding: 22px 20px 18px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+
+    .sidebar-logo img { width: 130px; object-fit: contain; }
+    .sidebar-logo span {
+      display: block;
+      color: rgba(255,255,255,0.35);
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 6px;
+    }
+
+    .nav-section { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+
+    .nav-section-label {
+      color: #ffffff;
+      font-size: 12.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      padding: 8px 20px 4px;
+      font-weight: 600;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 20px;
+      color: #ffffff;
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-decoration: none;
+      position: relative;
+    }
+
+    .nav-item:hover { background: rgba(255,255,255,0.05); }
+
+    .nav-item.active {
+      background: rgba(227,6,19,0.15);
+    }
+
+    .nav-item.active::before {
+      content: '';
+      position: absolute;
+      left:0; top:0; bottom:0;
+      width: 3px;
+      background: #E30613;
+      border-radius: 0 2px 2px 0;
+    }
+
+    .nav-item .ico { font-size: 15px; width: 18px; text-align: center; }
+
+    .nav-badge {
+      margin-left: auto;
+      background: #E30613;
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 10px;
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 16px 20px;
+      border-top: 1px solid rgba(255,255,255,0.07);
+    }
+
+    .user-card { display: flex; align-items: center; gap: 10px; }
+
+    .user-avatar {
+      width: 34px; height: 34px;
+      background: #E30613;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 13px; font-weight: 700; flex-shrink: 0;
+    }
+
+    .user-info strong { display: block; color: #fff; font-size: 12px; font-weight: 600; }
+    .user-info span   { color: rgba(255,255,255,0.35); font-size: 10px; }
+
+    .logout-btn {
+      margin-left: auto;
+      background: none; border: none;
+      color: rgba(255,255,255,0.3);
+      font-size: 16px; cursor: pointer;
+      transition: color 0.2s;
+    }
+    .logout-btn:hover { color: #E30613; }
+
+    /* ══════════════════════════
+       MAIN
+    ══════════════════════════ */
+    .main {
+      margin-left: 230px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      background: #fff;
+      border-bottom: 1px solid #ebebeb;
+      padding: 0 28px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .topbar h1 { font-size: 15px; font-weight: 700; color: #111; }
+    .topbar .breadcrumb { font-size: 11.5px; color: #aaa; font-weight: 400; margin-left: 4px; }
+
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: #E30613;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 9px 16px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-primary:hover { background: #c0000e; }
+
+    /* ══════════════════════════
+       CONTENU
+    ══════════════════════════ */
+    .content {
+      padding: 24px 28px;
+      flex: 1;
+      display: flex;
+      gap: 20px;
+    }
+
+    /* ── Panneau liste (gauche) ── */
+    .list-panel {
+      flex: 1;
+      min-width: 0;
+      transition: all 0.3s;
+    }
+
+    /* Barre de recherche + filtres */
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .search-wrap {
+      position: relative;
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .search-wrap .ico {
+      position: absolute;
+      left: 11px; top: 50%;
+      transform: translateY(-50%);
+      color: #bbb; font-size: 14px;
+    }
+
+    .search-wrap input {
+      width: 100%;
+      border: 1.5px solid #e5e5e5;
+      border-radius: 4px;
+      padding: 9px 12px 9px 35px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 12.5px;
+      color: #111;
+      outline: none;
+      background: #fff;
+      transition: border-color 0.2s;
+    }
+
+    .search-wrap input:focus { border-color: #E30613; }
+    .search-wrap input::placeholder { color: #ccc; }
+
+    .filter-select {
+      border: 1.5px solid #e5e5e5;
+      border-radius: 4px;
+      padding: 9px 12px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 12px;
+      color: #444;
+      background: #fff;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .filter-select:focus { border-color: #E30613; }
+
+    /* Stats rapides */
+    .quick-stats {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .qs-card {
+      flex: 1;
+      background: #fff;
+      border-radius: 4px;
+      padding: 12px 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .qs-ico {
+      width: 34px; height: 34px;
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    .qs-ico.green  { background: #f0fdf4; }
+    .qs-ico.red    { background: #fff0f0; }
+    .qs-ico.blue   { background: #eff6ff; }
+    .qs-ico.orange { background: #fff8f0; }
+
+    .qs-info strong {
+      display: block;
+      font-size: 18px;
+      font-weight: 700;
+      color: #111;
+      line-height: 1;
+    }
+
+    .qs-info span { font-size: 10.5px; color: #888; }
+
+    /* Tableau */
+    .table-wrap {
+      background: #fff;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead tr {
+      background: #f9f9f9;
+      border-bottom: 2px solid #f0f0f0;
+    }
+
+    thead th {
+      padding: 11px 14px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      white-space: nowrap;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid #f5f5f5;
+      transition: background 0.12s;
+      cursor: pointer;
+    }
+
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #fafafa; }
+    tbody tr.selected { background: #fff5f5; }
+
+    tbody td {
+      padding: 11px 14px;
+      font-size: 12.5px;
+      color: #222;
+      vertical-align: middle;
+    }
+
+    .td-num {
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      font-family: monospace;
+    }
+
+    .student-name {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .s-avatar {
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700;
+      color: #fff; flex-shrink: 0;
+    }
+
+    .s-name strong { display: block; font-size: 12.5px; font-weight: 600; color: #111; }
+    .s-name span   { font-size: 10.5px; color: #aaa; }
+
+    /* Badges statut */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 9px;
+      border-radius: 20px;
+      font-size: 10.5px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .badge-active    { background: #f0fdf4; color: #15803d; }
+    .badge-preinsc   { background: #eff6ff; color: #1d4ed8; }
+    .badge-suspend   { background: #fff0f0; color: #b91c1c; }
+    .badge-abandon   { background: #f5f5f5; color: #888; }
+    .badge-diplome   { background: #fdf4ff; color: #7e22ce; }
+    .badge-examen    { background: #fefce8; color: #854d0e; }
+
+    .badge-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+    }
+
+    .dot-green  { background: #22c55e; }
+    .dot-blue   { background: #3b82f6; }
+    .dot-red    { background: #E30613; }
+    .dot-gray   { background: #aaa; }
+    .dot-purple { background: #a855f7; }
+    .dot-yellow { background: #eab308; }
+
+    /* Alerte impaye */
+    .impaye-flag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10.5px;
+      font-weight: 600;
+      color: #E30613;
+    }
+
+    /* Actions rapides tableau */
+    .row-actions {
+      display: flex;
+      gap: 6px;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+
+    tbody tr:hover .row-actions,
+    tbody tr.selected .row-actions { opacity: 1; }
+
+    .row-btn {
+      border: 1px solid #e5e5e5;
+      background: #fff;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #555;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .row-btn:hover          { border-color: #E30613; color: #E30613; }
+    .row-btn.row-btn-danger { color: #E30613; border-color: #fecaca; }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-top: 1px solid #f0f0f0;
+      background: #fafafa;
+    }
+
+    .pagination-info { font-size: 11.5px; color: #888; }
+
+    .pagination-btns { display: flex; gap: 4px; }
+
+    .page-btn {
+      border: 1px solid #e5e5e5;
+      background: #fff;
+      border-radius: 4px;
+      width: 30px; height: 30px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: #555;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .page-btn:hover     { border-color: #E30613; color: #E30613; }
+    .page-btn.active    { background: #E30613; border-color: #E30613; color: #fff; }
+    .page-btn.disabled  { opacity: 0.3; cursor: not-allowed; }
+
+    /* ══════════════════════════
+       PANNEAU DETAIL (droite)
+    ══════════════════════════ */
+    .detail-panel {
+      width: 360px;
+      flex-shrink: 0;
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .detail-panel.open { display: flex; }
+
+    .detail-header {
+      background: #fff;
+      border-radius: 6px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      text-align: center;
+      position: relative;
+    }
+
+    .close-detail {
+      position: absolute;
+      top: 12px; right: 12px;
+      background: #f4f4f4;
+      border: none;
+      border-radius: 4px;
+      width: 28px; height: 28px;
+      cursor: pointer;
+      font-size: 13px;
+      color: #888;
+      transition: all 0.15s;
+    }
+
+    .close-detail:hover { background: #fff0f0; color: #E30613; }
+
+    .detail-avatar {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; font-weight: 700;
+      color: #fff;
+      margin: 0 auto 12px;
+    }
+
+    .detail-name { font-size: 15px; font-weight: 700; color: #111; margin-bottom: 3px; }
+    .detail-num  { font-size: 11px; color: #aaa; font-family: monospace; margin-bottom: 10px; }
+
+    .detail-badges { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+
+    .detail-contact {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 11.5px;
+      color: #666;
+    }
+
+    .detail-contact span { display: flex; align-items: center; gap: 6px; }
+
+    /* Onglets */
+    .detail-tabs {
+      background: #fff;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+
+    .tabs-header {
+      display: flex;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 11px 6px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: #aaa;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+      background: none;
+      border-left: none;
+      border-right: none;
+      border-top: none;
+      font-family: 'Poppins', sans-serif;
+    }
+
+    .tab-btn:hover { color: #111; }
+
+    .tab-btn.active {
+      color: #E30613;
+      border-bottom-color: #E30613;
+    }
+
+    .tab-content { padding: 16px; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* Infos dossier */
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 7px 0;
+      border-bottom: 1px solid #f5f5f5;
+      gap: 8px;
+    }
+
+    .info-row:last-child { border-bottom: none; }
+
+    .info-label { font-size: 11px; color: #888; font-weight: 500; flex-shrink: 0; }
+    .info-value { font-size: 12px; color: #111; font-weight: 600; text-align: right; }
+
+    /* Documents */
+    .doc-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid #f5f5f5;
+    }
+
+    .doc-item:last-child { border-bottom: none; }
+
+    .doc-icon { font-size: 16px; width: 22px; text-align: center; }
+
+    .doc-name { flex: 1; font-size: 12px; font-weight: 500; color: #333; }
+
+    .doc-status {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+
+    .doc-ok      { background: #f0fdf4; color: #15803d; }
+    .doc-missing { background: #fff0f0; color: #b91c1c; }
+    .doc-pending { background: #fefce8; color: #854d0e; }
+
+    /* Finances */
+    .fin-summary {
+      background: #f9f9f9;
+      border-radius: 4px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .fin-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      font-size: 12px;
+    }
+
+    .fin-row .fin-label { color: #888; }
+    .fin-row .fin-val   { font-weight: 700; color: #111; }
+    .fin-row .fin-green { color: #22c55e; }
+    .fin-row .fin-red   { color: #E30613; }
+
+    .pay-hist-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 0;
+      border-bottom: 1px solid #f5f5f5;
+      font-size: 11.5px;
+    }
+
+    .pay-hist-item:last-child { border-bottom: none; }
+    .pay-hist-date  { color: #aaa; width: 70px; flex-shrink: 0; }
+    .pay-hist-mode  { flex: 1; color: #555; }
+    .pay-hist-amt   { font-weight: 700; color: #22c55e; }
+
+    /* Actions bas du panel */
+    .detail-actions {
+      background: #fff;
+      border-radius: 6px;
+      padding: 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .action-btn {
+      width: 100%;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+    }
+
+    .action-btn-red   { background: #E30613; color: #fff; border: none; }
+    .action-btn-red:hover { background: #c0000e; }
+    .action-btn-dark  { background: #111; color: #fff; border: none; }
+    .action-btn-dark:hover { background: #333; }
+    .action-btn-ghost { background: #fff; color: #555; border: 1.5px solid #e5e5e5; }
+    .action-btn-ghost:hover { border-color: #111; color: #111; }
+
+    /* MODAL INSCRIPTION */
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 500;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: #fff;
+      border-radius: 8px;
+      width: 600px;
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    }
+
+    .modal-header {
+      padding: 18px 22px;
+      border-bottom: 1px solid #f0f0f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky; top: 0;
+      background: #fff;
+      z-index: 1;
+    }
+
+    .modal-header h3 { font-size: 15px; font-weight: 700; color: #111; }
+
+    .modal-close {
+      background: #f4f4f4; border: none; border-radius: 4px;
+      width: 30px; height: 30px; cursor: pointer; font-size: 14px; color: #888;
+      transition: all 0.15s;
+    }
+
+    .modal-close:hover { background: #fff0f0; color: #E30613; }
+
+    .modal-body { padding: 22px; }
+
+    .modal-steps {
+      display: flex;
+      align-items: center;
+      margin-bottom: 24px;
+      gap: 0;
+    }
+
+    .ms-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+      position: relative;
+    }
+
+    .ms-item:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      top: 14px;
+      left: 60%;
+      right: -40%;
+      height: 2px;
+      background: #e5e5e5;
+      z-index: 0;
+    }
+
+    .ms-item.done:not(:last-child)::after  { background: #E30613; }
+
+    .ms-num {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700;
+      border: 2px solid #e5e5e5;
+      background: #fff;
+      color: #aaa;
+      position: relative; z-index: 1;
+      transition: all 0.2s;
+    }
+
+    .ms-item.active .ms-num { border-color: #E30613; color: #E30613; }
+    .ms-item.done   .ms-num { border-color: #E30613; background: #E30613; color: #fff; }
+
+    .ms-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: #aaa;
+      margin-top: 5px;
+      text-align: center;
+    }
+
+    .ms-item.active .ms-label,
+    .ms-item.done   .ms-label { color: #E30613; }
+
+    /* Champs formulaire modal */
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    .form-row.full { grid-template-columns: 1fr; }
+
+    .form-group label {
+      display: block;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #333;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      margin-bottom: 6px;
+    }
+
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      border: 1.5px solid #e5e5e5;
+      border-radius: 4px;
+      padding: 10px 12px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      color: #111;
+      outline: none;
+      background: #fafafa;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus { border-color: #E30613; background: #fff; }
+
+    /* Upload zone */
+    .upload-zone {
+      border: 2px dashed #e5e5e5;
+      border-radius: 4px;
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .upload-zone:hover { border-color: #E30613; background: #fff5f5; }
+    .upload-zone .up-icon { font-size: 28px; margin-bottom: 8px; }
+    .upload-zone p { font-size: 12px; color: #888; }
+    .upload-zone strong { color: #E30613; }
+
+    .upload-list { margin-top: 10px; }
+
+    .upload-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      background: #f9f9f9;
+      border-radius: 4px;
+      margin-bottom: 6px;
+      font-size: 11.5px;
+    }
+
+    .upload-item .up-name { flex: 1; color: #333; font-weight: 500; }
+    .upload-item .up-ok   { color: #22c55e; font-weight: 700; }
+    .upload-item .up-miss { color: #E30613; font-weight: 700; }
+
+    .modal-footer {
+      padding: 16px 22px;
+      border-top: 1px solid #f0f0f0;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      position: sticky; bottom: 0;
+      background: #fff;
+    }
+
+    .btn-ghost {
+      border: 1.5px solid #e5e5e5;
+      background: #fff;
+      border-radius: 4px;
+      padding: 10px 20px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-ghost:hover { border-color: #111; color: #111; }
+
+    /* ── RESPONSIVE MOBILE ── */
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .main { margin-left: 0; padding-bottom: 64px; }
+      .topbar { padding: 0 16px; }
+      .topbar .breadcrumb { display: none; }
+      .content { padding: 14px; flex-direction: column; }
+      .detail-panel { width: 100%; }
+      .quick-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      thead th:nth-child(2),
+      thead th:nth-child(5),
+      tbody td:nth-child(2),
+      tbody td:nth-child(5) { display: none; }
+      .row-actions { opacity: 1; }
+      .modal { width: 95vw; max-height: 90vh; }
+      .form-row { grid-template-columns: 1fr; }
+
+      .bottom-nav {
+        display: flex;
+        position: fixed;
+        bottom:0; left:0; right:0;
+        height: 60px;
+        background: #111111;
+        border-top: 1px solid rgba(255,255,255,0.08);
+        z-index: 200;
+        justify-content: space-around;
+        align-items: center;
+      }
+
+      .bn-item {
+        display: flex; flex-direction: column;
+        align-items: center; gap: 3px;
+        color: rgba(255,255,255,0.5);
+        font-size: 9px; font-weight: 600;
+        cursor: pointer; padding: 6px 10px;
+      }
+
+      .bn-item.active { color: #E30613; }
+      .bn-item .bn-ico { font-size: 20px; }
+    }
+
+    .bottom-nav { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- ════ SIDEBAR ════ -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH"/>
+    <span>Campus v1.0</span>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Principal</div>
+    <a class="nav-item" href="03_dashboard_dg.html">
+      <span class="ico">&#9732;</span> Tableau de bord
+    </a>
+    <a class="nav-item"><span class="ico">&#128202;</span> Rapports</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Pedagogie</div>
+    <a class="nav-item active">
+      <span class="ico">&#128100;</span> Etudiants
+      <span class="nav-badge">247</span>
+    </a>
+    <a class="nav-item"><span class="ico">&#128197;</span> Emplois du temps</a>
+    <a class="nav-item"><span class="ico">&#128203;</span> Notes & Bulletins</a>
+    <a class="nav-item"><span class="ico">&#9989;</span> Presences</a>
+    <a class="nav-item"><span class="ico">&#127979;</span> Intervenants</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Finances</div>
+    <a class="nav-item"><span class="ico">&#128176;</span> Paiements <span class="nav-badge">4</span></a>
+    <a class="nav-item"><span class="ico">&#128184;</span> Depenses</a>
+    <a class="nav-item"><span class="ico">&#128179;</span> Remuneration interv.</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Communication</div>
+    <a class="nav-item"><span class="ico">&#128172;</span> Messagerie <span class="nav-badge">3</span></a>
+    <a class="nav-item"><span class="ico">&#128276;</span> Notifications</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Administration</div>
+    <a class="nav-item"><span class="ico">&#128736;</span> Parametres</a>
+    <a class="nav-item"><span class="ico">&#128101;</span> Comptes utilisateurs</a>
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="user-card">
+      <div class="user-avatar">DG</div>
+      <div class="user-info">
+        <strong>Directeur General</strong>
+        <span>Acces complet</span>
+      </div>
+      <button class="logout-btn">&#8594;</button>
+    </div>
+  </div>
+</aside>
+
+<!-- ════ MAIN ════ -->
+<div class="main">
+
+  <div class="topbar">
+    <h1>Etudiants <span class="breadcrumb">/ Liste & Dossiers</span></h1>
+    <div class="topbar-right">
+      <button class="btn-primary" onclick="openModal()">&#43; Nouvel etudiant</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ── LISTE ── -->
+    <div class="list-panel" id="listPanel">
+
+      <!-- Stats rapides -->
+      <div class="quick-stats">
+        <div class="qs-card">
+          <div class="qs-ico green">&#128100;</div>
+          <div class="qs-info"><strong>247</strong><span>Etudiants actifs</span></div>
+        </div>
+        <div class="qs-card">
+          <div class="qs-ico blue">&#128221;</div>
+          <div class="qs-info"><strong>12</strong><span>Pre-inscriptions</span></div>
+        </div>
+        <div class="qs-card">
+          <div class="qs-ico red">&#9888;</div>
+          <div class="qs-info"><strong>18</strong><span>Impayes en cours</span></div>
+        </div>
+        <div class="qs-card">
+          <div class="qs-ico orange">&#128203;</div>
+          <div class="qs-info"><strong>5</strong><span>Dossiers incomplets</span></div>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="search-wrap">
+          <span class="ico">&#128269;</span>
+          <input type="text" placeholder="Rechercher par nom, prenom ou numero etudiant..." />
+        </div>
+        <select class="filter-select">
+          <option>Toutes les filieres</option>
+          <option>Informatique de Gestion</option>
+          <option>Webmaster & Dev. Mobile</option>
+          <option>Reseaux & Systemes</option>
+          <option>Infographie & Multimedia</option>
+          <option>Master Audiovisuel</option>
+          <option>Journalisme & Multimedia</option>
+          <option>Secretariat & Assistanat</option>
+        </select>
+        <select class="filter-select">
+          <option>Tous les statuts</option>
+          <option>Inscrit actif</option>
+          <option>Pre-inscription</option>
+          <option>Suspendu</option>
+          <option>Diplome</option>
+          <option>Abandonne</option>
+        </select>
+        <select class="filter-select">
+          <option>Tous les parcours</option>
+          <option>BTS / DTS</option>
+          <option>Licence Pro</option>
+          <option>Master</option>
+          <option>DAP</option>
+          <option>Formation acceleree</option>
+        </select>
+      </div>
+
+      <!-- Tableau -->
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>N° Etudiant</th>
+              <th>Etudiant</th>
+              <th>Filiere / Parcours</th>
+              <th>Statut</th>
+              <th>Situation financiere</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr onclick="openDetail('AF')" id="row-AF">
+              <td class="td-num">UPTECH-2025-001</td>
+              <td>
+                <div class="student-name">
+                  <div class="s-avatar" style="background:#E30613">AF</div>
+                  <div class="s-name"><strong>Aminata Fall</strong><span>aminata.fall@email.com</span></div>
+                </div>
+              </td>
+              <td>DTS Informatique<br><span style="font-size:10.5px;color:#aaa">Enseignement superieur</span></td>
+              <td><span class="badge badge-active"><span class="badge-dot dot-green"></span>Inscrit actif</span></td>
+              <td><span style="color:#22c55e;font-weight:700;font-size:12px">&#10003; A jour</span></td>
+              <td><div class="row-actions"><button class="row-btn">Voir</button><button class="row-btn">Paiement</button></div></td>
+            </tr>
+            <tr onclick="openDetail('MS')" id="row-MS">
+              <td class="td-num">UPTECH-2025-002</td>
+              <td>
+                <div class="student-name">
+                  <div class="s-avatar" style="background:#3b82f6">MS</div>
+                  <div class="s-name"><strong>Moussa Sow</strong><span>moussa.sow@email.com</span></div>
+                </div>
+              </td>
+              <td>BTS Webmaster<br><span style="font-size:10.5px;color:#aaa">Enseignement superieur</span></td>
+              <td><span class="badge badge-active"><span class="badge-dot dot-green"></span>Inscrit actif</span></td>
+              <td><span class="impaye-flag">&#9888; J+7 — 75 000 FCFA</span></td>
+              <td><div class="row-actions"><button class="row-btn">Voir</button><button class="row-btn">Paiement</button></div></td>
+            </tr>
+            <tr onclick="openDetail('FD')">
+              <td class="td-num">UPTECH-2025-003</td>
+              <td>
+                <div class="student-name">
+                  <div class="s-avatar" style="background:#7c3aed">FD</div>
+                  <div class="s-name"><strong>Fatou Diallo</strong><span>fatou.diallo@email.com</span></div>
+                </div>
+              </td>
+              <td>Licence Informatique<br><span style="font-size:10.5px;color:#aaa">Enseignement superieur</span></td>
+              <td><span class="badge badge-active"><span class="badge-dot dot-green"></span>Inscrit actif</span></td>
+              <td><span style="color:#22c55e;font-weight:700;font-size:12px">&#10003; A jour</span></td>
+              <td><div class="row-actions"><button class="row-btn">Voir</button><button class="row-btn">Paiement</button></div></td>
+            </tr>
+            <tr onclick="openDetail('SN')">
+              <td class="td-num">UPTECH-2025-004</td>
+              <td>
+                <div class="student-name">
+                  <div class="s-avatar" style="background:#f97316">SN</div>
+                  <div class="s-name"><strong>Seydou Ndiaye</strong><span>seydou.ndiaye@email.com</span></div>
+                </div>
+              </td>
+              <td>DTS Reseaux<br><span style="font-size:10.5px;color:#aaa">Enseignement superieur</span></td>
+              <td><span class="badge badge-suspend"><span class="badge-dot dot-red"></span>Suspendu</span></td>
+              <td><span class="impaye-flag" style="font-size:11px;">&#128308; J+30 — 180 000 FCFA</span></td>
+              <td><div class="row-actions"><button class="row-btn">Voir</button><button class="row-btn row-btn-danger">Lever suspension</button></div></td>
+            </tr>
+            <tr onclick="openDetail('IB')">
+              <td class="td-num">UPTECH-2025-005</td>
+              <td>
+                <div class="student-name">
+                  <div class="s-avatar" style="background:#0891b2">IB</div>
+                  <div class="s-name"><strong>Ibrahima Ba</strong><span>ibrahima.ba@email.com</span></div>
+                </div>
+              </td>
+              <td>Master Audiovisuel<br><span style="font-size:10.5px;color:#aaa">Enseignement superieur</span></td>
+              <td><span class="badge badge-active"><span class="badge-dot dot-green"></span>Inscrit actif</span></td>
+              <td><span style="color:#22c55e;font-weight:700;font-size:12px">&#10003; A jour</span></td>
+              <td><div class="row-actions"><button class="row-btn">Voir</button><button class="row-btn">Paiement</button></div></td>
+            </tr>
+            <tr onclick="openDetail('MC')">
+              <td class="td-num">UPTECH-2025-006</td>
+              <td>
+                <div class="student-name">
+                  <div class="s-avatar" style="background:#be185d">MC</div>
+                  <div class="s-name"><strong>Marietou Cisse</strong><span>marietou.cisse@email.com</span></div>
+                </div>
+              </td>
+              <td>BTS Infographie<br><span style="font-size:10.5px;color:#aaa">Enseignement superieur</span></td>
+              <td><span class="badge badge-examen"><span class="badge-dot dot-yellow"></span>En cours examen</span></td>
+              <td><span class="impaye-flag">&#9888; J+30 — 75 000 FCFA</span></td>
+              <td><div class="row-actions"><button class="row-btn">Voir</button><button class="row-btn">Paiement</button></div></td>
+            </tr>
+            <tr onclick="openDetail('AM')">
+              <td class="td-num">UPTECH-2024-118</td>
+              <td>
+                <div class="student-name">
+                  <div class="s-avatar" style="background:#15803d">AM</div>
+                  <div class="s-name"><strong>Aissatou Mbaye</strong><span>aissatou.mbaye@email.com</span></div>
+                </div>
+              </td>
+              <td>Certificat Specialisation<br><span style="font-size:10.5px;color:#aaa">Formation speciale</span></td>
+              <td><span class="badge badge-preinsc"><span class="badge-dot dot-blue"></span>Pre-inscription</span></td>
+              <td><span style="color:#aaa;font-size:12px">— En attente</span></td>
+              <td><div class="row-actions"><button class="row-btn">Voir</button><button class="row-btn">Valider</button></div></td>
+            </tr>
+            <tr onclick="openDetail('LS')">
+              <td class="td-num">UPTECH-2025-009</td>
+              <td>
+                <div class="student-name">
+                  <div class="s-avatar" style="background:#92400e">LS</div>
+                  <div class="s-name"><strong>Lamine Sarr</strong><span>lamine.sarr@email.com</span></div>
+                </div>
+              </td>
+              <td>DAP Secretariat<br><span style="font-size:10.5px;color:#aaa">Enseignement professionnel</span></td>
+              <td><span class="badge badge-active"><span class="badge-dot dot-green"></span>Inscrit actif</span></td>
+              <td><span class="impaye-flag">&#9888; J+7 — 40 000 FCFA</span></td>
+              <td><div class="row-actions"><button class="row-btn">Voir</button><button class="row-btn">Paiement</button></div></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Pagination -->
+        <div class="pagination">
+          <span class="pagination-info">Affichage 1–8 sur 247 etudiants</span>
+          <div class="pagination-btns">
+            <button class="page-btn disabled">&#8592;</button>
+            <button class="page-btn active">1</button>
+            <button class="page-btn">2</button>
+            <button class="page-btn">3</button>
+            <span style="color:#aaa;padding:0 4px;font-size:12px;">...</span>
+            <button class="page-btn">31</button>
+            <button class="page-btn">&#8594;</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /list-panel -->
+
+    <!-- ── PANNEAU DETAIL ── -->
+    <div class="detail-panel" id="detailPanel">
+
+      <div class="detail-header">
+        <button class="close-detail" onclick="closeDetail()">&#10005;</button>
+        <div class="detail-avatar" style="background:#E30613">AF</div>
+        <div class="detail-name">Aminata Fall</div>
+        <div class="detail-num">UPTECH-2025-001</div>
+        <div class="detail-badges">
+          <span class="badge badge-active"><span class="badge-dot dot-green"></span>Inscrit actif</span>
+          <span class="badge" style="background:#eff6ff;color:#1d4ed8">DTS Informatique</span>
+        </div>
+        <div class="detail-contact">
+          <span>&#128241; +221 77 123 45 67</span>
+          <span>&#9993; aminata.fall@email.com</span>
+          <span>&#128197; Inscrite le 15 sept. 2025</span>
+        </div>
+      </div>
+
+      <!-- Onglets -->
+      <div class="detail-tabs">
+        <div class="tabs-header">
+          <button class="tab-btn active" onclick="switchTab(this,'t-dossier')">Dossier</button>
+          <button class="tab-btn" onclick="switchTab(this,'t-docs')">Documents</button>
+          <button class="tab-btn" onclick="switchTab(this,'t-finance')">Finances</button>
+          <button class="tab-btn" onclick="switchTab(this,'t-notes')">Notes</button>
+        </div>
+
+        <div class="tab-content">
+
+          <!-- Dossier -->
+          <div class="tab-pane active" id="t-dossier">
+            <div class="info-row"><span class="info-label">N° Etudiant</span><span class="info-value" style="font-family:monospace">UPTECH-2025-001</span></div>
+            <div class="info-row"><span class="info-label">Filiere</span><span class="info-value">Informatique de Gestion</span></div>
+            <div class="info-row"><span class="info-label">Parcours</span><span class="info-value">DTS — Bac+2</span></div>
+            <div class="info-row"><span class="info-label">Type formation</span><span class="info-value">Enseignement superieur</span></div>
+            <div class="info-row"><span class="info-label">Classe</span><span class="info-value">BTS-INFO-2A (Tronc commun)</span></div>
+            <div class="info-row"><span class="info-label">Annee academique</span><span class="info-value">2025 – 2026</span></div>
+            <div class="info-row"><span class="info-label">Mode</span><span class="info-value">Presentiel</span></div>
+            <div class="info-row"><span class="info-label">Statut dossier</span><span class="info-value"><span class="badge badge-active"><span class="badge-dot dot-green"></span>Inscrit actif</span></span></div>
+          </div>
+
+          <!-- Documents -->
+          <div class="tab-pane" id="t-docs">
+            <div class="doc-item">
+              <span class="doc-icon">&#128196;</span>
+              <span class="doc-name">Copie CNI / Passeport</span>
+              <span class="doc-status doc-ok">&#10003; Recu</span>
+            </div>
+            <div class="doc-item">
+              <span class="doc-icon">&#128247;</span>
+              <span class="doc-name">Photo d'identite numerique</span>
+              <span class="doc-status doc-ok">&#10003; Recu</span>
+            </div>
+            <div class="doc-item">
+              <span class="doc-icon">&#127891;</span>
+              <span class="doc-name">Derniers diplomes / bulletins</span>
+              <span class="doc-status doc-ok">&#10003; Recu</span>
+            </div>
+            <div class="doc-item">
+              <span class="doc-icon">&#128196;</span>
+              <span class="doc-name">Bulletin de naissance</span>
+              <span class="doc-status doc-ok">&#10003; Recu</span>
+            </div>
+            <div class="doc-item">
+              <span class="doc-icon">&#128221;</span>
+              <span class="doc-name">Contrat d'inscription signe</span>
+              <span class="doc-status doc-ok">&#10003; Archive</span>
+            </div>
+          </div>
+
+          <!-- Finances -->
+          <div class="tab-pane" id="t-finance">
+            <div class="fin-summary">
+              <div class="fin-row">
+                <span class="fin-label">Frais inscription</span>
+                <span class="fin-val">50 000 FCFA</span>
+              </div>
+              <div class="fin-row">
+                <span class="fin-label">Mensualite</span>
+                <span class="fin-val">75 000 FCFA / mois</span>
+              </div>
+              <div class="fin-row">
+                <span class="fin-label">Total paye</span>
+                <span class="fin-val fin-green">650 000 FCFA</span>
+              </div>
+              <div class="fin-row">
+                <span class="fin-label">Reste a payer</span>
+                <span class="fin-val fin-green">0 FCFA &#10003;</span>
+              </div>
+            </div>
+            <p style="font-size:11px;font-weight:700;color:#555;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.3px">Historique</p>
+            <div class="pay-hist-item"><span class="pay-hist-date">01 mars 26</span><span class="pay-hist-mode">Wave</span><span class="pay-hist-amt">+75 000</span></div>
+            <div class="pay-hist-item"><span class="pay-hist-date">01 fev. 26</span><span class="pay-hist-mode">Cash</span><span class="pay-hist-amt">+75 000</span></div>
+            <div class="pay-hist-item"><span class="pay-hist-date">02 jan. 26</span><span class="pay-hist-mode">Orange Money</span><span class="pay-hist-amt">+75 000</span></div>
+            <div class="pay-hist-item"><span class="pay-hist-date">01 dec. 25</span><span class="pay-hist-mode">Wave</span><span class="pay-hist-amt">+75 000</span></div>
+          </div>
+
+          <!-- Notes -->
+          <div class="tab-pane" id="t-notes">
+            <div class="info-row"><span class="info-label">Semestre en cours</span><span class="info-value">S2 — 2025/2026</span></div>
+            <div class="info-row"><span class="info-label">Moyenne generale S1</span><span class="info-value" style="color:#22c55e;font-weight:700">13,6 / 20</span></div>
+            <div class="info-row"><span class="info-label">Mention S1</span><span class="info-value">Assez Bien</span></div>
+            <div class="info-row"><span class="info-label">Credits ECTS obtenus</span><span class="info-value">30 / 30</span></div>
+            <div class="info-row"><span class="info-label">Decision jury S1</span><span class="info-value"><span class="badge badge-active">Admise</span></span></div>
+            <div class="info-row"><span class="info-label">Absences ce semestre</span><span class="info-value">2h / 120h (1,7%)</span></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="detail-actions">
+        <button class="action-btn action-btn-red">&#128221; Enregistrer un paiement</button>
+        <button class="action-btn action-btn-dark">&#128196; Generer un document</button>
+        <button class="action-btn action-btn-ghost">&#9998; Modifier le dossier</button>
+        <button class="action-btn action-btn-ghost" style="color:#E30613;border-color:#fecaca">&#128683; Suspendre le compte</button>
+      </div>
+
+    </div><!-- /detail-panel -->
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<!-- ════ MODAL NOUVEL ETUDIANT ════ -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>&#128100; Nouvel etudiant — Inscription</h3>
+      <button class="modal-close" onclick="closeModal()">&#10005;</button>
+    </div>
+
+    <div class="modal-body">
+      <!-- Etapes -->
+      <div class="modal-steps">
+        <div class="ms-item done">
+          <div class="ms-num">&#10003;</div>
+          <div class="ms-label">Identite</div>
+        </div>
+        <div class="ms-item active">
+          <div class="ms-num">2</div>
+          <div class="ms-label">Formation</div>
+        </div>
+        <div class="ms-item">
+          <div class="ms-num">3</div>
+          <div class="ms-label">Documents</div>
+        </div>
+        <div class="ms-item">
+          <div class="ms-num">4</div>
+          <div class="ms-label">Contrat</div>
+        </div>
+      </div>
+
+      <!-- Etape 2 : Formation -->
+      <p style="font-size:13px;font-weight:700;color:#111;margin-bottom:16px;">Affectation pedagogique</p>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Filiere</label>
+          <select>
+            <option>-- Selectionner --</option>
+            <option>Informatique de Gestion</option>
+            <option>Webmaster & Dev. Mobile</option>
+            <option>Reseaux & Systemes</option>
+            <option>Infographie & Multimedia</option>
+            <option>Master Audiovisuel</option>
+            <option>Journalisme & Multimedia</option>
+            <option>Secretariat & Assistanat</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Type de formation</label>
+          <select>
+            <option>-- Selectionner --</option>
+            <option selected>Enseignement superieur</option>
+            <option>Enseignement professionnel</option>
+            <option>Formation acceleree</option>
+            <option>Formation continue</option>
+            <option>Auditeur libre</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Diplome vise</label>
+          <select>
+            <option>BTS / DTS</option>
+            <option>Licence Professionnelle</option>
+            <option>Master</option>
+            <option>DAP</option>
+            <option>DT / BT</option>
+            <option>Attestation acceleree</option>
+            <option>Certificat de Specialisation</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Classe affectee</label>
+          <select>
+            <option>BTS-INFO-1A</option>
+            <option selected>BTS-INFO-2A (Tronc commun)</option>
+            <option>WEB-DEV-1A</option>
+            <option>RESEAUX-2A</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Mode de formation</label>
+          <select>
+            <option selected>Presentiel</option>
+            <option>En ligne</option>
+            <option>Hybride</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Annee academique</label>
+          <input type="text" value="2025 – 2026" />
+        </div>
+      </div>
+
+      <p style="font-size:13px;font-weight:700;color:#111;margin:18px 0 14px;">Conditions financieres</p>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Frais d'inscription (FCFA)</label>
+          <input type="number" value="50000" />
+        </div>
+        <div class="form-group">
+          <label>Mensualite (FCFA)</label>
+          <input type="number" value="75000" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Reduction accordee</label>
+          <select>
+            <option selected>Aucune</option>
+            <option>Reduction merite (10%)</option>
+            <option>Cas social (20%)</option>
+            <option>Bourse interne (100%)</option>
+            <option>Personnalisee</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Organisme payeur</label>
+          <select>
+            <option selected>Etudiant (direct)</option>
+            <option>Etat senegalais</option>
+            <option>Bourse privee / Sponsor</option>
+            <option>Employeur</option>
+          </select>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal()">Annuler</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-ghost">&#8592; Precedent</button>
+        <button class="btn-primary">Suivant &#8594;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom nav mobile -->
+<nav class="bottom-nav">
+  <div class="bn-item"><span class="bn-ico">&#9732;</span><span>Accueil</span></div>
+  <div class="bn-item active"><span class="bn-ico">&#128100;</span><span>Etudiants</span></div>
+  <div class="bn-item"><span class="bn-ico">&#128176;</span><span>Finances</span></div>
+  <div class="bn-item"><span class="bn-ico">&#128172;</span><span>Messages</span></div>
+  <div class="bn-item"><span class="bn-ico">&#8942;</span><span>Plus</span></div>
+</nav>
+
+<script>
+  function openDetail(id) {
+    document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('selected'));
+    const row = document.getElementById('row-' + id);
+    if (row) row.classList.add('selected');
+    document.getElementById('detailPanel').classList.add('open');
+  }
+
+  function closeDetail() {
+    document.getElementById('detailPanel').classList.remove('open');
+    document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('selected'));
+  }
+
+  function switchTab(btn, targetId) {
+    btn.closest('.detail-tabs').querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.closest('.detail-tabs').querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(targetId).classList.add('active');
+  }
+
+  function openModal() {
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('open');
+  }
+
+  // Fermer modal en cliquant hors
+  document.getElementById('modalOverlay').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>UPTECH Campus — Connexion</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: #f4f4f4;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      display: flex;
+      width: 920px;
+      min-height: 560px;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.15);
+    }
+
+    /* ── Panneau gauche ROUGE ── */
+    .left-panel {
+      width: 40%;
+      background: #111111;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 52px 36px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Cercles décoratifs discrets */
+    .left-panel::before {
+      content: '';
+      position: absolute;
+      width: 260px; height: 260px;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 50%;
+      top: -70px; right: -70px;
+    }
+    .left-panel::after {
+      content: '';
+      position: absolute;
+      width: 180px; height: 180px;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 50%;
+      bottom: -50px; left: -50px;
+    }
+
+    /* Logo */
+    .logo-wrap {
+      text-align: center;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 32px;
+    }
+
+    .logo-box {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    .logo-box img {
+      width: 160px;
+      object-fit: contain;
+    }
+
+    .logo-wrap h1 {
+      color: #ffffff;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+    }
+
+    .logo-wrap p {
+      color: rgba(255,255,255,0.78);
+      font-size: 11px;
+      font-weight: 400;
+      margin-top: 7px;
+      line-height: 1.65;
+    }
+
+    .sep {
+      width: 32px; height: 2px;
+      background: rgba(255,255,255,0.28);
+      margin: 22px auto;
+    }
+
+    .tagline {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+    }
+
+    .tagline p {
+      color: rgba(255,255,255,0.6);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+
+    .pill {
+      display: inline-block;
+      background: rgba(255,255,255,0.13);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: rgba(255,255,255,0.88);
+      font-size: 10px;
+      font-weight: 500;
+      padding: 4px 11px;
+      border-radius: 20px;
+      margin: 3px;
+    }
+
+    .contact-info {
+      position: relative;
+      z-index: 1;
+      margin-top: 30px;
+      text-align: center;
+      color: rgba(255,255,255,0.4);
+      font-size: 10px;
+      line-height: 1.8;
+    }
+
+    /* ── Panneau droit BLANC ── */
+    .right-panel {
+      flex: 1;
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 52px 52px;
+      position: relative;
+    }
+
+    .right-panel h2 {
+      color: #111111;
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .right-panel .subtitle {
+      color: #888888;
+      font-size: 13px;
+      font-weight: 400;
+      margin-bottom: 30px;
+    }
+
+    /* Alertes */
+    .alert {
+      border-radius: 4px;
+      padding: 11px 14px;
+      font-size: 12.5px;
+      font-weight: 500;
+      margin-bottom: 18px;
+      display: none;
+    }
+    .alert-error {
+      background: #fff0f0;
+      border-left: 3px solid #E30613;
+      color: #b91c1c;
+    }
+    .alert-block {
+      background: #fffbeb;
+      border-left: 3px solid #f59e0b;
+      color: #92400e;
+    }
+
+    /* Formulaire */
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      color: #222222;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 7px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    .input-wrap {
+      position: relative;
+    }
+
+    .input-wrap .ico {
+      position: absolute;
+      left: 13px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #bbbbbb;
+      font-size: 15px;
+      pointer-events: none;
+    }
+
+    .form-group input {
+      width: 100%;
+      border: 1.5px solid #e5e5e5;
+      border-radius: 4px;
+      padding: 12px 13px 12px 40px;
+      color: #111111;
+      font-family: 'Poppins', sans-serif;
+      font-size: 13.5px;
+      outline: none;
+      transition: border-color 0.2s;
+      background: #fafafa;
+    }
+
+    .form-group input:focus {
+      border-color: #E30613;
+      background: #fff;
+    }
+
+    .form-group input::placeholder {
+      color: #cccccc;
+      font-size: 12.5px;
+    }
+
+    .row-extras {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: -4px;
+      margin-bottom: 22px;
+    }
+
+    .forgot-link {
+      color: #E30613;
+      font-size: 12px;
+      font-weight: 500;
+      text-decoration: none;
+    }
+
+    .forgot-link:hover {
+      text-decoration: underline;
+    }
+
+    /* Bouton principal */
+    .btn-login {
+      width: 100%;
+      background: #E30613;
+      color: #ffffff;
+      border: none;
+      border-radius: 4px;
+      padding: 13px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.2px;
+      transition: background 0.2s;
+    }
+
+    .btn-login:hover:not(:disabled) {
+      background: #c0000e;
+    }
+
+    .btn-login:disabled {
+      background: #888;
+      cursor: not-allowed;
+    }
+
+    .attempts-msg {
+      display: none;
+      text-align: center;
+      margin-top: 11px;
+      font-size: 11.5px;
+      color: #aaaaaa;
+    }
+
+    .attempts-msg strong {
+      color: #E30613;
+    }
+
+    /* Note sécurité */
+    .security-note {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 26px;
+      padding-top: 18px;
+      border-top: 1px solid #f0f0f0;
+      color: #bbbbbb;
+      font-size: 10.5px;
+    }
+
+    .dot {
+      width: 7px; height: 7px;
+      background: #22c55e;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* Démo */
+    .demo-section {
+      margin-top: 16px;
+    }
+
+    .demo-label {
+      color: #dddddd;
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 7px;
+    }
+
+    .demo-btns {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .demo-btn {
+      background: #f9f9f9;
+      border: 1px solid #e5e5e5;
+      color: #888888;
+      font-family: 'Poppins', sans-serif;
+      font-size: 10px;
+      font-weight: 500;
+      padding: 4px 11px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .demo-btn:hover {
+      border-color: #E30613;
+      color: #E30613;
+    }
+
+    .version {
+      position: absolute;
+      bottom: 12px;
+      right: 16px;
+      color: #dddddd;
+      font-size: 10px;
+    }
+
+    /* ── RESPONSIVE MOBILE ── */
+    @media (max-width: 640px) {
+      body { align-items: flex-start; background: #111111; }
+
+      .container {
+        flex-direction: column;
+        width: 100%;
+        min-height: 100vh;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      .left-panel {
+        width: 100%;
+        padding: 32px 24px 24px;
+        flex-direction: row;
+        justify-content: flex-start;
+        gap: 14px;
+      }
+
+      .logo-wrap { margin-bottom: 0; text-align: left; }
+
+      .logo-box img { width: 100px; }
+
+      .logo-wrap h1 { font-size: 16px; }
+      .logo-wrap p  { font-size: 10px; margin-top: 3px; }
+
+      .sep, .tagline, .contact-info { display: none; }
+
+      .right-panel {
+        flex: 1;
+        border-radius: 16px 16px 0 0;
+        padding: 32px 24px 24px;
+      }
+
+      .right-panel h2    { font-size: 19px; }
+      .right-panel .subtitle { font-size: 12.5px; }
+
+      .version { font-size: 9px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Panneau gauche -->
+  <div class="left-panel">
+
+    <div class="logo-wrap">
+      <div class="logo-box">
+        <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH Formation" />
+      </div>
+      <h1>UPTECH Campus</h1>
+      <p>Institut Superieur de Formation<br>aux Metiers du Numerique</p>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="tagline">
+      <p>Plateforme de gestion integree</p>
+      <div>
+        <span class="pill">Pedagogie</span>
+        <span class="pill">Finances</span>
+        <span class="pill">Etudiants</span>
+        <span class="pill">Intervenants</span>
+        <span class="pill">Reporting</span>
+      </div>
+    </div>
+
+    <div class="contact-info">
+      Amitie 1, Villa n&deg;3031 &mdash; Dakar, Senegal<br>
+      +221 77 841 50 44 / 77 618 45 52
+    </div>
+
+  </div>
+
+  <!-- Panneau droit -->
+  <div class="right-panel">
+
+    <h2>Connexion</h2>
+    <p class="subtitle">Entrez vos identifiants pour acceder a votre espace</p>
+
+    <div class="alert alert-error" id="alertError">
+      Identifiants incorrects. Verifiez votre email et votre mot de passe.
+    </div>
+    <div class="alert alert-block" id="alertBlock">
+      Compte bloque apres 5 tentatives. Un lien de deblocage a ete envoye par SMS et Email.
+    </div>
+
+    <form onsubmit="return false;">
+
+      <div class="form-group">
+        <label>Adresse email</label>
+        <div class="input-wrap">
+          <span class="ico">&#9993;</span>
+          <input type="email" id="emailInput" placeholder="prenom.nom@uptechformation.com" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Mot de passe</label>
+        <div class="input-wrap">
+          <span class="ico">&#128274;</span>
+          <input type="password" id="passInput" placeholder="••••••••••" />
+        </div>
+      </div>
+
+      <div class="row-extras">
+        <a href="#" class="forgot-link">Mot de passe oublie ?</a>
+      </div>
+
+      <button class="btn-login" id="btnLogin" onclick="simulerConnexion()">
+        Se connecter
+      </button>
+
+      <p class="attempts-msg" id="attemptsMsg">
+        Tentatives echouees : <strong id="attemptsCount">0</strong> / 5
+      </p>
+
+    </form>
+
+    <div class="security-note">
+      <div class="dot"></div>
+      Connexion securisee HTTPS &mdash; Session : 30 min &mdash; Toutes les actions sont tracees
+    </div>
+
+    <div class="demo-section">
+      <p class="demo-label">Simuler un etat (prototype)</p>
+      <div class="demo-btns">
+        <button class="demo-btn" onclick="simulerErreur()">Mauvais identifiants</button>
+        <button class="demo-btn" onclick="simulerBlocage()">Compte bloque</button>
+        <button class="demo-btn" onclick="resetForm()">Reinitialiser</button>
+      </div>
+    </div>
+
+    <span class="version">UPTECH Campus v1.0 &mdash; 2026</span>
+  </div>
+
+</div>
+
+<script>
+  let tentatives = 0;
+
+  function simulerConnexion() {
+    const email = document.getElementById('emailInput').value;
+    const pass  = document.getElementById('passInput').value;
+    if (!email || !pass) { simulerErreur(); return; }
+    alert('Connexion reussie — redirection vers le tableau de bord...');
+  }
+
+  function simulerErreur() {
+    tentatives++;
+    document.getElementById('alertError').style.display = 'block';
+    document.getElementById('alertBlock').style.display = 'none';
+    document.getElementById('attemptsMsg').style.display = 'block';
+    document.getElementById('attemptsCount').textContent = tentatives;
+    if (tentatives >= 5) simulerBlocage();
+  }
+
+  function simulerBlocage() {
+    document.getElementById('alertError').style.display = 'none';
+    document.getElementById('alertBlock').style.display = 'block';
+    document.getElementById('attemptsMsg').style.display = 'none';
+    const btn = document.getElementById('btnLogin');
+    btn.disabled = true;
+    btn.textContent = 'Compte bloque';
+  }
+
+  function resetForm() {
+    tentatives = 0;
+    document.getElementById('alertError').style.display = 'none';
+    document.getElementById('alertBlock').style.display = 'none';
+    document.getElementById('attemptsMsg').style.display = 'none';
+    document.getElementById('attemptsCount').textContent = '0';
+    document.getElementById('emailInput').value = '';
+    document.getElementById('passInput').value = '';
+    const btn = document.getElementById('btnLogin');
+    btn.disabled = false;
+    btn.textContent = 'Se connecter';
+  }
+</script>
+
+</body>
+</html>

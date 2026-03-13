@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>UPTECH Campus — Notes & Bulletins</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Poppins',sans-serif;background:#f4f4f4;display:flex;min-height:100vh;font-size:13px;}
+
+    /* SIDEBAR */
+    .sidebar{width:230px;background:#111;display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100;}
+    .sidebar-logo{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,0.07);}
+    .sidebar-logo img{width:130px;}
+    .sidebar-logo span{display:block;color:rgba(255,255,255,0.35);font-size:9.5px;text-transform:uppercase;letter-spacing:1px;margin-top:6px;}
+    .nav-section{padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);}
+    .nav-section-label{color:#fff;font-size:12.5px;text-transform:uppercase;letter-spacing:0.4px;padding:8px 20px 4px;font-weight:600;}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:9px 20px;color:#fff;font-size:12.5px;font-weight:500;cursor:pointer;transition:all 0.15s;text-decoration:none;position:relative;}
+    .nav-item:hover{background:rgba(255,255,255,0.05);}
+    .nav-item.active{background:rgba(227,6,19,0.15);}
+    .nav-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#E30613;border-radius:0 2px 2px 0;}
+    .nav-item .ico{font-size:15px;width:18px;text-align:center;}
+    .nav-badge{margin-left:auto;background:#E30613;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:10px;}
+    .sidebar-footer{margin-top:auto;padding:16px 20px;border-top:1px solid rgba(255,255,255,0.07);}
+    .user-card{display:flex;align-items:center;gap:10px;}
+    .user-avatar{width:34px;height:34px;background:#E30613;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;}
+    .user-info strong{display:block;color:#fff;font-size:12px;font-weight:600;}
+    .user-info span{color:rgba(255,255,255,0.35);font-size:10px;}
+
+    /* MAIN */
+    .main{margin-left:230px;flex:1;display:flex;flex-direction:column;}
+    .topbar{background:#fff;border-bottom:1px solid #ebebeb;padding:0 28px;height:56px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50;}
+    .topbar h1{font-size:15px;font-weight:700;color:#111;}
+    .breadcrumb{font-size:11.5px;color:#aaa;}
+    .topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+    .btn-primary{display:inline-flex;align-items:center;gap:7px;background:#E30613;color:#fff;border:none;border-radius:4px;padding:9px 16px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;transition:background 0.2s;}
+    .btn-primary:hover{background:#c0000e;}
+    .btn-dark{display:inline-flex;align-items:center;gap:7px;background:#111;color:#fff;border:none;border-radius:4px;padding:9px 16px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;}
+    .btn-dark:hover{background:#333;}
+    .btn-ghost{border:1.5px solid #e5e5e5;background:#fff;border-radius:4px;padding:8px 14px;font-family:'Poppins',sans-serif;font-size:12px;font-weight:600;color:#555;cursor:pointer;}
+    .btn-ghost:hover{border-color:#111;color:#111;}
+
+    .content{padding:22px 28px;flex:1;}
+
+    /* TABS */
+    .tabs-bar{display:flex;gap:2px;margin-bottom:20px;background:#fff;border-radius:6px;padding:4px;box-shadow:0 2px 8px rgba(0,0,0,0.05);width:fit-content;}
+    .tab-pill{padding:7px 18px;border-radius:4px;font-size:12px;font-weight:600;color:#888;cursor:pointer;border:none;background:none;font-family:'Poppins',sans-serif;transition:all 0.15s;}
+    .tab-pill.active{background:#E30613;color:#fff;}
+
+    /* FILTRES */
+    .toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+    .filter-select{border:1.5px solid #e5e5e5;border-radius:4px;padding:8px 12px;font-family:'Poppins',sans-serif;font-size:12px;color:#444;background:#fff;outline:none;cursor:pointer;}
+    .filter-select:focus{border-color:#E30613;}
+
+    /* ALERTE */
+    .alert-missing{background:#fff0f0;border-left:3px solid #E30613;border-radius:4px;padding:11px 14px;font-size:12.5px;color:#b91c1c;font-weight:500;margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+
+    /* TABLEAU NOTES */
+    .table-wrap{background:#fff;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.05);overflow:auto;margin-bottom:20px;}
+    table{width:100%;border-collapse:collapse;min-width:900px;}
+    thead tr{background:#f9f9f9;border-bottom:2px solid #f0f0f0;}
+    thead th{padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:0.3px;white-space:nowrap;}
+    thead th:first-child{text-align:left;}
+    tbody tr{border-bottom:1px solid #f5f5f5;transition:background 0.12s;}
+    tbody tr:last-child{border-bottom:none;}
+    tbody tr:hover{background:#fafafa;}
+    tbody td{padding:10px 12px;font-size:12.5px;color:#222;text-align:center;vertical-align:middle;}
+    tbody td:first-child{text-align:left;}
+
+    .student-cell{display:flex;align-items:center;gap:8px;}
+    .s-av{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;}
+
+    .note-input{width:52px;border:1.5px solid #e5e5e5;border-radius:4px;padding:5px 6px;text-align:center;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;color:#111;outline:none;transition:border-color 0.2s;}
+    .note-input:focus{border-color:#E30613;}
+    .note-input.missing{border-color:#fecaca;background:#fff5f5;}
+
+    .moy-cell{font-weight:700;font-size:13px;}
+    .moy-good{color:#22c55e;}
+    .moy-avg{color:#f59e0b;}
+    .moy-bad{color:#E30613;}
+
+    .ue-header{background:#f0f0f0!important;}
+    .ue-label{font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:0.5px;}
+
+    .parcours-chip{font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:4px;}
+    .pc-bts{background:#eff6ff;color:#1d4ed8;}
+    .pc-lic{background:#fdf4ff;color:#7e22ce;}
+    .pc-dts{background:#f0fdf4;color:#15803d;}
+
+    .badge-validee{background:#f0fdf4;color:#15803d;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;}
+    .badge-invalid{background:#fff0f0;color:#b91c1c;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;}
+    .badge-elimn{background:#fff8f0;color:#c2410c;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;}
+
+    /* BULLETIN */
+    .bulletin-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;align-items:center;justify-content:center;}
+    .bulletin-overlay.open{display:flex;}
+    .bulletin{background:#fff;border-radius:8px;width:680px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);}
+
+    /* En-tete bulletin */
+    .bul-header{background:#111;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;}
+    .bul-header img{width:110px;}
+    .bul-header-info{text-align:right;color:rgba(255,255,255,0.7);font-size:11px;line-height:1.7;}
+    .bul-header-info strong{color:#fff;font-size:13px;}
+
+    .bul-top-bar{background:#E30613;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;}
+    .bul-top-bar span{color:#fff;font-size:12px;font-weight:600;}
+
+    .bul-student{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:18px 24px;border-bottom:1px solid #f0f0f0;align-items:center;}
+    .bul-photo{width:60px;height:60px;background:#f0f0f0;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#555;border:1px solid #e5e5e5;}
+    .bul-student-info h2{font-size:16px;font-weight:700;color:#111;}
+    .bul-student-info p{font-size:11.5px;color:#888;line-height:1.6;}
+
+    .bul-body{padding:18px 24px;}
+
+    /* UE dans bulletin */
+    .bul-ue{margin-bottom:18px;border:1px solid #f0f0f0;border-radius:6px;overflow:hidden;}
+    .bul-ue-header{background:#111;color:#fff;padding:9px 14px;display:flex;justify-content:space-between;align-items:center;}
+    .bul-ue-name{font-size:12px;font-weight:700;}
+    .bul-ue-credits{font-size:11px;color:rgba(255,255,255,0.6);}
+    .bul-ue-moy{font-size:14px;font-weight:700;}
+    .bul-ue-moy.good{color:#4ade80;}
+    .bul-ue-moy.bad{color:#f87171;}
+
+    .bul-mat-row{display:grid;grid-template-columns:1fr 60px 60px 80px 80px 80px;gap:8px;padding:8px 14px;border-bottom:1px solid #f9f9f9;align-items:center;font-size:12px;}
+    .bul-mat-row:last-child{border-bottom:none;}
+    .bul-mat-row .mat-name{font-weight:500;color:#333;}
+    .bul-mat-row .mat-num{text-align:center;color:#888;}
+    .bul-mat-row .mat-coef{text-align:center;color:#aaa;font-size:11px;}
+    .bul-mat-row .mat-moy{text-align:center;font-weight:700;}
+    .bul-mat-header{background:#fafafa;font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.3px;}
+
+    .bul-synthese{background:#f9f9f9;border-radius:6px;padding:16px;margin-bottom:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+    .bul-syn-item{text-align:center;}
+    .bul-syn-label{font-size:10px;font-weight:600;color:#888;text-transform:uppercase;margin-bottom:6px;}
+    .bul-syn-val{font-size:22px;font-weight:700;color:#111;}
+    .bul-syn-val.red{color:#E30613;}
+    .bul-syn-val.green{color:#22c55e;}
+
+    .bul-decision{border:2px solid #111;border-radius:6px;padding:14px;text-align:center;margin-bottom:16px;}
+    .bul-decision-label{font-size:11px;color:#888;text-transform:uppercase;margin-bottom:4px;}
+    .bul-decision-val{font-size:18px;font-weight:700;color:#111;}
+    .bul-decision-val.admis{color:#22c55e;}
+    .bul-decision-val.ajourne{color:#E30613;}
+
+    .bul-sigs{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;}
+    .bul-sig-box{border:1px solid #e5e5e5;border-radius:4px;padding:12px;text-align:center;}
+    .bul-sig-label{font-size:10px;color:#888;text-transform:uppercase;margin-bottom:20px;}
+    .bul-sig-line{border-top:1px solid #333;margin-top:8px;padding-top:6px;font-size:10px;color:#aaa;}
+
+    .bul-notice{background:#fefce8;border-left:3px solid #eab308;border-radius:4px;padding:10px 12px;font-size:11.5px;color:#854d0e;margin-bottom:16px;}
+
+    .bul-footer{padding:14px 24px;border-top:1px solid #f0f0f0;display:flex;justify-content:space-between;gap:10px;position:sticky;bottom:0;background:#fff;}
+
+    /* JURY */
+    .jury-card{background:#fff;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.05);padding:20px;margin-bottom:16px;}
+    .jury-card h3{font-size:14px;font-weight:700;color:#111;margin-bottom:14px;}
+    .jury-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f5f5f5;}
+    .jury-row:last-child{border-bottom:none;}
+    .j-av{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;}
+    .j-name{flex:1;font-size:13px;font-weight:600;color:#111;}
+    .j-name span{display:block;font-size:10.5px;color:#aaa;font-weight:400;}
+    .j-moy{font-size:14px;font-weight:700;width:60px;text-align:center;}
+    .jury-select{border:1.5px solid #e5e5e5;border-radius:4px;padding:6px 10px;font-family:'Poppins',sans-serif;font-size:12px;color:#111;background:#fff;outline:none;cursor:pointer;min-width:160px;}
+    .jury-select:focus{border-color:#E30613;}
+
+    /* MOBILE */
+    @media(max-width:768px){
+      .sidebar{display:none;}
+      .main{margin-left:0;padding-bottom:64px;}
+      .topbar{padding:0 16px;}
+      .breadcrumb{display:none;}
+      .content{padding:14px;}
+      .bulletin{width:95vw;}
+      .bul-synthese{grid-template-columns:1fr 1fr;}
+      .bul-mat-row{grid-template-columns:1fr 50px 50px 60px;}
+      .bottom-nav{display:flex !important;position:fixed;bottom:0;left:0;right:0;height:60px;background:#111;border-top:1px solid rgba(255,255,255,0.08);z-index:200;justify-content:space-around;align-items:center;}
+      .bn-item{display:flex;flex-direction:column;align-items:center;gap:3px;color:rgba(255,255,255,0.5);font-size:9px;font-weight:600;cursor:pointer;padding:6px 10px;}
+      .bn-item.active{color:#E30613;}
+      .bn-item .bn-ico{font-size:20px;}
+    }
+    .bottom-nav{display:none;}
+  </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH"/>
+    <span>Campus v1.0</span>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Principal</div>
+    <a class="nav-item" href="03_dashboard_dg.html"><span class="ico">&#9732;</span> Tableau de bord</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Pedagogie</div>
+    <a class="nav-item" href="04_etudiants.html"><span class="ico">&#128100;</span> Etudiants <span class="nav-badge">247</span></a>
+    <a class="nav-item" href="06_emplois_du_temps.html"><span class="ico">&#128197;</span> Emplois du temps</a>
+    <a class="nav-item active"><span class="ico">&#128203;</span> Notes & Bulletins</a>
+    <a class="nav-item"><span class="ico">&#9989;</span> Presences</a>
+    <a class="nav-item"><span class="ico">&#127979;</span> Intervenants</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Finances</div>
+    <a class="nav-item" href="05_paiements.html"><span class="ico">&#128176;</span> Paiements <span class="nav-badge">4</span></a>
+    <a class="nav-item"><span class="ico">&#128184;</span> Depenses</a>
+    <a class="nav-item"><span class="ico">&#128179;</span> Remuneration interv.</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Communication</div>
+    <a class="nav-item"><span class="ico">&#128172;</span> Messagerie <span class="nav-badge">3</span></a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Administration</div>
+    <a class="nav-item"><span class="ico">&#128736;</span> Parametres</a>
+  </div>
+  <div class="sidebar-footer">
+    <div class="user-card">
+      <div class="user-avatar">DP</div>
+      <div class="user-info"><strong>Dir. Pedagogique</strong><span>Academique complet</span></div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <h1>Notes & Bulletins <span class="breadcrumb">/ Semestre 1 — 2025/2026</span></h1>
+    <div class="topbar-right">
+      <button class="btn-ghost" onclick="openBulletin()">&#128196; Apercu bulletin</button>
+      <button class="btn-dark">&#9654; Lancer le jury</button>
+      <button class="btn-primary">&#10003; Valider & Publier</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- TABS -->
+    <div class="tabs-bar">
+      <button class="tab-pill active" onclick="switchTab(this,'v-saisie')">Saisie des notes</button>
+      <button class="tab-pill" onclick="switchTab(this,'v-jury')">Jury de deliberation</button>
+      <button class="tab-pill" onclick="switchTab(this,'v-bulletins')">Bulletins</button>
+    </div>
+
+    <!-- ══ VUE SAISIE ══ -->
+    <div id="v-saisie">
+      <div class="alert-missing">
+        &#9888; <strong>3 notes manquantes</strong> dans la classe BTS-INFO-2A — Examen final dans 7 jours
+      </div>
+
+      <div class="toolbar">
+        <select class="filter-select" style="font-weight:700;">
+          <option selected>BTS-INFO-2A (Tronc commun)</option>
+          <option>BTS-INFO-1A</option>
+          <option>WEB-DEV-1A</option>
+          <option>RESEAUX-2A</option>
+        </select>
+        <select class="filter-select">
+          <option selected>Semestre 1 — 2025/2026</option>
+          <option>Semestre 2 — 2025/2026</option>
+        </select>
+        <select class="filter-select">
+          <option selected>Toutes les matieres</option>
+          <option>Algorithmique</option>
+          <option>Programmation Web</option>
+          <option>Bases de donnees</option>
+        </select>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align:left;min-width:180px;">Etudiant</th>
+              <th colspan="3" style="background:#f0f7ff;color:#1d4ed8;">UE 1 — Informatique</th>
+              <th colspan="2" style="background:#fdf4ff;color:#7e22ce;">UE 2 — Gestion</th>
+              <th colspan="2" style="background:#fff8f0;color:#c2410c;">UE 3 — Transversal</th>
+              <th style="background:#f9f9f9;">Moy. Gen.</th>
+              <th style="background:#f9f9f9;">Mention</th>
+              <th style="background:#f9f9f9;">ECTS</th>
+            </tr>
+            <tr class="ue-header">
+              <th style="text-align:left;font-size:10px;color:#888;">Coeff.</th>
+              <th style="background:#f0f7ff;font-size:10px;color:#888;">Algo<br><span style="color:#aaa">(coef 3)</span></th>
+              <th style="background:#f0f7ff;font-size:10px;color:#888;">Prog. Web<br><span style="color:#aaa">(coef 3)</span></th>
+              <th style="background:#f0f7ff;font-size:10px;color:#888;">BDD<br><span style="color:#aaa">(coef 2)</span></th>
+              <th style="background:#fdf4ff;font-size:10px;color:#888;">Compta<br><span style="color:#aaa">(coef 2)</span></th>
+              <th style="background:#fdf4ff;font-size:10px;color:#888;">Gestion Proj.<br><span style="color:#aaa">(coef 2)</span></th>
+              <th style="background:#fff8f0;font-size:10px;color:#888;">Anglais<br><span style="color:#aaa">(coef 1)</span></th>
+              <th style="background:#fff8f0;font-size:10px;color:#888;">Droit TIC<br><span style="color:#aaa">(coef 1)</span></th>
+              <th></th><th></th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><div class="student-cell"><div class="s-av" style="background:#E30613">AF</div><div><strong>Aminata Fall</strong><span class="parcours-chip pc-dts">DTS</span></div></div></td>
+              <td><input class="note-input" value="14"/></td>
+              <td><input class="note-input" value="16"/></td>
+              <td><input class="note-input" value="13"/></td>
+              <td><input class="note-input" value="12"/></td>
+              <td><input class="note-input" value="15"/></td>
+              <td><input class="note-input" value="14"/></td>
+              <td><input class="note-input" value="11"/></td>
+              <td class="moy-cell moy-good">13.6</td>
+              <td><span class="badge-validee">Assez Bien</span></td>
+              <td class="moy-good" style="font-weight:700;">30</td>
+            </tr>
+            <tr>
+              <td><div class="student-cell"><div class="s-av" style="background:#3b82f6">MS</div><div><strong>Moussa Sow</strong><span class="parcours-chip pc-bts">BTS</span></div></div></td>
+              <td><input class="note-input" value="11"/></td>
+              <td><input class="note-input" value="12"/></td>
+              <td><input class="note-input" value="10"/></td>
+              <td><input class="note-input" value="13"/></td>
+              <td><input class="note-input" value="11"/></td>
+              <td><input class="note-input" value="09"/></td>
+              <td><input class="note-input" value="12"/></td>
+              <td class="moy-cell moy-avg">11.3</td>
+              <td><span class="badge-validee">Passable</span></td>
+              <td class="moy-avg" style="font-weight:700;">28</td>
+            </tr>
+            <tr>
+              <td><div class="student-cell"><div class="s-av" style="background:#7c3aed">FD</div><div><strong>Fatou Diallo</strong><span class="parcours-chip pc-lic">Licence</span></div></div></td>
+              <td><input class="note-input" value="17"/></td>
+              <td><input class="note-input" value="18"/></td>
+              <td><input class="note-input" value="16"/></td>
+              <td><input class="note-input" value="14"/></td>
+              <td><input class="note-input" value="17"/></td>
+              <td><input class="note-input" value="15"/></td>
+              <td><input class="note-input" value="16"/></td>
+              <td class="moy-cell moy-good">16.4</td>
+              <td><span class="badge-validee">Tres Bien</span></td>
+              <td class="moy-good" style="font-weight:700;">30</td>
+            </tr>
+            <tr>
+              <td><div class="student-cell"><div class="s-av" style="background:#f97316">SN</div><div><strong>Seydou Ndiaye</strong><span class="parcours-chip pc-dts">DTS</span></div></div></td>
+              <td><input class="note-input" value="07"/></td>
+              <td><input class="note-input missing" placeholder="—"/></td>
+              <td><input class="note-input" value="08"/></td>
+              <td><input class="note-input" value="09"/></td>
+              <td><input class="note-input" value="10"/></td>
+              <td><input class="note-input" value="11"/></td>
+              <td><input class="note-input" value="08"/></td>
+              <td class="moy-cell moy-bad">—</td>
+              <td><span class="badge-elimn">Note manq.</span></td>
+              <td style="color:#aaa;">—</td>
+            </tr>
+            <tr>
+              <td><div class="student-cell"><div class="s-av" style="background:#0891b2">IB</div><div><strong>Ibrahima Ba</strong><span class="parcours-chip pc-lic">Licence</span></div></div></td>
+              <td><input class="note-input" value="15"/></td>
+              <td><input class="note-input" value="14"/></td>
+              <td><input class="note-input" value="16"/></td>
+              <td><input class="note-input" value="13"/></td>
+              <td><input class="note-input" value="15"/></td>
+              <td><input class="note-input" value="12"/></td>
+              <td><input class="note-input" value="14"/></td>
+              <td class="moy-cell moy-good">14.4</td>
+              <td><span class="badge-validee">Bien</span></td>
+              <td class="moy-good" style="font-weight:700;">30</td>
+            </tr>
+            <tr>
+              <td><div class="student-cell"><div class="s-av" style="background:#be185d">MC</div><div><strong>Marietou Cisse</strong><span class="parcours-chip pc-bts">BTS</span></div></div></td>
+              <td><input class="note-input" value="05"/></td>
+              <td><input class="note-input" value="07"/></td>
+              <td><input class="note-input missing" placeholder="—"/></td>
+              <td><input class="note-input" value="11"/></td>
+              <td><input class="note-input" value="09"/></td>
+              <td><input class="note-input" value="13"/></td>
+              <td><input class="note-input" value="10"/></td>
+              <td class="moy-cell moy-bad">—</td>
+              <td><span class="badge-invalid">Redoublement</span></td>
+              <td style="color:#E30613;font-weight:700;">0</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn-ghost">&#128190; Enregistrer le brouillon</button>
+        <button class="btn-primary">&#10003; Soumettre au Dir. Pedagogique</button>
+      </div>
+    </div>
+
+    <!-- ══ VUE JURY ══ -->
+    <div id="v-jury" style="display:none;">
+      <div class="jury-card">
+        <h3>&#9878; Jury de deliberation — Semestre 1 / BTS-INFO-2A</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:16px;">Saisir les decisions apres deliberation. Elles seront publiees et notifiees aux etudiants.</p>
+        <div class="jury-row">
+          <div class="j-av" style="background:#E30613">AF</div>
+          <div class="j-name">Aminata Fall<span>DTS — Moy. 13.6 / Assez Bien / 30 ECTS</span></div>
+          <div class="j-moy moy-good">13.6</div>
+          <select class="jury-select"><option selected>Admise</option><option>Admise avec mention</option><option>Ajournee</option><option>Redoublement</option><option>Exclu</option></select>
+        </div>
+        <div class="jury-row">
+          <div class="j-av" style="background:#3b82f6">MS</div>
+          <div class="j-name">Moussa Sow<span>BTS — Moy. 11.3 / Passable / 28 ECTS</span></div>
+          <div class="j-moy moy-avg">11.3</div>
+          <select class="jury-select"><option selected>Admis</option><option>Admis avec mention</option><option>Ajourné</option><option>Redoublement</option></select>
+        </div>
+        <div class="jury-row">
+          <div class="j-av" style="background:#7c3aed">FD</div>
+          <div class="j-name">Fatou Diallo<span>Licence — Moy. 16.4 / Tres Bien / 30 ECTS</span></div>
+          <div class="j-moy moy-good">16.4</div>
+          <select class="jury-select"><option>Admis</option><option selected>Admise avec mention</option><option>Ajournee</option></select>
+        </div>
+        <div class="jury-row">
+          <div class="j-av" style="background:#f97316">SN</div>
+          <div class="j-name">Seydou Ndiaye<span>DTS — Note manquante</span></div>
+          <div class="j-moy moy-bad">—</div>
+          <select class="jury-select"><option>Admis</option><option>Ajourné</option><option selected>Redoublement</option></select>
+        </div>
+        <div class="jury-row">
+          <div class="j-av" style="background:#0891b2">IB</div>
+          <div class="j-name">Ibrahima Ba<span>Licence — Moy. 14.4 / Bien / 30 ECTS</span></div>
+          <div class="j-moy moy-good">14.4</div>
+          <select class="jury-select"><option selected>Admis</option><option>Admis avec mention</option><option>Ajourne</option></select>
+        </div>
+        <div class="jury-row">
+          <div class="j-av" style="background:#be185d">MC</div>
+          <div class="j-name">Marietou Cisse<span>BTS — Matiere eliminatoire &lt; 5</span></div>
+          <div class="j-moy moy-bad">7.2</div>
+          <select class="jury-select"><option>Admis</option><option>Ajourné</option><option selected>Redoublement</option><option>Exclu</option></select>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn-ghost">Annuler</button>
+        <button class="btn-primary">&#128276; Valider & Notifier les etudiants</button>
+      </div>
+    </div>
+
+    <!-- ══ VUE BULLETINS ══ -->
+    <div id="v-bulletins" style="display:none;">
+      <div class="toolbar">
+        <select class="filter-select"><option>BTS-INFO-2A</option></select>
+        <select class="filter-select"><option>Semestre 1 — 2025/2026</option></select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align:left;">Etudiant</th>
+              <th>Moy. Gen.</th>
+              <th>Mention</th>
+              <th>ECTS</th>
+              <th>Decision jury</th>
+              <th>Statut</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><div class="student-cell"><div class="s-av" style="background:#E30613">AF</div><strong>Aminata Fall</strong></div></td>
+              <td class="moy-good" style="font-weight:700;">13.6</td>
+              <td>Assez Bien</td>
+              <td class="moy-good" style="font-weight:700;">30/30</td>
+              <td><span class="badge-validee">Admise</span></td>
+              <td><span style="color:#22c55e;font-weight:600;font-size:11px;">&#9679; Publie</span></td>
+              <td><button class="btn-ghost" style="padding:5px 10px;font-size:11px;" onclick="openBulletin()">Voir</button></td>
+            </tr>
+            <tr>
+              <td><div class="student-cell"><div class="s-av" style="background:#3b82f6">MS</div><strong>Moussa Sow</strong></div></td>
+              <td class="moy-avg" style="font-weight:700;">11.3</td>
+              <td>Passable</td>
+              <td class="moy-avg" style="font-weight:700;">28/30</td>
+              <td><span class="badge-validee">Admis</span></td>
+              <td><span style="color:#22c55e;font-weight:600;font-size:11px;">&#9679; Publie</span></td>
+              <td><button class="btn-ghost" style="padding:5px 10px;font-size:11px;" onclick="openBulletin()">Voir</button></td>
+            </tr>
+            <tr>
+              <td><div class="student-cell"><div class="s-av" style="background:#7c3aed">FD</div><strong>Fatou Diallo</strong></div></td>
+              <td class="moy-good" style="font-weight:700;">16.4</td>
+              <td>Tres Bien</td>
+              <td class="moy-good" style="font-weight:700;">30/30</td>
+              <td><span class="badge-validee">Admise mention</span></td>
+              <td><span style="color:#22c55e;font-weight:600;font-size:11px;">&#9679; Publie</span></td>
+              <td><button class="btn-ghost" style="padding:5px 10px;font-size:11px;" onclick="openBulletin()">Voir</button></td>
+            </tr>
+            <tr>
+              <td><div class="student-cell"><div class="s-av" style="background:#f97316">SN</div><strong>Seydou Ndiaye</strong></div></td>
+              <td class="moy-bad" style="font-weight:700;">—</td>
+              <td>—</td>
+              <td style="color:#E30613;font-weight:700;">0/30</td>
+              <td><span class="badge-invalid">Redoublement</span></td>
+              <td><span style="color:#aaa;font-weight:600;font-size:11px;">&#9679; Non publie</span></td>
+              <td><button class="btn-ghost" style="padding:5px 10px;font-size:11px;opacity:0.4;" disabled>Voir</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════ BULLETIN OVERLAY ════ -->
+<div class="bulletin-overlay" id="bulletinOverlay">
+  <div class="bulletin">
+
+    <div class="bul-header">
+      <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH"/>
+      <div class="bul-header-info">
+        <strong>BULLETIN DE NOTES</strong><br>
+        Institut UPTECH Formation<br>
+        Amitie 1, Villa 3031 — Dakar<br>
+        Annee : 2025 / 2026
+      </div>
+    </div>
+
+    <div class="bul-top-bar">
+      <span>Semestre 1</span>
+      <span>Filiere : Informatique de Gestion</span>
+      <span>Parcours : DTS — BAC+2</span>
+    </div>
+
+    <div class="bul-student">
+      <div class="bul-photo">AF</div>
+      <div class="bul-student-info">
+        <h2>Aminata Fall</h2>
+        <p>N° Etudiant : <strong>UPTECH-2025-001</strong><br>
+        Classe : BTS-INFO-2A (Tronc commun)<br>
+        Mode : Presentiel &nbsp;|&nbsp; Absences : 2h / 120h</p>
+      </div>
+    </div>
+
+    <div class="bul-body">
+
+      <div class="bul-notice">
+        &#128275; Bulletin consultable a l'ecran uniquement. Toute capture ou reproduction est interdite.
+      </div>
+
+      <!-- UE 1 -->
+      <div class="bul-ue">
+        <div class="bul-ue-header">
+          <span class="bul-ue-name">UE 1 — Informatique & Developpement</span>
+          <span class="bul-ue-credits">8 credits ECTS</span>
+          <span class="bul-ue-moy good">14.4 / 20 &#10003;</span>
+        </div>
+        <div class="bul-mat-row bul-mat-header">
+          <span>Matiere</span><span>DST</span><span>TP</span><span>Coeff.</span><span>Moyenne</span><span>Statut</span>
+        </div>
+        <div class="bul-mat-row">
+          <span class="mat-name">Algorithmique</span><span class="mat-num">14</span><span class="mat-num">14</span><span class="mat-coef">x3</span>
+          <span class="mat-moy moy-good">14.0</span><span><span class="badge-validee">Validee</span></span>
+        </div>
+        <div class="bul-mat-row">
+          <span class="mat-name">Programmation Web</span><span class="mat-num">16</span><span class="mat-num">16</span><span class="mat-coef">x3</span>
+          <span class="mat-moy moy-good">16.0</span><span><span class="badge-validee">Validee</span></span>
+        </div>
+        <div class="bul-mat-row">
+          <span class="mat-name">Bases de donnees</span><span class="mat-num">12</span><span class="mat-num">14</span><span class="mat-coef">x2</span>
+          <span class="mat-moy moy-avg">13.0</span><span><span class="badge-validee">Validee</span></span>
+        </div>
+      </div>
+
+      <!-- UE 2 -->
+      <div class="bul-ue">
+        <div class="bul-ue-header">
+          <span class="bul-ue-name">UE 2 — Gestion & Management</span>
+          <span class="bul-ue-credits">4 credits ECTS</span>
+          <span class="bul-ue-moy good">13.5 / 20 &#10003;</span>
+        </div>
+        <div class="bul-mat-row bul-mat-header">
+          <span>Matiere</span><span>DST</span><span>EXP</span><span>Coeff.</span><span>Moyenne</span><span>Statut</span>
+        </div>
+        <div class="bul-mat-row">
+          <span class="mat-name">Comptabilite generale</span><span class="mat-num">12</span><span class="mat-num">12</span><span class="mat-coef">x2</span>
+          <span class="mat-moy moy-avg">12.0</span><span><span class="badge-validee">Validee</span></span>
+        </div>
+        <div class="bul-mat-row">
+          <span class="mat-name">Gestion de projet</span><span class="mat-num">14</span><span class="mat-num">16</span><span class="mat-coef">x2</span>
+          <span class="mat-moy moy-good">15.0</span><span><span class="badge-validee">Validee</span></span>
+        </div>
+      </div>
+
+      <!-- UE 3 -->
+      <div class="bul-ue">
+        <div class="bul-ue-header">
+          <span class="bul-ue-name">UE 3 — Culture & Transversal</span>
+          <span class="bul-ue-credits">3 credits ECTS</span>
+          <span class="bul-ue-moy good">12.5 / 20 &#10003;</span>
+        </div>
+        <div class="bul-mat-row bul-mat-header">
+          <span>Matiere</span><span>DST</span><span>EXP</span><span>Coeff.</span><span>Moyenne</span><span>Statut</span>
+        </div>
+        <div class="bul-mat-row">
+          <span class="mat-name">Anglais Professionnel</span><span class="mat-num">14</span><span class="mat-num">14</span><span class="mat-coef">x1</span>
+          <span class="mat-moy moy-good">14.0</span><span><span class="badge-validee">Validee</span></span>
+        </div>
+        <div class="bul-mat-row">
+          <span class="mat-name">Droit des TIC</span><span class="mat-num">11</span><span class="mat-num">11</span><span class="mat-coef">x1</span>
+          <span class="mat-moy moy-avg">11.0</span><span><span class="badge-validee">Validee</span></span>
+        </div>
+      </div>
+
+      <!-- Synthese -->
+      <div class="bul-synthese">
+        <div class="bul-syn-item">
+          <div class="bul-syn-label">Moyenne generale</div>
+          <div class="bul-syn-val green">13.6 / 20</div>
+        </div>
+        <div class="bul-syn-item">
+          <div class="bul-syn-label">Mention</div>
+          <div class="bul-syn-val" style="font-size:16px;">Assez Bien</div>
+        </div>
+        <div class="bul-syn-item">
+          <div class="bul-syn-label">Credits ECTS</div>
+          <div class="bul-syn-val green">30 / 30</div>
+        </div>
+      </div>
+
+      <!-- Decision -->
+      <div class="bul-decision">
+        <div class="bul-decision-label">Decision du jury</div>
+        <div class="bul-decision-val admis">ADMISE &#10003;</div>
+      </div>
+
+      <!-- Signatures -->
+      <div class="bul-sigs">
+        <div class="bul-sig-box">
+          <div class="bul-sig-label">Le Directeur General</div>
+          <div class="bul-sig-line">Signature & Cachet</div>
+        </div>
+        <div class="bul-sig-box">
+          <div class="bul-sig-label">Le Directeur Pedagogique</div>
+          <div class="bul-sig-line">Signature</div>
+        </div>
+      </div>
+
+    </div><!-- /bul-body -->
+
+    <div class="bul-footer">
+      <button class="btn-ghost" onclick="closeBulletin()">Fermer</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-ghost">&#128247; Capturer</button>
+        <button class="btn-primary">&#128196; Imprimer</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- BOTTOM NAV MOBILE -->
+<nav class="bottom-nav">
+  <div class="bn-item"><span class="bn-ico">&#9732;</span><span>Accueil</span></div>
+  <div class="bn-item"><span class="bn-ico">&#128100;</span><span>Etudiants</span></div>
+  <div class="bn-item active"><span class="bn-ico">&#128203;</span><span>Notes</span></div>
+  <div class="bn-item"><span class="bn-ico">&#128176;</span><span>Finances</span></div>
+  <div class="bn-item"><span class="bn-ico">&#8942;</span><span>Plus</span></div>
+</nav>
+
+<script>
+  function switchTab(btn, id){
+    document.querySelectorAll('.tab-pill').forEach(b=>b.classList.remove('active')); btn.classList.add('active');
+    ['v-saisie','v-jury','v-bulletins'].forEach(v=>document.getElementById(v).style.display='none');
+    document.getElementById(id).style.display='block';
+  }
+  function openBulletin(){ document.getElementById('bulletinOverlay').classList.add('open'); }
+  function closeBulletin(){ document.getElementById('bulletinOverlay').classList.remove('open'); }
+  document.getElementById('bulletinOverlay').addEventListener('click',function(e){ if(e.target===this)closeBulletin(); });
+</script>
+
+</body>
+</html>

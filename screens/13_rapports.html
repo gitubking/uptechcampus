@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UPTECH Campus — Rapports & Statistiques</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Poppins',sans-serif;background:#f4f4f4;color:#111;display:flex;min-height:100vh;}
+
+/* SIDEBAR */
+.sidebar{width:240px;min-height:100vh;background:#111;display:flex;flex-direction:column;position:fixed;left:0;top:0;z-index:100;}
+.sidebar-logo{padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,0.08);}
+.sidebar-logo img{height:36px;}
+.sidebar-section{padding:16px 20px 4px;font-size:11px;font-weight:600;color:#fff;letter-spacing:1.2px;text-transform:uppercase;}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10px 20px;color:#fff;cursor:pointer;transition:.2s;font-size:13.5px;font-weight:400;text-decoration:none;}
+.nav-item:hover{background:rgba(255,255,255,0.07);}
+.nav-item.active{background:#E30613;color:#fff;font-weight:600;}
+.nav-item svg{width:18px;height:18px;flex-shrink:0;opacity:.85;}
+.sidebar-bottom{margin-top:auto;padding:16px 20px;border-top:1px solid rgba(255,255,255,0.08);}
+.sidebar-user{display:flex;align-items:center;gap:10px;}
+.sidebar-user .avatar{width:34px;height:34px;border-radius:50%;background:#E30613;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;}
+.sidebar-user .info{font-size:12px;color:#fff;}
+.sidebar-user .info span{display:block;font-size:10.5px;color:rgba(255,255,255,0.5);}
+
+/* MAIN */
+.main{margin-left:240px;flex:1;display:flex;flex-direction:column;}
+
+/* TOPBAR */
+.topbar{background:#fff;border-bottom:1px solid #e8e8e8;padding:0 28px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:90;}
+.topbar-left h1{font-size:17px;font-weight:700;}
+.topbar-left p{font-size:12px;color:#888;}
+.topbar-right{display:flex;align-items:center;gap:10px;}
+.btn{padding:8px 18px;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.2s;}
+.btn-red{background:#E30613;color:#fff;}
+.btn-red:hover{background:#c0000f;}
+.btn-outline{background:#fff;color:#111;border:1.5px solid #ddd;}
+.btn-outline:hover{border-color:#E30613;color:#E30613;}
+
+/* CONTENT */
+.content{padding:24px 28px;flex:1;}
+
+/* PERIOD TABS */
+.period-bar{display:flex;align-items:center;gap:12px;margin-bottom:24px;flex-wrap:wrap;}
+.period-tabs{display:flex;gap:4px;background:#fff;border-radius:10px;padding:4px;border:1px solid #eee;}
+.period-tab{padding:7px 18px;border-radius:7px;border:none;background:transparent;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:500;cursor:pointer;color:#888;transition:.2s;}
+.period-tab.active{background:#111;color:#fff;font-weight:600;}
+.period-select{padding:8px 12px;border:1.5px solid #e0e0e0;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;outline:none;background:#fff;}
+.report-tabs{display:flex;gap:4px;background:#f4f4f4;border-radius:10px;padding:4px;margin-bottom:20px;}
+.report-tab{flex:1;padding:9px;border-radius:8px;border:none;background:transparent;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:500;cursor:pointer;color:#888;text-align:center;transition:.2s;}
+.report-tab.active{background:#fff;color:#111;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,0.08);}
+
+/* KPI ROW */
+.kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:22px;}
+.kpi{background:#fff;border-radius:12px;padding:16px 18px;border-left:4px solid #E30613;}
+.kpi.black{background:#111;border-left-color:#E30613;}
+.kpi.green{border-left-color:#10b981;}
+.kpi.orange{border-left-color:#f59e0b;}
+.kpi.blue{border-left-color:#3b82f6;}
+.kpi-label{font-size:11.5px;color:#888;margin-bottom:4px;}
+.kpi.black .kpi-label{color:rgba(255,255,255,0.55);}
+.kpi-value{font-size:22px;font-weight:700;color:#111;}
+.kpi.black .kpi-value{color:#fff;}
+.kpi.green .kpi-value{color:#10b981;}
+.kpi.orange .kpi-value{color:#f59e0b;}
+.kpi.blue .kpi-value{color:#3b82f6;}
+.kpi-sub{font-size:11px;color:#aaa;margin-top:2px;}
+.kpi.black .kpi-sub{color:rgba(255,255,255,0.35);}
+.kpi-trend{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;padding:2px 7px;border-radius:10px;margin-top:5px;}
+.up{background:#fee2e2;color:#dc2626;}
+.down{background:#dcfce7;color:#16a34a;}
+.neutral{background:#f3f4f6;color:#6b7280;}
+
+/* GRID */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-bottom:18px;}
+.full{margin-bottom:18px;}
+
+/* CARD */
+.card{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06);}
+.card-head{padding:16px 20px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;}
+.card-head h3{font-size:14px;font-weight:700;}
+.card-body{padding:16px 20px;}
+
+/* BAR CHART */
+.bar-chart{display:flex;align-items:flex-end;gap:8px;height:140px;padding:0 4px;}
+.bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;}
+.bar{width:100%;border-radius:6px 6px 0 0;background:#E30613;transition:.3s;min-height:4px;position:relative;}
+.bar.black{background:#111;}
+.bar.green{background:#10b981;}
+.bar.orange{background:#f59e0b;}
+.bar.blue{background:#3b82f6;}
+.bar-val{font-size:10px;font-weight:600;color:#555;white-space:nowrap;}
+.bar-label{font-size:10.5px;color:#aaa;text-align:center;}
+.chart-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:#555;}
+.legend-dot{width:10px;height:10px;border-radius:50%;}
+
+/* LINE CHART FAKE */
+.line-chart{position:relative;height:140px;overflow:hidden;}
+.line-chart svg{width:100%;height:100%;}
+
+/* HORIZONTAL BAR */
+.hbar-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.hbar-label{font-size:12.5px;color:#555;width:130px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.hbar-track{flex:1;height:10px;background:#f0f0f0;border-radius:5px;overflow:hidden;}
+.hbar-fill{height:100%;border-radius:5px;}
+.hbar-val{font-size:11.5px;font-weight:600;color:#111;width:50px;text-align:right;flex-shrink:0;}
+
+/* TABLE */
+table{width:100%;border-collapse:collapse;}
+thead th{padding:10px 14px;text-align:left;font-size:11.5px;font-weight:600;color:#888;background:#fafafa;border-bottom:1px solid #f0f0f0;}
+tbody tr{border-bottom:1px solid #f7f7f7;transition:.15s;}
+tbody tr:hover{background:#fef2f2;}
+td{padding:11px 14px;font-size:13px;vertical-align:middle;}
+
+/* BADGES */
+.badge{display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
+.badge-green{background:#dcfce7;color:#16a34a;}
+.badge-red{background:#fee2e2;color:#dc2626;}
+.badge-orange{background:#fef3c7;color:#d97706;}
+.badge-blue{background:#dbeafe;color:#2563eb;}
+.badge-dot{width:5px;height:5px;border-radius:50%;background:currentColor;}
+
+/* DONUT */
+.donut-wrap{position:relative;width:130px;height:130px;margin:0 auto 12px;}
+.donut-wrap svg{transform:rotate(-90deg);}
+.donut-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;}
+.donut-center .val{font-size:18px;font-weight:700;color:#111;}
+.donut-center .lbl{font-size:10px;color:#aaa;}
+
+/* METRIC ROW */
+.metric-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #f5f5f5;font-size:13px;}
+.metric-row:last-child{border-bottom:none;}
+.metric-label{color:#555;}
+.metric-value{font-weight:700;color:#111;}
+
+/* EXPORT PANEL */
+.export-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.export-card{border:1.5px solid #e8e8e8;border-radius:10px;padding:14px;cursor:pointer;transition:.2s;display:flex;align-items:center;gap:10px;}
+.export-card:hover{border-color:#E30613;background:#fef2f2;}
+.export-icon{width:38px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.export-name{font-size:13px;font-weight:600;color:#111;}
+.export-desc{font-size:11.5px;color:#aaa;margin-top:1px;}
+
+/* MOBILE */
+.hamburger,.bottom-nav{display:none;}
+@media(max-width:768px){
+  .sidebar{transform:translateX(-100%);transition:.3s;}
+  .sidebar.open{transform:translateX(0);}
+  .main{margin-left:0;}
+  .topbar{padding:0 16px;}
+  .content{padding:16px;}
+  .kpi-row{grid-template-columns:1fr 1fr;}
+  .two-col,.three-col{grid-template-columns:1fr;}
+  .hamburger{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;background:none;cursor:pointer;}
+  .bottom-nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:#111;z-index:150;border-top:2px solid #E30613;}
+  .bottom-nav a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;color:rgba(255,255,255,0.5);text-decoration:none;font-size:10px;gap:3px;}
+  .bottom-nav a.active{color:#E30613;}
+  .bottom-nav a svg{width:20px;height:20px;}
+  .main{padding-bottom:65px;}
+}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH">
+  </div>
+  <div class="sidebar-section">Principal</div>
+  <a class="nav-item" href="03_dashboard_dg.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    Tableau de bord
+  </a>
+  <a class="nav-item" href="04_etudiants.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+    Étudiants
+  </a>
+  <a class="nav-item" href="05_paiements.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+    Paiements
+  </a>
+  <div class="sidebar-section">Pédagogie</div>
+  <a class="nav-item" href="06_emplois_du_temps.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    Emplois du temps
+  </a>
+  <a class="nav-item" href="07_emargement.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    Émargement
+  </a>
+  <a class="nav-item" href="08_notes_bulletins.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+    Notes & Bulletins
+  </a>
+  <div class="sidebar-section">RH & Finance</div>
+  <a class="nav-item" href="09_intervenants.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    Intervenants
+  </a>
+  <a class="nav-item" href="10_depenses.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    Dépenses
+  </a>
+  <div class="sidebar-section">Autre</div>
+  <a class="nav-item" href="11_communication.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    Communication
+  </a>
+  <a class="nav-item active" href="13_rapports.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+    Rapports
+  </a>
+  <a class="nav-item" href="14_parametres.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+    Paramètres
+  </a>
+  <div class="sidebar-bottom">
+    <div class="sidebar-user">
+      <div class="avatar">DG</div>
+      <div class="info">Directeur Général<span>Direction</span></div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="hamburger" onclick="document.getElementById('sidebar').classList.toggle('open')">
+        <svg width="22" height="22" fill="none" stroke="#111" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="topbar-left">
+        <h1>Rapports & Statistiques</h1>
+        <p>Analyse globale de l'établissement</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button class="btn btn-outline">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Exporter PDF
+      </button>
+      <button class="btn btn-red">
+        <svg width="14" height="14" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Exporter Excel
+      </button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- PERIOD + TABS -->
+    <div class="period-bar">
+      <div class="period-tabs">
+        <button class="period-tab" onclick="setPeriod(this)">Semaine</button>
+        <button class="period-tab" onclick="setPeriod(this)">Mois</button>
+        <button class="period-tab active" onclick="setPeriod(this)">Trimestre</button>
+        <button class="period-tab" onclick="setPeriod(this)">Année</button>
+      </div>
+      <select class="period-select">
+        <option>T1 2026 (Jan–Mars)</option>
+        <option>T4 2025 (Oct–Déc)</option>
+        <option>T3 2025 (Juil–Sep)</option>
+        <option>Année 2025–2026</option>
+      </select>
+      <select class="period-select">
+        <option>Toutes filières</option>
+        <option>Informatique</option>
+        <option>Gestion</option>
+        <option>Marketing</option>
+      </select>
+    </div>
+
+    <!-- REPORT TABS -->
+    <div class="report-tabs">
+      <button class="report-tab active" onclick="switchReport(this,'financier')">Financier</button>
+      <button class="report-tab" onclick="switchReport(this,'pedagogique')">Pédagogique</button>
+      <button class="report-tab" onclick="switchReport(this,'rh')">RH & Intervenants</button>
+      <button class="report-tab" onclick="switchReport(this,'etudiants')">Étudiants</button>
+    </div>
+
+    <!-- ===== SECTION FINANCIER (défaut) ===== -->
+    <div id="section-financier">
+
+      <!-- KPI -->
+      <div class="kpi-row">
+        <div class="kpi black">
+          <div class="kpi-label">Chiffre d'affaires T1</div>
+          <div class="kpi-value">18.4 M</div>
+          <div class="kpi-sub">FCFA encaissés</div>
+          <div class="kpi-trend down">▲ +12% vs T1 2025</div>
+        </div>
+        <div class="kpi green">
+          <div class="kpi-label">Taux de recouvrement</div>
+          <div class="kpi-value">84%</div>
+          <div class="kpi-sub">Objectif : 90%</div>
+          <div class="kpi-trend neutral">— Stable</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Total dépenses T1</div>
+          <div class="kpi-value">13.6 M</div>
+          <div class="kpi-sub">FCFA</div>
+          <div class="kpi-trend up">▲ +8% vs T1 2025</div>
+        </div>
+        <div class="kpi green">
+          <div class="kpi-label">Résultat net T1</div>
+          <div class="kpi-value">4.8 M</div>
+          <div class="kpi-sub">FCFA de bénéfice</div>
+          <div class="kpi-trend down">▲ +18%</div>
+        </div>
+        <div class="kpi orange">
+          <div class="kpi-label">Impayés en cours</div>
+          <div class="kpi-value">2.96 M</div>
+          <div class="kpi-sub">16% des créances</div>
+          <div class="kpi-trend up">▲ À surveiller</div>
+        </div>
+      </div>
+
+      <!-- CHARTS ROW 1 -->
+      <div class="two-col">
+        <!-- Revenus vs Dépenses -->
+        <div class="card">
+          <div class="card-head"><h3>Revenus vs Dépenses — Jan/Fév/Mars</h3></div>
+          <div class="card-body">
+            <div class="bar-chart">
+              <div class="bar-wrap">
+                <div class="bar-val">6.1M</div>
+                <div class="bar" style="height:85%;background:#111;"></div>
+                <div class="bar-val" style="color:#E30613;">4.3M</div>
+                <div class="bar" style="height:63%;background:#E30613;"></div>
+                <div class="bar-label">Janvier</div>
+              </div>
+              <div class="bar-wrap">
+                <div class="bar-val">6.0M</div>
+                <div class="bar" style="height:83%;background:#111;"></div>
+                <div class="bar-val" style="color:#E30613;">4.5M</div>
+                <div class="bar" style="height:65%;background:#E30613;"></div>
+                <div class="bar-label">Février</div>
+              </div>
+              <div class="bar-wrap">
+                <div class="bar-val">6.3M</div>
+                <div class="bar" style="height:90%;background:#111;"></div>
+                <div class="bar-val" style="color:#E30613;">4.8M</div>
+                <div class="bar" style="height:70%;background:#E30613;"></div>
+                <div class="bar-label">Mars</div>
+              </div>
+            </div>
+            <div class="chart-legend">
+              <div class="legend-item"><div class="legend-dot" style="background:#111;"></div>Revenus</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#E30613;"></div>Dépenses</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Répartition recettes -->
+        <div class="card">
+          <div class="card-head"><h3>Répartition recettes par filière</h3></div>
+          <div class="card-body">
+            <div class="donut-wrap">
+              <svg width="130" height="130" viewBox="0 0 130 130">
+                <circle cx="65" cy="65" r="50" fill="none" stroke="#E30613" stroke-width="16" stroke-dasharray="126 188" stroke-dashoffset="0"/>
+                <circle cx="65" cy="65" r="50" fill="none" stroke="#111" stroke-width="16" stroke-dasharray="88 226" stroke-dashoffset="-126"/>
+                <circle cx="65" cy="65" r="50" fill="none" stroke="#3b82f6" stroke-width="16" stroke-dasharray="63 251" stroke-dashoffset="-214"/>
+                <circle cx="65" cy="65" r="50" fill="none" stroke="#10b981" stroke-width="16" stroke-dasharray="37 277" stroke-dashoffset="-277"/>
+              </svg>
+              <div class="donut-center"><div class="val">18.4M</div><div class="lbl">FCFA</div></div>
+            </div>
+            <div class="legend-item"><div class="legend-dot" style="background:#E30613;"></div><span style="flex:1;">Informatique</span><strong>40%</strong></div>
+            <div class="legend-item"><div class="legend-dot" style="background:#111;"></div><span style="flex:1;">Gestion</span><strong>28%</strong></div>
+            <div class="legend-item"><div class="legend-dot" style="background:#3b82f6;"></div><span style="flex:1;">Marketing</span><strong>20%</strong></div>
+            <div class="legend-item"><div class="legend-dot" style="background:#10b981;"></div><span style="flex:1;">Commerce</span><strong>12%</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- IMPAYÉS TABLE -->
+      <div class="card full">
+        <div class="card-head"><h3>Analyse des impayés</h3><span style="font-size:12px;color:#888;">2 960 000 FCFA à recouvrer</span></div>
+        <table>
+          <thead>
+            <tr><th>Filière</th><th>Nb étudiants concernés</th><th>Montant impayé</th><th>Retard moyen</th><th>Taux impayé</th><th>Statut relance</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Informatique</strong></td>
+              <td>8</td>
+              <td><strong style="color:#E30613;">1 200 000 FCFA</strong></td>
+              <td>22 jours</td>
+              <td><div style="display:flex;align-items:center;gap:8px;"><div style="width:60px;height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;"><div style="width:18%;height:100%;background:#E30613;border-radius:3px;"></div></div>18%</div></td>
+              <td><span class="badge badge-orange"><span class="badge-dot"></span>J+7 envoyée</span></td>
+            </tr>
+            <tr>
+              <td><strong>Gestion</strong></td>
+              <td>5</td>
+              <td><strong style="color:#E30613;">900 000 FCFA</strong></td>
+              <td>15 jours</td>
+              <td><div style="display:flex;align-items:center;gap:8px;"><div style="width:60px;height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;"><div style="width:16%;height:100%;background:#f59e0b;border-radius:3px;"></div></div>16%</div></td>
+              <td><span class="badge badge-blue"><span class="badge-dot"></span>J+3 envoyée</span></td>
+            </tr>
+            <tr>
+              <td><strong>Marketing</strong></td>
+              <td>4</td>
+              <td><strong style="color:#E30613;">560 000 FCFA</strong></td>
+              <td>31 jours</td>
+              <td><div style="display:flex;align-items:center;gap:8px;"><div style="width:60px;height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;"><div style="width:14%;height:100%;background:#E30613;border-radius:3px;"></div></div>14%</div></td>
+              <td><span class="badge badge-red"><span class="badge-dot"></span>J+30 envoyée</span></td>
+            </tr>
+            <tr>
+              <td><strong>Commerce</strong></td>
+              <td>2</td>
+              <td><strong style="color:#E30613;">300 000 FCFA</strong></td>
+              <td>8 jours</td>
+              <td><div style="display:flex;align-items:center;gap:8px;"><div style="width:60px;height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;"><div style="width:10%;height:100%;background:#10b981;border-radius:3px;"></div></div>10%</div></td>
+              <td><span class="badge badge-blue"><span class="badge-dot"></span>J+3 envoyée</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+
+    <!-- ===== SECTION PEDAGOGIQUE (cachée) ===== -->
+    <div id="section-pedagogique" style="display:none;">
+
+      <div class="kpi-row">
+        <div class="kpi black">
+          <div class="kpi-label">Moyenne générale établ.</div>
+          <div class="kpi-value">13.2</div>
+          <div class="kpi-sub">/ 20 — Session 1</div>
+        </div>
+        <div class="kpi green">
+          <div class="kpi-label">Taux de réussite</div>
+          <div class="kpi-value">78%</div>
+          <div class="kpi-sub">Validations UE</div>
+        </div>
+        <div class="kpi orange">
+          <div class="kpi-label">Étudiants en rattrapage</div>
+          <div class="kpi-value">34</div>
+          <div class="kpi-sub">Sur 186 étudiants</div>
+        </div>
+        <div class="kpi blue">
+          <div class="kpi-label">Taux assiduité moyen</div>
+          <div class="kpi-value">89%</div>
+          <div class="kpi-sub">Toutes promos</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">UE à fort taux d'échec</div>
+          <div class="kpi-value">3</div>
+          <div class="kpi-sub">< 10/20 moyenne</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <div class="card-head"><h3>Moyennes par filière</h3></div>
+          <div class="card-body">
+            <div class="hbar-row"><div class="hbar-label">Informatique L2</div><div class="hbar-track"><div class="hbar-fill" style="width:76%;background:#E30613;"></div></div><div class="hbar-val">15.2/20</div></div>
+            <div class="hbar-row"><div class="hbar-label">Informatique L3</div><div class="hbar-track"><div class="hbar-fill" style="width:65%;background:#E30613;"></div></div><div class="hbar-val">13.0/20</div></div>
+            <div class="hbar-row"><div class="hbar-label">Gestion M1</div><div class="hbar-track"><div class="hbar-fill" style="width:60%;background:#111;"></div></div><div class="hbar-val">12.0/20</div></div>
+            <div class="hbar-row"><div class="hbar-label">Gestion L2</div><div class="hbar-track"><div class="hbar-fill" style="width:55%;background:#111;"></div></div><div class="hbar-val">11.0/20</div></div>
+            <div class="hbar-row"><div class="hbar-label">Marketing L3</div><div class="hbar-track"><div class="hbar-fill" style="width:63%;background:#3b82f6;"></div></div><div class="hbar-val">12.6/20</div></div>
+            <div class="hbar-row"><div class="hbar-label">Commerce L2</div><div class="hbar-track"><div class="hbar-fill" style="width:58%;background:#10b981;"></div></div><div class="hbar-val">11.6/20</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>UE à fort taux d'échec</h3></div>
+          <div class="card-body">
+            <div class="metric-row"><span class="metric-label">Marketing Digital</span><span class="metric-value" style="color:#E30613;">42% d'échec</span></div>
+            <div class="metric-row"><span class="metric-label">Droit des affaires</span><span class="metric-value" style="color:#f59e0b;">31% d'échec</span></div>
+            <div class="metric-row"><span class="metric-label">Anglais professionnel</span><span class="metric-value" style="color:#f59e0b;">28% d'échec</span></div>
+            <div class="metric-row"><span class="metric-label">Développement Web</span><span class="metric-value" style="color:#10b981;">8% d'échec</span></div>
+            <div class="metric-row"><span class="metric-label">Réseaux & Sécurité</span><span class="metric-value" style="color:#10b981;">11% d'échec</span></div>
+            <div class="metric-row"><span class="metric-label">Comptabilité</span><span class="metric-value" style="color:#10b981;">14% d'échec</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card full">
+        <div class="card-head"><h3>Taux d'assiduité par promo</h3></div>
+        <div class="card-body">
+          <div class="bar-chart">
+            <div class="bar-wrap"><div class="bar-val">92%</div><div class="bar" style="height:92%;"></div><div class="bar-label">Info L2</div></div>
+            <div class="bar-wrap"><div class="bar-val">88%</div><div class="bar" style="height:88%;background:#111;"></div><div class="bar-label">Info L3</div></div>
+            <div class="bar-wrap"><div class="bar-val">91%</div><div class="bar" style="height:91%;background:#3b82f6;"></div><div class="bar-label">Gest M1</div></div>
+            <div class="bar-wrap"><div class="bar-val">85%</div><div class="bar" style="height:85%;background:#10b981;"></div><div class="bar-label">Gest L2</div></div>
+            <div class="bar-wrap"><div class="bar-val">87%</div><div class="bar" style="height:87%;background:#f59e0b;"></div><div class="bar-label">Mktg L3</div></div>
+            <div class="bar-wrap"><div class="bar-val">90%</div><div class="bar" style="height:90%;background:#8b5cf6;"></div><div class="bar-label">Com L2</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== SECTION RH (cachée) ===== -->
+    <div id="section-rh" style="display:none;">
+
+      <div class="kpi-row">
+        <div class="kpi black">
+          <div class="kpi-label">Masse salariale T1</div>
+          <div class="kpi-value">10.4 M</div>
+          <div class="kpi-sub">FCFA versés</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Intervenants actifs</div>
+          <div class="kpi-value">14</div>
+          <div class="kpi-sub">Vacataires + Permanents</div>
+        </div>
+        <div class="kpi green">
+          <div class="kpi-label">Heures dispensées</div>
+          <div class="kpi-value">936 h</div>
+          <div class="kpi-sub">Total trimestre</div>
+        </div>
+        <div class="kpi orange">
+          <div class="kpi-label">Coût horaire moyen</div>
+          <div class="kpi-value">11 111</div>
+          <div class="kpi-sub">FCFA / heure</div>
+        </div>
+        <div class="kpi blue">
+          <div class="kpi-label">Bordereaux validés</div>
+          <div class="kpi-value">22 / 24</div>
+          <div class="kpi-sub">T1 2026</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <div class="card-head"><h3>Rémunération par intervenant — Mars</h3></div>
+          <div class="card-body">
+            <div class="hbar-row"><div class="hbar-label">Mme Fatou Koné</div><div class="hbar-track"><div class="hbar-fill" style="width:100%;background:#E30613;"></div></div><div class="hbar-val">900 000</div></div>
+            <div class="hbar-row"><div class="hbar-label">M. Ousmane Ba</div><div class="hbar-track"><div class="hbar-fill" style="width:87%;background:#111;"></div></div><div class="hbar-val">784 000</div></div>
+            <div class="hbar-row"><div class="hbar-label">M. Amadou Diallo</div><div class="hbar-track"><div class="hbar-fill" style="width:64%;background:#3b82f6;"></div></div><div class="hbar-val">576 000</div></div>
+            <div class="hbar-row"><div class="hbar-label">M. Ibrahima Sarr</div><div class="hbar-track"><div class="hbar-fill" style="width:36%;background:#10b981;"></div></div><div class="hbar-val">320 000</div></div>
+            <div class="hbar-row"><div class="hbar-label">Mme Aïssatou N.</div><div class="hbar-track"><div class="hbar-fill" style="width:21%;background:#f59e0b;"></div></div><div class="hbar-val">192 000</div></div>
+            <div class="hbar-row"><div class="hbar-label">Mme Lamine Diop</div><div class="hbar-track"><div class="hbar-fill" style="width:20%;background:#aaa;"></div></div><div class="hbar-val">180 000</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Heures par type de cours</h3></div>
+          <div class="card-body">
+            <div class="bar-chart">
+              <div class="bar-wrap"><div class="bar-val">186h</div><div class="bar" style="height:100%;"></div><div class="bar-label">Présentiel</div></div>
+              <div class="bar-wrap"><div class="bar-val">72h</div><div class="bar" style="height:39%;background:#3b82f6;"></div><div class="bar-label">En ligne</div></div>
+              <div class="bar-wrap"><div class="bar-val">42h</div><div class="bar" style="height:23%;background:#f59e0b;"></div><div class="bar-label">Hybride</div></div>
+              <div class="bar-wrap"><div class="bar-val">12h</div><div class="bar" style="height:6%;background:#111;"></div><div class="bar-label">Examen</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== SECTION ÉTUDIANTS (cachée) ===== -->
+    <div id="section-etudiants" style="display:none;">
+
+      <div class="kpi-row">
+        <div class="kpi black">
+          <div class="kpi-label">Total étudiants inscrits</div>
+          <div class="kpi-value">186</div>
+          <div class="kpi-sub">Année 2025–2026</div>
+          <div class="kpi-trend down">▲ +14% vs 2024</div>
+        </div>
+        <div class="kpi green">
+          <div class="kpi-label">Nouvelles inscriptions T1</div>
+          <div class="kpi-value">23</div>
+          <div class="kpi-sub">Jan–Mars 2026</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Abandons / Départs</div>
+          <div class="kpi-value">4</div>
+          <div class="kpi-sub">Taux : 2.1%</div>
+        </div>
+        <div class="kpi orange">
+          <div class="kpi-label">En situation irrégulière</div>
+          <div class="kpi-value">12</div>
+          <div class="kpi-sub">Impayés ou dossiers incomplets</div>
+        </div>
+        <div class="kpi blue">
+          <div class="kpi-label">Ratio H / F</div>
+          <div class="kpi-value">58 / 42</div>
+          <div class="kpi-sub">% Hommes / Femmes</div>
+        </div>
+      </div>
+
+      <div class="three-col">
+        <div class="card">
+          <div class="card-head"><h3>Répartition par filière</h3></div>
+          <div class="card-body">
+            <div class="donut-wrap">
+              <svg width="130" height="130" viewBox="0 0 130 130">
+                <circle cx="65" cy="65" r="50" fill="none" stroke="#E30613" stroke-width="16" stroke-dasharray="119 195" stroke-dashoffset="0"/>
+                <circle cx="65" cy="65" r="50" fill="none" stroke="#111" stroke-width="16" stroke-dasharray="88 226" stroke-dashoffset="-119"/>
+                <circle cx="65" cy="65" r="50" fill="none" stroke="#3b82f6" stroke-width="16" stroke-dasharray="63 251" stroke-dashoffset="-207"/>
+                <circle cx="65" cy="65" r="50" fill="none" stroke="#10b981" stroke-width="16" stroke-dasharray="44 270" stroke-dashoffset="-270"/>
+              </svg>
+              <div class="donut-center"><div class="val">186</div><div class="lbl">étudiants</div></div>
+            </div>
+            <div class="legend-item"><div class="legend-dot" style="background:#E30613;"></div><span style="flex:1;">Informatique</span><strong>38%</strong></div>
+            <div class="legend-item"><div class="legend-dot" style="background:#111;"></div><span style="flex:1;">Gestion</span><strong>28%</strong></div>
+            <div class="legend-item"><div class="legend-dot" style="background:#3b82f6;"></div><span style="flex:1;">Marketing</span><strong>20%</strong></div>
+            <div class="legend-item"><div class="legend-dot" style="background:#10b981;"></div><span style="flex:1;">Commerce</span><strong>14%</strong></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Évolution inscriptions</h3></div>
+          <div class="card-body">
+            <div class="bar-chart">
+              <div class="bar-wrap"><div class="bar-val">148</div><div class="bar" style="height:75%;background:#aaa;"></div><div class="bar-label">2023–24</div></div>
+              <div class="bar-wrap"><div class="bar-val">163</div><div class="bar" style="height:84%;background:#111;"></div><div class="bar-label">2024–25</div></div>
+              <div class="bar-wrap"><div class="bar-val">186</div><div class="bar" style="height:100%;"></div><div class="bar-label">2025–26</div></div>
+            </div>
+            <div style="margin-top:10px;font-size:12px;color:#888;text-align:center;">Croissance : <strong style="color:#10b981;">+14.1%</strong> vs année précédente</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Statut financier</h3></div>
+          <div class="card-body">
+            <div class="metric-row"><span class="metric-label">Situation régulière</span><span class="metric-value" style="color:#10b981;">174 (93.5%)</span></div>
+            <div class="metric-row"><span class="metric-label">Impayés en cours</span><span class="metric-value" style="color:#f59e0b;">8 (4.3%)</span></div>
+            <div class="metric-row"><span class="metric-label">Dossiers incomplets</span><span class="metric-value" style="color:#E30613;">4 (2.2%)</span></div>
+            <div class="metric-row"><span class="metric-label">Exonérations / Bourses</span><span class="metric-value">6 (3.2%)</span></div>
+            <div class="metric-row"><span class="metric-label">Paiement échelonné</span><span class="metric-value">28 (15%)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EXPORTS -->
+    <div class="card full" style="margin-top:4px;">
+      <div class="card-head"><h3>Exports disponibles</h3></div>
+      <div class="card-body">
+        <div class="export-grid">
+          <div class="export-card">
+            <div class="export-icon" style="background:#fee2e2;"><svg width="20" height="20" fill="none" stroke="#E30613" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div>
+            <div><div class="export-name">Rapport financier complet (PDF)</div><div class="export-desc">KPI, revenus, dépenses, impayés</div></div>
+          </div>
+          <div class="export-card">
+            <div class="export-icon" style="background:#dcfce7;"><svg width="20" height="20" fill="none" stroke="#16a34a" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div>
+            <div><div class="export-name">Données complètes (Excel)</div><div class="export-desc">Tableaux bruts exportables</div></div>
+          </div>
+          <div class="export-card">
+            <div class="export-icon" style="background:#dbeafe;"><svg width="20" height="20" fill="none" stroke="#1d4ed8" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+            <div><div class="export-name">Liste étudiants avec statuts</div><div class="export-desc">Financier + pédagogique</div></div>
+          </div>
+          <div class="export-card">
+            <div class="export-icon" style="background:#fef3c7;"><svg width="20" height="20" fill="none" stroke="#d97706" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></div>
+            <div><div class="export-name">Récapitulatif intervenants</div><div class="export-desc">Heures, rémunérations, bordereaux</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <a href="03_dashboard_dg.html"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard</a>
+  <a href="04_etudiants.html"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Étudiants</a>
+  <a href="05_paiements.html"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Paiements</a>
+  <a href="13_rapports.html" class="active"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>Rapports</a>
+  <a href="14_parametres.html"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>Paramètres</a>
+</nav>
+
+<script>
+function setPeriod(el){document.querySelectorAll('.period-tab').forEach(b=>b.classList.remove('active'));el.classList.add('active');}
+function switchReport(el,sec){
+  document.querySelectorAll('.report-tab').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  ['financier','pedagogique','rh','etudiants'].forEach(s=>{
+    document.getElementById('section-'+s).style.display = s===sec?'block':'none';
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Laravel API",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd backend && php artisan serve"],
+      "port": 8000
+    },
+    {
+      "name": "Backend Vite",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "npm --prefix backend run dev"],
+      "port": 5173
+    },
+    {
+      "name": "Frontend Vue",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "npm --prefix frontend run dev"],
+      "port": 5173
+    }
+  ]
+}

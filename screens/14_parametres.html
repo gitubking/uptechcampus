@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UPTECH Campus — Paramètres & Administration</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Poppins',sans-serif;background:#f4f4f4;color:#111;display:flex;min-height:100vh;}
+
+/* SIDEBAR */
+.sidebar{width:240px;min-height:100vh;background:#111;display:flex;flex-direction:column;position:fixed;left:0;top:0;z-index:100;}
+.sidebar-logo{padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,0.08);}
+.sidebar-logo img{height:36px;}
+.sidebar-section{padding:16px 20px 4px;font-size:11px;font-weight:600;color:#fff;letter-spacing:1.2px;text-transform:uppercase;}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10px 20px;color:#fff;cursor:pointer;transition:.2s;font-size:13.5px;font-weight:400;text-decoration:none;}
+.nav-item:hover{background:rgba(255,255,255,0.07);}
+.nav-item.active{background:#E30613;color:#fff;font-weight:600;}
+.nav-item svg{width:18px;height:18px;flex-shrink:0;opacity:.85;}
+.sidebar-bottom{margin-top:auto;padding:16px 20px;border-top:1px solid rgba(255,255,255,0.08);}
+.sidebar-user{display:flex;align-items:center;gap:10px;}
+.sidebar-user .avatar{width:34px;height:34px;border-radius:50%;background:#E30613;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;}
+.sidebar-user .info{font-size:12px;color:#fff;}
+.sidebar-user .info span{display:block;font-size:10.5px;color:rgba(255,255,255,0.5);}
+
+/* MAIN */
+.main{margin-left:240px;flex:1;display:flex;flex-direction:column;}
+
+/* TOPBAR */
+.topbar{background:#fff;border-bottom:1px solid #e8e8e8;padding:0 28px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:90;}
+.topbar-left h1{font-size:17px;font-weight:700;}
+.topbar-left p{font-size:12px;color:#888;}
+.topbar-right{display:flex;gap:10px;}
+.btn{padding:8px 18px;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.2s;}
+.btn-red{background:#E30613;color:#fff;}
+.btn-red:hover{background:#c0000f;}
+.btn-outline{background:#fff;color:#111;border:1.5px solid #ddd;}
+.btn-outline:hover{border-color:#E30613;color:#E30613;}
+.btn-danger{background:#fff;color:#dc2626;border:1.5px solid #dc2626;}
+.btn-danger:hover{background:#fee2e2;}
+
+/* LAYOUT */
+.content{padding:24px 28px;flex:1;display:flex;gap:0;}
+.settings-nav{width:220px;flex-shrink:0;margin-right:24px;}
+.settings-body{flex:1;min-width:0;}
+
+/* SETTINGS NAV */
+.settings-nav-group{margin-bottom:20px;}
+.settings-nav-group-label{font-size:11px;font-weight:600;color:#aaa;letter-spacing:1px;text-transform:uppercase;padding:0 0 6px;}
+.settings-nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;color:#555;font-size:13px;font-weight:500;transition:.2s;margin-bottom:2px;}
+.settings-nav-item:hover{background:#fff;color:#111;}
+.settings-nav-item.active{background:#fff;color:#E30613;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,0.06);}
+.settings-nav-item svg{width:16px;height:16px;flex-shrink:0;}
+
+/* CARD */
+.card{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,0.06);margin-bottom:18px;overflow:hidden;}
+.card-head{padding:18px 22px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;}
+.card-head h3{font-size:14px;font-weight:700;}
+.card-head p{font-size:12px;color:#888;margin-top:2px;}
+.card-body{padding:20px 22px;}
+
+/* FORM */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.form-group{display:flex;flex-direction:column;gap:5px;}
+.form-group.full{grid-column:1/-1;}
+.form-group label{font-size:12px;font-weight:600;color:#555;}
+.form-group input,.form-group select,.form-group textarea{padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;outline:none;transition:.2s;}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#E30613;}
+.form-group input[type="color"]{height:40px;padding:4px 8px;cursor:pointer;}
+.form-hint{font-size:11px;color:#aaa;margin-top:2px;}
+
+/* TOGGLE */
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f5f5f5;}
+.toggle-row:last-child{border-bottom:none;}
+.toggle-info .label{font-size:13px;font-weight:500;color:#111;}
+.toggle-info .desc{font-size:12px;color:#aaa;margin-top:2px;}
+.toggle{position:relative;width:44px;height:24px;flex-shrink:0;}
+.toggle input{opacity:0;width:0;height:0;}
+.toggle-slider{position:absolute;inset:0;background:#ddd;border-radius:24px;cursor:pointer;transition:.3s;}
+.toggle-slider::before{content:'';position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.3s;}
+.toggle input:checked+.toggle-slider{background:#E30613;}
+.toggle input:checked+.toggle-slider::before{transform:translateX(20px);}
+
+/* USERS TABLE */
+.users-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;}
+.search-box{position:relative;flex:1;min-width:180px;}
+.search-box input{width:100%;padding:8px 12px 8px 34px;border:1.5px solid #e0e0e0;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;outline:none;}
+.search-box input:focus{border-color:#E30613;}
+.search-box svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#bbb;width:14px;height:14px;}
+table{width:100%;border-collapse:collapse;}
+thead th{padding:10px 14px;text-align:left;font-size:11.5px;font-weight:600;color:#888;background:#fafafa;border-bottom:1px solid #f0f0f0;}
+tbody tr{border-bottom:1px solid #f7f7f7;transition:.15s;}
+tbody tr:hover{background:#fef9f9;}
+td{padding:11px 14px;font-size:13px;vertical-align:middle;}
+
+/* BADGES */
+.badge{display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
+.badge-green{background:#dcfce7;color:#16a34a;}
+.badge-red{background:#fee2e2;color:#dc2626;}
+.badge-orange{background:#fef3c7;color:#d97706;}
+.badge-gray{background:#f3f4f6;color:#6b7280;}
+.badge-blue{background:#dbeafe;color:#2563eb;}
+.badge-purple{background:#ede9fe;color:#7c3aed;}
+.badge-dot{width:5px;height:5px;border-radius:50%;background:currentColor;}
+
+/* ROLE BADGE */
+.role{padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;}
+.role-dg{background:#111;color:#fff;}
+.role-rf{background:#E30613;color:#fff;}
+.role-rp{background:#3b82f6;color:#fff;}
+.role-sc{background:#8b5cf6;color:#fff;}
+.role-in{background:#10b981;color:#fff;}
+.role-et{background:#f59e0b;color:#fff;}
+
+/* AVATAR */
+.user-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;}
+
+/* ACTION BTNS */
+.action-btn{padding:5px 10px;border-radius:6px;font-family:'Poppins',sans-serif;font-size:11px;font-weight:600;cursor:pointer;border:none;transition:.2s;}
+.action-edit{background:#f4f4f4;color:#555;}
+.action-edit:hover{background:#eee;}
+.action-del{background:#fee2e2;color:#dc2626;}
+.action-del:hover{background:#fecaca;}
+
+/* FILIERE CARD */
+.filiere-list{display:flex;flex-direction:column;gap:8px;}
+.filiere-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid #f0f0f0;border-radius:10px;transition:.2s;}
+.filiere-item:hover{border-color:#E30613;}
+.filiere-color{width:14px;height:14px;border-radius:50%;flex-shrink:0;}
+.filiere-name{font-size:13px;font-weight:600;flex:1;}
+.filiere-sub{font-size:12px;color:#aaa;}
+.filiere-actions{display:flex;gap:6px;}
+
+/* RELANCE CONFIG */
+.relance-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+.relance-card{border:1.5px solid #f0f0f0;border-radius:10px;padding:14px;text-align:center;}
+.relance-card .day{font-size:22px;font-weight:700;color:#E30613;}
+.relance-card .label{font-size:11px;color:#888;margin-bottom:8px;}
+.relance-card .canal{font-size:12px;font-weight:600;color:#555;background:#f4f4f4;border-radius:6px;padding:4px 8px;display:inline-block;margin-top:4px;}
+.relance-card .toggle-small{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px;font-size:11px;color:#888;}
+
+/* LOG */
+.log-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f5f5f5;}
+.log-item:last-child{border-bottom:none;}
+.log-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px;}
+.log-content .action{font-size:13px;color:#111;font-weight:500;}
+.log-content .meta{font-size:11.5px;color:#aaa;margin-top:2px;}
+
+/* DANGER ZONE */
+.danger-zone{border:2px solid #fee2e2;border-radius:12px;padding:18px 20px;}
+.danger-title{font-size:14px;font-weight:700;color:#dc2626;margin-bottom:4px;}
+.danger-desc{font-size:12.5px;color:#888;margin-bottom:14px;}
+.danger-actions{display:flex;gap:10px;flex-wrap:wrap;}
+
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:none;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:#fff;border-radius:16px;width:580px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.25);}
+.modal-head{padding:18px 24px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;}
+.modal-head h2{font-size:15px;font-weight:700;}
+.modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:#888;}
+.modal-body{padding:22px 24px;}
+.modal-footer{padding:14px 24px;border-top:1px solid #f0f0f0;display:flex;gap:10px;justify-content:flex-end;}
+
+/* MOBILE */
+.hamburger,.bottom-nav{display:none;}
+@media(max-width:768px){
+  .sidebar{transform:translateX(-100%);transition:.3s;}
+  .sidebar.open{transform:translateX(0);}
+  .main{margin-left:0;}
+  .topbar{padding:0 16px;}
+  .content{padding:16px;flex-direction:column;}
+  .settings-nav{width:100%;margin-right:0;margin-bottom:16px;}
+  .settings-nav-group{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+  .settings-nav-item{padding:7px 12px;font-size:12px;}
+  .form-grid{grid-template-columns:1fr;}
+  .relance-grid{grid-template-columns:1fr 1fr;}
+  .hamburger{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;background:none;cursor:pointer;}
+  .bottom-nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:#111;z-index:150;border-top:2px solid #E30613;}
+  .bottom-nav a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;color:rgba(255,255,255,0.5);text-decoration:none;font-size:10px;gap:3px;}
+  .bottom-nav a.active{color:#E30613;}
+  .bottom-nav a svg{width:20px;height:20px;}
+  .main{padding-bottom:65px;}
+}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH">
+  </div>
+  <div class="sidebar-section">Principal</div>
+  <a class="nav-item" href="03_dashboard_dg.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    Tableau de bord
+  </a>
+  <a class="nav-item" href="04_etudiants.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+    Étudiants
+  </a>
+  <a class="nav-item" href="05_paiements.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+    Paiements
+  </a>
+  <div class="sidebar-section">Pédagogie</div>
+  <a class="nav-item" href="06_emplois_du_temps.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    Emplois du temps
+  </a>
+  <a class="nav-item" href="07_emargement.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    Émargement
+  </a>
+  <a class="nav-item" href="08_notes_bulletins.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+    Notes & Bulletins
+  </a>
+  <div class="sidebar-section">RH & Finance</div>
+  <a class="nav-item" href="09_intervenants.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    Intervenants
+  </a>
+  <a class="nav-item" href="10_depenses.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    Dépenses
+  </a>
+  <div class="sidebar-section">Autre</div>
+  <a class="nav-item" href="11_communication.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    Communication
+  </a>
+  <a class="nav-item" href="13_rapports.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+    Rapports
+  </a>
+  <a class="nav-item active" href="14_parametres.html">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+    Paramètres
+  </a>
+  <div class="sidebar-bottom">
+    <div class="sidebar-user">
+      <div class="avatar">DG</div>
+      <div class="info">Directeur Général<span>Direction</span></div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="hamburger" onclick="document.getElementById('sidebar').classList.toggle('open')">
+        <svg width="22" height="22" fill="none" stroke="#111" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="topbar-left">
+        <h1>Paramètres & Administration</h1>
+        <p>Configuration globale de la plateforme</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button class="btn btn-red" onclick="saveSettings()">Enregistrer les modifications</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- LEFT NAV -->
+    <div class="settings-nav">
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-label">Établissement</div>
+        <div class="settings-nav-item active" onclick="switchPanel(this,'etablissement')">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          Informations générales
+        </div>
+        <div class="settings-nav-item" onclick="switchPanel(this,'filieres')">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+          Filières & Niveaux
+        </div>
+        <div class="settings-nav-item" onclick="switchPanel(this,'annee')">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Année académique
+        </div>
+      </div>
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-label">Utilisateurs</div>
+        <div class="settings-nav-item" onclick="switchPanel(this,'utilisateurs')">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+          Comptes utilisateurs
+        </div>
+        <div class="settings-nav-item" onclick="switchPanel(this,'roles')">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Rôles & Permissions
+        </div>
+      </div>
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-label">Finance</div>
+        <div class="settings-nav-item" onclick="switchPanel(this,'paiements')">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          Modes de paiement
+        </div>
+        <div class="settings-nav-item" onclick="switchPanel(this,'relances')">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+          Relances automatiques
+        </div>
+      </div>
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-label">Système</div>
+        <div class="settings-nav-item" onclick="switchPanel(this,'notifications')">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          Notifications
+        </div>
+        <div class="settings-nav-item" onclick="switchPanel(this,'logs')">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+          Journal d'activité
+        </div>
+        <div class="settings-nav-item" onclick="switchPanel(this,'danger')">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+          Zone de danger
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT BODY -->
+    <div class="settings-body">
+
+      <!-- ÉTABLISSEMENT -->
+      <div id="panel-etablissement">
+        <div class="card">
+          <div class="card-head"><div><h3>Informations de l'établissement</h3><p>Identité officielle utilisée sur tous les documents générés</p></div></div>
+          <div class="card-body">
+            <div class="form-grid">
+              <div class="form-group full"><label>Nom de l'établissement</label><input type="text" value="Institut UPTECH Formation"></div>
+              <div class="form-group"><label>Abréviation</label><input type="text" value="UPTECH"></div>
+              <div class="form-group"><label>Statut juridique</label><select><option selected>Institut privé</option><option>École supérieure</option><option>Centre de formation</option></select></div>
+              <div class="form-group full"><label>Adresse</label><input type="text" value="Dakar, Sénégal"></div>
+              <div class="form-group"><label>Téléphone</label><input type="tel" value="+221 33 XXX XX XX"></div>
+              <div class="form-group"><label>Email</label><input type="email" value="contact@uptechformation.com"></div>
+              <div class="form-group"><label>Site web</label><input type="url" value="https://uptechformation.com"></div>
+              <div class="form-group"><label>Numéro d'accréditation</label><input type="text" placeholder="Référence officielle"></div>
+              <div class="form-group full">
+                <label>Logo actuel</label>
+                <div style="display:flex;align-items:center;gap:14px;padding:12px;background:#111;border-radius:10px;width:fit-content;">
+                  <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" style="height:32px;">
+                  <button class="btn btn-outline" style="background:rgba(255,255,255,0.1);color:#fff;border-color:rgba(255,255,255,0.2);font-size:12px;">Changer le logo</button>
+                </div>
+              </div>
+              <div class="form-group"><label>Couleur principale</label><input type="color" value="#E30613"></div>
+              <div class="form-group"><label>Couleur secondaire</label><input type="color" value="#111111"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FILIÈRES -->
+      <div id="panel-filieres" style="display:none;">
+        <div class="card">
+          <div class="card-head">
+            <div><h3>Filières & Niveaux</h3><p>Gérez les parcours proposés par l'établissement</p></div>
+            <button class="btn btn-red" style="font-size:12px;" onclick="openModal('filiere')">+ Ajouter</button>
+          </div>
+          <div class="card-body">
+            <div class="filiere-list">
+              <div class="filiere-item">
+                <div class="filiere-color" style="background:#E30613;"></div>
+                <div style="flex:1;"><div class="filiere-name">Informatique</div><div class="filiere-sub">L1 · L2 · L3 · M1 · M2 — 71 étudiants</div></div>
+                <div class="filiere-actions"><button class="action-btn action-edit">Modifier</button><button class="action-btn action-del">Suppr.</button></div>
+              </div>
+              <div class="filiere-item">
+                <div class="filiere-color" style="background:#111;"></div>
+                <div style="flex:1;"><div class="filiere-name">Gestion & Finance</div><div class="filiere-sub">L1 · L2 · L3 · M1 — 52 étudiants</div></div>
+                <div class="filiere-actions"><button class="action-btn action-edit">Modifier</button><button class="action-btn action-del">Suppr.</button></div>
+              </div>
+              <div class="filiere-item">
+                <div class="filiere-color" style="background:#3b82f6;"></div>
+                <div style="flex:1;"><div class="filiere-name">Marketing Digital</div><div class="filiere-sub">L2 · L3 · M1 — 37 étudiants</div></div>
+                <div class="filiere-actions"><button class="action-btn action-edit">Modifier</button><button class="action-btn action-del">Suppr.</button></div>
+              </div>
+              <div class="filiere-item">
+                <div class="filiere-color" style="background:#10b981;"></div>
+                <div style="flex:1;"><div class="filiere-name">Commerce International</div><div class="filiere-sub">L1 · L2 · L3 — 26 étudiants</div></div>
+                <div class="filiere-actions"><button class="action-btn action-edit">Modifier</button><button class="action-btn action-del">Suppr.</button></div>
+              </div>
+              <div class="filiere-item" style="border:1.5px dashed #f59e0b;">
+                <div class="filiere-color" style="background:#f59e0b;"></div>
+                <div style="flex:1;"><div class="filiere-name">Tronc commun</div><div class="filiere-sub">Modules partagés inter-filières — Tarif le plus élevé appliqué</div></div>
+                <div class="filiere-actions"><button class="action-btn action-edit">Modifier</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ANNÉE ACADÉMIQUE -->
+      <div id="panel-annee" style="display:none;">
+        <div class="card">
+          <div class="card-head"><div><h3>Année académique en cours</h3><p>Paramètres de l'année 2025–2026</p></div></div>
+          <div class="card-body">
+            <div class="form-grid">
+              <div class="form-group"><label>Début année académique</label><input type="date" value="2025-09-15"></div>
+              <div class="form-group"><label>Fin année académique</label><input type="date" value="2026-07-31"></div>
+              <div class="form-group"><label>Début S1</label><input type="date" value="2025-09-15"></div>
+              <div class="form-group"><label>Fin S1 / Examens</label><input type="date" value="2026-01-31"></div>
+              <div class="form-group"><label>Début S2</label><input type="date" value="2026-02-15"></div>
+              <div class="form-group"><label>Fin S2 / Examens</label><input type="date" value="2026-07-15"></div>
+              <div class="form-group full"><label>Seuil de validation UE (note /20)</label><input type="number" value="10" min="0" max="20"></div>
+              <div class="form-group full"><label>Seuil mention Bien</label><input type="number" value="14" min="0" max="20"></div>
+              <div class="form-group full"><label>Seuil mention Très bien</label><input type="number" value="16" min="0" max="20"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- UTILISATEURS -->
+      <div id="panel-utilisateurs" style="display:none;">
+        <div class="card">
+          <div class="card-head">
+            <div><h3>Comptes utilisateurs</h3><p>7 profils actifs sur la plateforme</p></div>
+            <button class="btn btn-red" style="font-size:12px;" onclick="openModal('user')">+ Ajouter</button>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div class="users-toolbar" style="padding:14px 20px 0;">
+              <div class="search-box">
+                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" placeholder="Rechercher un utilisateur…">
+              </div>
+              <select style="padding:8px 12px;border:1.5px solid #e0e0e0;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;outline:none;">
+                <option>Tous les rôles</option>
+                <option>Directeur Général</option>
+                <option>Resp. Financier</option>
+                <option>Resp. Pédagogique</option>
+                <option>Secrétariat</option>
+                <option>Intervenant</option>
+                <option>Étudiant</option>
+              </select>
+            </div>
+            <table style="margin-top:10px;">
+              <thead><tr><th>Utilisateur</th><th>Email</th><th>Rôle</th><th>Dernier accès</th><th>Statut</th><th></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><div style="display:flex;align-items:center;gap:10px;"><div class="user-avatar" style="background:#E30613;">DG</div><strong>M. le Directeur</strong></div></td>
+                  <td style="color:#888;">dg@uptechformation.com</td>
+                  <td><span class="role role-dg">Directeur Général</span></td>
+                  <td style="font-size:12px;color:#888;">Aujourd'hui 10:32</td>
+                  <td><span class="badge badge-green"><span class="badge-dot"></span>Actif</span></td>
+                  <td><button class="action-btn action-edit">Modifier</button></td>
+                </tr>
+                <tr>
+                  <td><div style="display:flex;align-items:center;gap:10px;"><div class="user-avatar" style="background:#3b82f6;">RF</div><strong>Mme Rokhaya Fall</strong></div></td>
+                  <td style="color:#888;">fall.rokhaya@uptechformation.com</td>
+                  <td><span class="role role-rf">Resp. Financier</span></td>
+                  <td style="font-size:12px;color:#888;">Aujourd'hui 09:15</td>
+                  <td><span class="badge badge-green"><span class="badge-dot"></span>Actif</span></td>
+                  <td><div style="display:flex;gap:5px;"><button class="action-btn action-edit">Modifier</button><button class="action-btn action-del">Bloquer</button></div></td>
+                </tr>
+                <tr>
+                  <td><div style="display:flex;align-items:center;gap:10px;"><div class="user-avatar" style="background:#8b5cf6;">RP</div><strong>M. Babacar Niang</strong></div></td>
+                  <td style="color:#888;">niang.babacar@uptechformation.com</td>
+                  <td><span class="role role-rp">Resp. Pédagogique</span></td>
+                  <td style="font-size:12px;color:#888;">Hier 16:40</td>
+                  <td><span class="badge badge-green"><span class="badge-dot"></span>Actif</span></td>
+                  <td><div style="display:flex;gap:5px;"><button class="action-btn action-edit">Modifier</button><button class="action-btn action-del">Bloquer</button></div></td>
+                </tr>
+                <tr>
+                  <td><div style="display:flex;align-items:center;gap:10px;"><div class="user-avatar" style="background:#10b981;">SC</div><strong>Mme Adja Gueye</strong></div></td>
+                  <td style="color:#888;">gueye.adja@uptechformation.com</td>
+                  <td><span class="role role-sc">Secrétariat</span></td>
+                  <td style="font-size:12px;color:#888;">Aujourd'hui 08:00</td>
+                  <td><span class="badge badge-green"><span class="badge-dot"></span>Actif</span></td>
+                  <td><div style="display:flex;gap:5px;"><button class="action-btn action-edit">Modifier</button><button class="action-btn action-del">Bloquer</button></div></td>
+                </tr>
+                <tr>
+                  <td><div style="display:flex;align-items:center;gap:10px;"><div class="user-avatar" style="background:#f59e0b;">AD</div><strong>M. Amadou Diallo</strong></div></td>
+                  <td style="color:#888;">diallo.amadou@uptech.sn</td>
+                  <td><span class="role role-in">Intervenant</span></td>
+                  <td style="font-size:12px;color:#888;">Hier 14:20</td>
+                  <td><span class="badge badge-green"><span class="badge-dot"></span>Actif</span></td>
+                  <td><div style="display:flex;gap:5px;"><button class="action-btn action-edit">Modifier</button><button class="action-btn action-del">Bloquer</button></div></td>
+                </tr>
+                <tr>
+                  <td><div style="display:flex;align-items:center;gap:10px;"><div class="user-avatar" style="background:#6366f1;">AK</div><strong>Aminata Keita</strong></div></td>
+                  <td style="color:#888;">keita.aminata@etu.uptech.sn</td>
+                  <td><span class="role role-et">Étudiant</span></td>
+                  <td style="font-size:12px;color:#888;">Aujourd'hui 07:45</td>
+                  <td><span class="badge badge-green"><span class="badge-dot"></span>Actif</span></td>
+                  <td><div style="display:flex;gap:5px;"><button class="action-btn action-edit">Modifier</button><button class="action-btn action-del">Bloquer</button></div></td>
+                </tr>
+                <tr>
+                  <td><div style="display:flex;align-items:center;gap:10px;"><div class="user-avatar" style="background:#aaa;">LD</div><strong>Mme Lamine Diop</strong></div></td>
+                  <td style="color:#888;">diop.lamine@uptech.sn</td>
+                  <td><span class="role role-in">Intervenant</span></td>
+                  <td style="font-size:12px;color:#888;">Il y a 5 jours</td>
+                  <td><span class="badge badge-red"><span class="badge-dot"></span>Bloqué</span></td>
+                  <td><div style="display:flex;gap:5px;"><button class="action-btn action-edit">Modifier</button><button class="btn btn-outline" style="padding:4px 10px;font-size:11px;color:#16a34a;border-color:#16a34a;">Réactiver</button></div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- RÔLES & PERMISSIONS -->
+      <div id="panel-roles" style="display:none;">
+        <div class="card">
+          <div class="card-head"><div><h3>Rôles & Permissions</h3><p>Accès par profil utilisateur</p></div></div>
+          <div class="card-body" style="padding:0;">
+            <table>
+              <thead><tr><th>Permission</th><th><span class="role role-dg">DG</span></th><th><span class="role role-rf">Resp. Fin.</span></th><th><span class="role role-rp">Resp. Péd.</span></th><th><span class="role role-sc">Secrét.</span></th><th><span class="role role-in">Interv.</span></th><th><span class="role role-et">Étudiant</span></th></tr></thead>
+              <tbody>
+                <tr><td>Tableau de bord global</td><td>✅</td><td>✅</td><td>✅</td><td>⬜</td><td>⬜</td><td>⬜</td></tr>
+                <tr><td>Gestion étudiants</td><td>✅</td><td>⬜</td><td>✅</td><td>✅</td><td>⬜</td><td>⬜</td></tr>
+                <tr><td>Paiements — lecture</td><td>✅</td><td>✅</td><td>⬜</td><td>✅</td><td>⬜</td><td>✅*</td></tr>
+                <tr><td>Paiements — enregistrement</td><td>✅</td><td>✅</td><td>⬜</td><td>✅</td><td>⬜</td><td>⬜</td></tr>
+                <tr><td>Emplois du temps</td><td>✅</td><td>⬜</td><td>✅</td><td>✅</td><td>✅*</td><td>✅*</td></tr>
+                <tr><td>Émargement</td><td>✅</td><td>⬜</td><td>✅</td><td>⬜</td><td>✅</td><td>⬜</td></tr>
+                <tr><td>Notes — saisie</td><td>✅</td><td>⬜</td><td>✅</td><td>⬜</td><td>✅*</td><td>⬜</td></tr>
+                <tr><td>Bulletins — publication</td><td>✅</td><td>⬜</td><td>✅</td><td>⬜</td><td>⬜</td><td>⬜</td></tr>
+                <tr><td>Intervenants & Bordereaux</td><td>✅</td><td>✅</td><td>⬜</td><td>⬜</td><td>⬜</td><td>⬜</td></tr>
+                <tr><td>Dépenses</td><td>✅</td><td>✅</td><td>⬜</td><td>⬜</td><td>⬜</td><td>⬜</td></tr>
+                <tr><td>Rapports & Stats</td><td>✅</td><td>✅</td><td>✅*</td><td>⬜</td><td>⬜</td><td>⬜</td></tr>
+                <tr><td>Paramètres</td><td>✅</td><td>⬜</td><td>⬜</td><td>⬜</td><td>⬜</td><td>⬜</td></tr>
+              </tbody>
+            </table>
+            <div style="padding:12px 16px;font-size:11.5px;color:#888;">✅ Accès complet &nbsp;·&nbsp; ✅* Accès partiel (données propres) &nbsp;·&nbsp; ⬜ Pas d'accès</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAIEMENTS CONFIG -->
+      <div id="panel-paiements" style="display:none;">
+        <div class="card">
+          <div class="card-head"><div><h3>Modes de paiement acceptés</h3><p>Activer / désactiver les canaux disponibles</p></div></div>
+          <div class="card-body">
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Wave</div><div class="desc">Paiement mobile Wave — instantané</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Orange Money</div><div class="desc">Paiement mobile Orange Money</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Virement bancaire</div><div class="desc">SGBS / CBAO / Ecobank</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Espèces (Cash)</div><div class="desc">Paiement en caisse</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Chèque</div><div class="desc">Chèque bancaire à ordre d'UPTECH</div></div><label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label></div>
+            <div style="margin-top:16px;padding-top:16px;border-top:1px solid #f0f0f0;">
+              <div class="form-grid">
+                <div class="form-group"><label>Pénalité retard / jour (%)</label><input type="number" value="0" min="0" step="0.1" placeholder="0 = aucune pénalité"></div>
+                <div class="form-group"><label>Seuil blocage accès (jours)</label><input type="number" value="30" min="1"></div>
+                <div class="form-group full"><label>Compte bancaire UPTECH (IBAN/RIB)</label><input type="text" placeholder="SN XX XXXX XXXX XXXX XXXX XXXX XX"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RELANCES -->
+      <div id="panel-relances" style="display:none;">
+        <div class="card">
+          <div class="card-head"><div><h3>Relances automatiques impayés</h3><p>Configuration des envois automatiques</p></div></div>
+          <div class="card-body">
+            <div class="relance-grid">
+              <div class="relance-card">
+                <div class="label">Relance</div>
+                <div class="day">J+3</div>
+                <span class="canal">SMS</span>
+                <div class="toggle-small">
+                  <label class="toggle" style="width:36px;height:20px;"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+                  Activé
+                </div>
+              </div>
+              <div class="relance-card">
+                <div class="label">Relance</div>
+                <div class="day">J+7</div>
+                <span class="canal">SMS + Email</span>
+                <div class="toggle-small">
+                  <label class="toggle" style="width:36px;height:20px;"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+                  Activé
+                </div>
+              </div>
+              <div class="relance-card">
+                <div class="label">Relance</div>
+                <div class="day">J+15</div>
+                <span class="canal">SMS + Email + WhatsApp</span>
+                <div class="toggle-small">
+                  <label class="toggle" style="width:36px;height:20px;"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+                  Activé
+                </div>
+              </div>
+              <div class="relance-card" style="border-color:#E30613;">
+                <div class="label">Mise en demeure</div>
+                <div class="day" style="color:#111;">J+30</div>
+                <span class="canal" style="background:#fee2e2;color:#dc2626;">Courrier + Blocage</span>
+                <div class="toggle-small">
+                  <label class="toggle" style="width:36px;height:20px;"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+                  Activé
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:20px;">
+              <div class="form-group"><label>Message SMS relance J+3</label><textarea rows="3" style="padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:8px;font-family:'Poppins',sans-serif;font-size:13px;outline:none;width:100%;">Bonjour [PRENOM], un solde de [MONTANT] FCFA est dû sur votre compte UPTECH. Merci de régulariser. Contact : +221 33 XXX XX XX</textarea></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- NOTIFICATIONS -->
+      <div id="panel-notifications" style="display:none;">
+        <div class="card">
+          <div class="card-head"><div><h3>Préférences de notifications</h3><p>Choisissez quand et comment recevoir les alertes</p></div></div>
+          <div class="card-body">
+            <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:10px;text-transform:uppercase;letter-spacing:.8px;">Finance</div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Nouveau paiement enregistré</div><div class="desc">Notifier le DG et Resp. Financier</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Impayé J+30 détecté</div><div class="desc">Alerte critique sur tableau de bord</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Bordereau en attente de visa</div><div class="desc">Notifier le DG</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div style="font-size:12px;font-weight:600;color:#888;margin:16px 0 10px;text-transform:uppercase;letter-spacing:.8px;">Pédagogie</div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Absence détectée (émargement)</div><div class="desc">Alerte si étudiant absent sans justificatif</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Conflit emploi du temps</div><div class="desc">Alerte lors de la détection d'un conflit salle/intervenant</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Bulletins publiés</div><div class="desc">Notifier les étudiants concernés</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div style="font-size:12px;font-weight:600;color:#888;margin:16px 0 10px;text-transform:uppercase;letter-spacing:.8px;">Canaux</div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Notifications in-app</div><div class="desc">Cloche dans la plateforme</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">Email</div><div class="desc">Envoi aux adresses enregistrées</div></div><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label></div>
+            <div class="toggle-row"><div class="toggle-info"><div class="label">SMS</div><div class="desc">Numéros de téléphone des comptes</div></div><label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- JOURNAL D'ACTIVITÉ -->
+      <div id="panel-logs" style="display:none;">
+        <div class="card">
+          <div class="card-head"><div><h3>Journal d'activité</h3><p>Actions récentes sur la plateforme</p></div><button class="btn btn-outline" style="font-size:12px;">Exporter</button></div>
+          <div class="card-body">
+            <div class="log-item"><div class="log-dot" style="background:#E30613;"></div><div class="log-content"><div class="action">Bordereau BORD-2026-00047 généré</div><div class="meta">Mme Rokhaya Fall (Resp. Fin.) · 07/03/2026 09:12</div></div></div>
+            <div class="log-item"><div class="log-dot" style="background:#10b981;"></div><div class="log-content"><div class="action">Paiement RECU-2026-00312 enregistré — 200 000 FCFA</div><div class="meta">Mme Adja Gueye (Secrétariat) · 06/03/2026 15:44</div></div></div>
+            <div class="log-item"><div class="log-dot" style="background:#3b82f6;"></div><div class="log-content"><div class="action">Bulletin BUL-2026-L2I-004 publié — Aminata Keita</div><div class="meta">M. Babacar Niang (Resp. Péd.) · 06/03/2026 14:30</div></div></div>
+            <div class="log-item"><div class="log-dot" style="background:#f59e0b;"></div><div class="log-content"><div class="action">Conflit emploi du temps détecté — Salle A lundi 08h</div><div class="meta">Système automatique · 06/03/2026 11:02</div></div></div>
+            <div class="log-item"><div class="log-dot" style="background:#E30613;"></div><div class="log-content"><div class="action">Relance J+30 envoyée — 4 étudiants Marketing</div><div class="meta">Système automatique · 05/03/2026 09:00</div></div></div>
+            <div class="log-item"><div class="log-dot" style="background:#8b5cf6;"></div><div class="log-content"><div class="action">Nouvel étudiant inscrit — Moussa Diarra (Info L1)</div><div class="meta">Mme Adja Gueye (Secrétariat) · 04/03/2026 10:15</div></div></div>
+            <div class="log-item"><div class="log-dot" style="background:#111;"></div><div class="log-content"><div class="action">Connexion administrateur — session ouverte</div><div class="meta">M. le Directeur Général · 04/03/2026 08:00</div></div></div>
+            <div class="log-item"><div class="log-dot" style="background:#10b981;"></div><div class="log-content"><div class="action">Dépense validée — Loyer mars 2026 (1 500 000 FCFA)</div><div class="meta">M. le Directeur Général · 01/03/2026 09:30</div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ZONE DANGER -->
+      <div id="panel-danger" style="display:none;">
+        <div class="card">
+          <div class="card-head"><div><h3>Zone de danger</h3><p>Actions irréversibles — réservées au Directeur Général</p></div></div>
+          <div class="card-body">
+            <div style="display:flex;flex-direction:column;gap:16px;">
+              <div class="danger-zone">
+                <div class="danger-title">Réinitialiser l'année académique</div>
+                <div class="danger-desc">Clôture définitive de l'année 2025–2026 et ouverture de la nouvelle. Les données sont archivées, non supprimées.</div>
+                <div class="danger-actions"><button class="btn btn-danger">Clôturer l'année en cours</button></div>
+              </div>
+              <div class="danger-zone">
+                <div class="danger-title">Réinitialiser les mots de passe</div>
+                <div class="danger-desc">Envoie un lien de réinitialisation à tous les utilisateurs. Les sessions actives seront interrompues.</div>
+                <div class="danger-actions"><button class="btn btn-danger">Réinitialiser tous les MDP</button></div>
+              </div>
+              <div class="danger-zone" style="border-color:#111;">
+                <div class="danger-title" style="color:#111;">Sauvegarde / Restauration</div>
+                <div class="danger-desc">Télécharger une sauvegarde complète de la base de données ou restaurer depuis un fichier.</div>
+                <div class="danger-actions">
+                  <button class="btn btn-outline">Télécharger sauvegarde</button>
+                  <button class="btn btn-outline">Restaurer depuis fichier</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /settings-body -->
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <a href="03_dashboard_dg.html"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard</a>
+  <a href="04_etudiants.html"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Étudiants</a>
+  <a href="13_rapports.html"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>Rapports</a>
+  <a href="14_parametres.html" class="active"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>Paramètres</a>
+  <a href="11_communication.html"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Messages</a>
+</nav>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="mainModal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-head">
+      <h2 id="modalTitle">Nouvel utilisateur</h2>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body" id="modalBody">
+      <div class="form-grid">
+        <div class="form-group"><label>Prénom</label><input type="text"></div>
+        <div class="form-group"><label>Nom</label><input type="text"></div>
+        <div class="form-group full"><label>Email</label><input type="email"></div>
+        <div class="form-group full"><label>Rôle</label>
+          <select>
+            <option>Directeur Général</option>
+            <option>Resp. Financier</option>
+            <option>Resp. Pédagogique</option>
+            <option>Secrétariat</option>
+            <option>Intervenant</option>
+            <option>Étudiant</option>
+          </select>
+        </div>
+        <div class="form-group full"><label>Mot de passe temporaire</label><input type="password" placeholder="Sera envoyé par email"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-red" onclick="closeModal()">Créer le compte</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function switchPanel(el, panel){
+  document.querySelectorAll('.settings-nav-item').forEach(i=>i.classList.remove('active'));
+  el.classList.add('active');
+  const panels=['etablissement','filieres','annee','utilisateurs','roles','paiements','relances','notifications','logs','danger'];
+  panels.forEach(p=>{
+    const el=document.getElementById('panel-'+p);
+    if(el) el.style.display = p===panel?'block':'none';
+  });
+}
+function openModal(type){
+  document.getElementById('modalTitle').textContent = type==='user' ? 'Nouvel utilisateur' : 'Nouvelle filière';
+  document.getElementById('mainModal').classList.add('open');
+}
+function closeModal(){document.getElementById('mainModal').classList.remove('open');}
+document.getElementById('mainModal').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
+function saveSettings(){
+  const btn=document.querySelector('.btn-red');
+  const orig=btn.textContent;
+  btn.textContent='Enregistré !';
+  btn.style.background='#10b981';
+  setTimeout(()=>{btn.textContent=orig;btn.style.background='';},2000);
+}
+</script>
+</body>
+</html>

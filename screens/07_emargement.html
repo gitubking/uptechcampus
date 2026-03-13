@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>UPTECH Campus — Emargement</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Poppins',sans-serif;background:#f4f4f4;min-height:100vh;font-size:13px;}
+
+    /* ── HEADER MOBILE ── */
+    .mob-header{background:#111;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+    .mob-header img{width:100px;}
+    .mob-header-right{display:flex;align-items:center;gap:10px;}
+    .interv-chip{display:flex;align-items:center;gap:7px;background:rgba(255,255,255,0.1);border-radius:20px;padding:5px 12px;}
+    .interv-avatar{width:26px;height:26px;background:#E30613;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;}
+    .interv-name{color:#fff;font-size:11.5px;font-weight:600;}
+
+    /* Bandeau hors ligne */
+    .offline-bar{background:#f59e0b;color:#fff;text-align:center;padding:7px;font-size:11.5px;font-weight:600;display:none;}
+    .offline-bar.show{display:block;}
+
+    .page{padding:16px;}
+
+    /* ── MES COURS DU JOUR ── */
+    .section-title{font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;}
+
+    .cours-card{background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.06);margin-bottom:12px;overflow:hidden;cursor:pointer;transition:box-shadow 0.15s;}
+    .cours-card:hover{box-shadow:0 4px 14px rgba(0,0,0,0.1);}
+    .cours-card-header{padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #f5f5f5;}
+    .cours-time{background:#111;color:#fff;border-radius:6px;padding:6px 10px;text-align:center;flex-shrink:0;}
+    .cours-time .ct-h{font-size:14px;font-weight:700;}
+    .cours-time .ct-d{font-size:9px;color:rgba(255,255,255,0.5);margin-top:1px;}
+    .cours-meta{flex:1;}
+    .cours-meta strong{display:block;font-size:14px;font-weight:700;color:#111;}
+    .cours-meta span{font-size:11.5px;color:#888;}
+    .cours-status{flex-shrink:0;}
+    .status-badge{padding:4px 10px;border-radius:20px;font-size:10.5px;font-weight:700;}
+    .status-todo{background:#f4f4f4;color:#888;}
+    .status-done{background:#f0fdf4;color:#15803d;}
+    .status-current{background:#fff0f0;color:#E30613;animation:pulse 1.5s infinite;}
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.7;}}
+
+    .cours-card-footer{padding:10px 16px;background:#fafafa;display:flex;align-items:center;gap:8px;font-size:11px;color:#aaa;}
+    .cf-item{display:flex;align-items:center;gap:4px;}
+
+    .btn-emar{width:100%;background:#E30613;color:#fff;border:none;border-radius:6px;padding:13px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:background 0.2s;margin-top:2px;}
+    .btn-emar:hover{background:#c0000e;}
+    .btn-emar-done{background:#f0fdf4;color:#15803d;border:1.5px solid #bbf7d0;}
+    .btn-emar-done:hover{background:#dcfce7;}
+
+    /* ── VUE EMARGEMENT (plein ecran) ── */
+    .emar-view{display:none;position:fixed;inset:0;background:#fff;z-index:200;overflow-y:auto;}
+    .emar-view.open{display:block;}
+
+    .emar-topbar{background:#111;padding:14px 18px;display:flex;align-items:center;gap:12px;}
+    .back-btn{background:rgba(255,255,255,0.1);border:none;border-radius:6px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;cursor:pointer;}
+    .emar-topbar-title{color:#fff;font-size:14px;font-weight:700;}
+    .emar-topbar-sub{color:rgba(255,255,255,0.5);font-size:11px;}
+
+    .emar-body{padding:18px;}
+
+    /* Infos cours */
+    .cours-info-box{background:#f9f9f9;border-radius:8px;padding:14px;margin-bottom:18px;}
+    .cib-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #efefef;font-size:12px;}
+    .cib-row:last-child{border-bottom:none;}
+    .cib-label{color:#888;}
+    .cib-val{font-weight:600;color:#111;}
+
+    /* Heures */
+    .heures-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;}
+    .heure-input{background:#fff;border:1.5px solid #e5e5e5;border-radius:8px;padding:12px;text-align:center;}
+    .heure-input label{display:block;font-size:10.5px;font-weight:600;color:#888;text-transform:uppercase;margin-bottom:6px;}
+    .heure-input input{width:100%;border:none;text-align:center;font-family:'Poppins',sans-serif;font-size:20px;font-weight:700;color:#111;outline:none;background:none;}
+
+    /* Contenu & progression */
+    .form-group{margin-bottom:16px;}
+    .form-group label{display:block;font-size:11.5px;font-weight:600;color:#333;text-transform:uppercase;letter-spacing:0.3px;margin-bottom:7px;}
+    .form-group textarea{width:100%;border:1.5px solid #e5e5e5;border-radius:6px;padding:10px 12px;font-family:'Poppins',sans-serif;font-size:13px;color:#111;outline:none;background:#fafafa;resize:none;transition:border-color 0.2s;}
+    .form-group textarea:focus{border-color:#E30613;background:#fff;}
+
+    .progression-wrap{margin-bottom:18px;}
+    .prog-label{font-size:11.5px;font-weight:600;color:#333;text-transform:uppercase;letter-spacing:0.3px;margin-bottom:10px;display:flex;justify-content:space-between;}
+    .prog-label span{color:#E30613;font-size:14px;}
+    .prog-track{height:8px;background:#f0f0f0;border-radius:4px;overflow:hidden;margin-bottom:8px;}
+    .prog-fill{height:100%;background:#E30613;border-radius:4px;transition:width 0.3s;}
+    .prog-steps{display:flex;justify-content:space-between;}
+    .prog-step{font-size:10px;color:#aaa;cursor:pointer;font-weight:500;transition:color 0.15s;}
+    .prog-step:hover,.prog-step.active{color:#E30613;font-weight:700;}
+
+    /* Liste etudiants presences */
+    .presences-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+    .presences-title{font-size:13px;font-weight:700;color:#111;}
+    .all-present-btn{background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d;border-radius:4px;padding:5px 12px;font-family:'Poppins',sans-serif;font-size:11px;font-weight:700;cursor:pointer;}
+    .all-absent-btn{background:#fff0f0;border:1px solid #fecaca;color:#E30613;border-radius:4px;padding:5px 12px;font-family:'Poppins',sans-serif;font-size:11px;font-weight:700;cursor:pointer;margin-left:6px;}
+
+    .student-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f5f5f5;}
+    .student-row:last-child{border-bottom:none;}
+    .s-av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;}
+    .s-info{flex:1;}
+    .s-info strong{display:block;font-size:13px;font-weight:600;color:#111;}
+    .s-info span{font-size:11px;color:#aaa;}
+
+    /* Toggle présent/absent */
+    .presence-toggle{display:flex;border-radius:6px;overflow:hidden;border:1.5px solid #e5e5e5;}
+    .pt-btn{padding:6px 14px;font-family:'Poppins',sans-serif;font-size:11px;font-weight:700;cursor:pointer;border:none;transition:all 0.15s;}
+    .pt-present{background:#fff;color:#aaa;}
+    .pt-present.active{background:#22c55e;color:#fff;}
+    .pt-absent{background:#fff;color:#aaa;}
+    .pt-absent.active{background:#E30613;color:#fff;}
+
+    /* Retard */
+    .pt-retard{padding:6px 10px;font-family:'Poppins',sans-serif;font-size:10px;font-weight:700;cursor:pointer;border:none;background:#fff;color:#aaa;transition:all 0.15s;}
+    .pt-retard.active{background:#f59e0b;color:#fff;}
+
+    /* Bouton soumettre */
+    .submit-section{padding:18px;background:#fff;border-top:1px solid #f0f0f0;position:sticky;bottom:0;}
+    .submit-info{display:flex;justify-content:space-between;margin-bottom:10px;font-size:12px;}
+    .submit-info .si-label{color:#888;}
+    .submit-info .si-val{font-weight:700;color:#111;}
+    .btn-submit{width:100%;background:#E30613;color:#fff;border:none;border-radius:6px;padding:15px;font-family:'Poppins',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:background 0.2s;}
+    .btn-submit:hover{background:#c0000e;}
+
+    /* VUE CONFIRMATION */
+    .confirm-view{display:none;position:fixed;inset:0;background:#fff;z-index:300;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:32px;}
+    .confirm-view.open{display:flex;}
+    .confirm-icon{width:80px;height:80px;background:#f0fdf4;border:3px solid #22c55e;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:36px;margin:0 auto 20px;}
+    .confirm-title{font-size:22px;font-weight:700;color:#111;margin-bottom:8px;}
+    .confirm-sub{font-size:13px;color:#888;margin-bottom:24px;line-height:1.6;}
+    .confirm-detail{background:#f9f9f9;border-radius:8px;padding:16px;width:100%;max-width:360px;margin-bottom:24px;}
+    .cd-row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid #efefef;}
+    .cd-row:last-child{border-bottom:none;}
+    .cd-label{color:#888;}
+    .cd-val{font-weight:600;color:#111;}
+    .confirm-sms{font-size:11px;color:#aaa;margin-bottom:20px;}
+    .btn-confirm-back{background:#111;color:#fff;border:none;border-radius:6px;padding:14px 32px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
+
+    /* BOTTOM NAV */
+    .mob-bottom-nav{position:fixed;bottom:0;left:0;right:0;height:60px;background:#111;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-around;align-items:center;z-index:100;}
+    .mob-bottom-nav .bn-item{display:flex;flex-direction:column;align-items:center;gap:3px;color:rgba(255,255,255,0.45);font-size:9px;font-weight:600;cursor:pointer;padding:6px 10px;}
+    .mob-bottom-nav .bn-item.active{color:#E30613;}
+    .mob-bottom-nav .bn-item .bn-ico{font-size:20px;}
+
+    /* DESKTOP (vue large) */
+    @media(min-width:769px){
+      body{display:flex;}
+      .sidebar-desktop{width:230px;background:#111;display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100;}
+      .sidebar-desktop .sd-logo{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,0.07);}
+      .sidebar-desktop .sd-logo img{width:130px;}
+      .sidebar-desktop .sd-logo span{display:block;color:rgba(255,255,255,0.35);font-size:9.5px;text-transform:uppercase;letter-spacing:1px;margin-top:6px;}
+      .desk-main{margin-left:230px;flex:1;display:flex;align-items:flex-start;justify-content:center;padding:32px;background:#f4f4f4;}
+      .phone-frame{width:390px;background:#fff;border-radius:36px;box-shadow:0 20px 60px rgba(0,0,0,0.18);overflow:hidden;border:8px solid #111;}
+      .phone-notch{background:#111;height:28px;display:flex;align-items:center;justify-content:center;}
+      .phone-notch-bar{width:80px;height:6px;background:rgba(255,255,255,0.15);border-radius:3px;}
+      .mob-header{border-radius:0;}
+      .mob-bottom-nav{border-radius:0 0 28px 28px;}
+    }
+
+    @media(max-width:768px){
+      .sidebar-desktop{display:none;}
+      .desk-main{display:contents;}
+      .phone-frame{display:contents;}
+      .phone-notch{display:none;}
+      body{padding-bottom:60px;}
+    }
+  </style>
+</head>
+<body>
+
+<!-- SIDEBAR DESKTOP -->
+<aside class="sidebar-desktop">
+  <div class="sd-logo">
+    <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH"/>
+    <span>Campus v1.0 — Vue Mobile</span>
+  </div>
+  <div style="padding:20px;color:rgba(255,255,255,0.4);font-size:11.5px;line-height:1.7;border-bottom:1px solid rgba(255,255,255,0.07);">
+    <p style="color:#fff;font-weight:600;margin-bottom:8px;">Espace Intervenant</p>
+    <p>Cet ecran est concu pour etre utilise sur smartphone iOS ou Android.</p>
+    <p style="margin-top:8px;">L'emargement numerique fonctionne hors connexion et se synchronise automatiquement.</p>
+  </div>
+  <div style="padding:16px 20px;">
+    <div style="background:rgba(227,6,19,0.12);border:1px solid rgba(227,6,19,0.3);border-radius:6px;padding:12px;font-size:11px;color:#f87171;">
+      &#9888; Mode hors ligne : les emargements sont stockes localement et envoyes a la reconnexion.
+    </div>
+  </div>
+  <div style="margin-top:auto;padding:16px 20px;border-top:1px solid rgba(255,255,255,0.07);">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div style="width:34px;height:34px;background:#E30613;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;">MD</div>
+      <div><strong style="display:block;color:#fff;font-size:12px;">M. Diallo</strong><span style="color:rgba(255,255,255,0.35);font-size:10px;">Intervenant</span></div>
+    </div>
+  </div>
+</aside>
+
+<!-- FRAME TELEPHONE -->
+<div class="desk-main">
+<div class="phone-frame">
+<div class="phone-notch"><div class="phone-notch-bar"></div></div>
+
+<!-- BANDEAU HORS LIGNE -->
+<div class="offline-bar" id="offlineBar">&#128267; Mode hors ligne — Emargement sauvegarde localement</div>
+
+<!-- HEADER -->
+<div class="mob-header">
+  <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH"/>
+  <div class="mob-header-right">
+    <div class="interv-chip">
+      <div class="interv-avatar">MD</div>
+      <span class="interv-name">M. Diallo</span>
+    </div>
+  </div>
+</div>
+
+<!-- PAGE PRINCIPALE -->
+<div class="page" id="mainPage" style="padding-bottom:70px;">
+
+  <p class="section-title">&#128197; Samedi 07 mars 2026 — Mes cours</p>
+
+  <!-- Cours 1 — termine -->
+  <div class="cours-card">
+    <div class="cours-card-header">
+      <div class="cours-time"><div class="ct-h">08:00</div><div class="ct-d">10:00</div></div>
+      <div class="cours-meta">
+        <strong>Algorithmique</strong>
+        <span>BTS-INFO-2A — Salle A1</span>
+      </div>
+      <div class="cours-status"><span class="status-badge status-done">&#10003; Emarge</span></div>
+    </div>
+    <div class="cours-card-footer">
+      <span class="cf-item">&#128100; 22 presents / 24</span>
+      <span style="margin-left:auto" class="cf-item">&#9200; 2h effectuees</span>
+      <span class="cf-item" style="margin-left:8px;color:#22c55e">&#128203; 65%</span>
+    </div>
+  </div>
+
+  <!-- Cours 2 — en cours -->
+  <div class="cours-card" onclick="openEmar()">
+    <div class="cours-card-header">
+      <div class="cours-time" style="background:#E30613;"><div class="ct-h">10:00</div><div class="ct-d">12:00</div></div>
+      <div class="cours-meta">
+        <strong>Programmation Web</strong>
+        <span>BTS-INFO-2A — Labo Info</span>
+      </div>
+      <div class="cours-status"><span class="status-badge status-current">&#9679; En cours</span></div>
+    </div>
+    <div class="cours-card-footer">
+      <span class="cf-item">&#128100; 24 etudiants</span>
+      <span style="margin-left:auto" class="cf-item">&#128204; Presentiel</span>
+    </div>
+    <div style="padding:10px 16px;">
+      <button class="btn-emar" onclick="openEmar()">&#9997; Emarger ce cours</button>
+    </div>
+  </div>
+
+  <!-- Cours 3 — a venir -->
+  <div class="cours-card">
+    <div class="cours-card-header">
+      <div class="cours-time" style="background:#888;"><div class="ct-h">14:00</div><div class="ct-d">16:00</div></div>
+      <div class="cours-meta">
+        <strong>Architecture logicielle</strong>
+        <span>BTS-INFO-2A — Teams</span>
+      </div>
+      <div class="cours-status"><span class="status-badge status-todo">A venir</span></div>
+    </div>
+    <div class="cours-card-footer">
+      <span class="cf-item">&#128100; 24 etudiants</span>
+      <span style="margin-left:auto" class="cf-item">&#127758; En ligne</span>
+    </div>
+  </div>
+
+  <!-- Cours 4 — a venir -->
+  <div class="cours-card">
+    <div class="cours-card-header">
+      <div class="cours-time" style="background:#888;"><div class="ct-h">16:00</div><div class="ct-d">18:00</div></div>
+      <div class="cours-meta">
+        <strong>Gestion de projet</strong>
+        <span>BTS-INFO-2A — Salle A2</span>
+      </div>
+      <div class="cours-status"><span class="status-badge status-todo">A venir</span></div>
+    </div>
+    <div class="cours-card-footer">
+      <span class="cf-item">&#128100; 24 etudiants</span>
+      <span style="margin-left:auto" class="cf-item">&#127758; Hybride</span>
+    </div>
+  </div>
+
+  <!-- Bouton simuler hors ligne -->
+  <div style="margin-top:16px;text-align:center;">
+    <button onclick="toggleOffline()" style="background:#f9f9f9;border:1px solid #e5e5e5;border-radius:4px;padding:8px 16px;font-family:'Poppins',sans-serif;font-size:11px;color:#888;cursor:pointer;">
+      &#128267; Simuler mode hors ligne
+    </button>
+  </div>
+
+</div><!-- /mainPage -->
+
+<!-- ── VUE EMARGEMENT ── -->
+<div class="emar-view" id="emarView">
+
+  <div class="emar-topbar">
+    <button class="back-btn" onclick="closeEmar()">&#8592;</button>
+    <div>
+      <div class="emar-topbar-title">Programmation Web</div>
+      <div class="emar-topbar-sub">BTS-INFO-2A — Samedi 07 mars 2026</div>
+    </div>
+  </div>
+
+  <div class="emar-body">
+
+    <!-- Infos cours -->
+    <div class="cours-info-box">
+      <div class="cib-row"><span class="cib-label">Classe</span><span class="cib-val">BTS-INFO-2A (Tronc commun)</span></div>
+      <div class="cib-row"><span class="cib-label">Salle</span><span class="cib-val">Laboratoire Informatique</span></div>
+      <div class="cib-row"><span class="cib-label">Mode</span><span class="cib-val">Presentiel</span></div>
+      <div class="cib-row"><span class="cib-label">Programme</span><span class="cib-val">CSS Avance + Flexbox</span></div>
+    </div>
+
+    <!-- Heures reelles -->
+    <p style="font-size:11.5px;font-weight:700;color:#333;text-transform:uppercase;letter-spacing:0.3px;margin-bottom:10px;">Heures reelles du cours</p>
+    <div class="heures-row">
+      <div class="heure-input">
+        <label>Debut</label>
+        <input type="time" value="10:05"/>
+      </div>
+      <div class="heure-input">
+        <label>Fin</label>
+        <input type="time" value="12:00"/>
+      </div>
+    </div>
+
+    <!-- Contenu enseigne -->
+    <div class="form-group">
+      <label>Contenu du cours</label>
+      <textarea rows="3" placeholder="Resume du contenu enseigne aujourd'hui...">CSS Avance : Flexbox, Grid, media queries. TP pratique sur la mise en page responsive.</textarea>
+    </div>
+
+    <!-- Progression -->
+    <div class="progression-wrap">
+      <div class="prog-label">Progression du programme <span id="progVal">65%</span></div>
+      <div class="prog-track"><div class="prog-fill" id="progFill" style="width:65%"></div></div>
+      <div class="prog-steps">
+        <span class="prog-step" onclick="setprog(0)">0%</span>
+        <span class="prog-step" onclick="setprog(25)">25%</span>
+        <span class="prog-step" onclick="setprog(50)">50%</span>
+        <span class="prog-step active" onclick="setprog(65)">65%</span>
+        <span class="prog-step" onclick="setprog(75)">75%</span>
+        <span class="prog-step" onclick="setprog(100)">100%</span>
+      </div>
+    </div>
+
+    <!-- Liste presences -->
+    <div class="presences-header">
+      <span class="presences-title">&#128100; Presences (24 etudiants)</span>
+      <div>
+        <button class="all-present-btn" onclick="setAll('present')">Tous presents</button>
+        <button class="all-absent-btn" onclick="setAll('absent')">Tous absents</button>
+      </div>
+    </div>
+
+    <div id="studentList">
+      <!-- Etudiants generés par JS -->
+    </div>
+
+  </div><!-- /emar-body -->
+
+  <!-- Bouton soumettre -->
+  <div class="submit-section">
+    <div class="submit-info">
+      <span class="si-label">Presents</span>
+      <span class="si-val" id="presentCount" style="color:#22c55e;">22 / 24</span>
+    </div>
+    <div class="submit-info">
+      <span class="si-label">Absents</span>
+      <span class="si-val" id="absentCount" style="color:#E30613;">2 / 24</span>
+    </div>
+    <button class="btn-submit" onclick="submitEmar()">&#9997; Valider l'emargement</button>
+  </div>
+
+</div><!-- /emarView -->
+
+<!-- ── VUE CONFIRMATION ── -->
+<div class="confirm-view" id="confirmView">
+  <div class="confirm-icon">&#10003;</div>
+  <div class="confirm-title">Emargement enregistre !</div>
+  <div class="confirm-sub">Votre emargement a ete transmis avec succes.<br>Les presences ont ete enregistrees.</div>
+  <div class="confirm-detail">
+    <div class="cd-row"><span class="cd-label">Cours</span><span class="cd-val">Programmation Web</span></div>
+    <div class="cd-row"><span class="cd-label">Duree</span><span class="cd-val">1h55 (10:05 — 12:00)</span></div>
+    <div class="cd-row"><span class="cd-label">Presents</span><span class="cd-val" style="color:#22c55e">22 / 24</span></div>
+    <div class="cd-row"><span class="cd-label">Absents</span><span class="cd-val" style="color:#E30613">2 / 24</span></div>
+    <div class="cd-row"><span class="cd-label">Progression</span><span class="cd-val">65%</span></div>
+    <div class="cd-row"><span class="cd-label">Statut</span><span class="cd-val" style="color:#22c55e">&#9679; Synchronise</span></div>
+  </div>
+  <p class="confirm-sms">&#128241; SMS envoye automatiquement aux 2 etudiants absents</p>
+  <button class="btn-confirm-back" onclick="backToMain()">Retour a mes cours</button>
+</div>
+
+<!-- BOTTOM NAV -->
+<div class="mob-bottom-nav">
+  <div class="bn-item active"><span class="bn-ico">&#128197;</span><span>Mes cours</span></div>
+  <div class="bn-item"><span class="bn-ico">&#9989;</span><span>Historique</span></div>
+  <div class="bn-item"><span class="bn-ico">&#128203;</span><span>Bordereau</span></div>
+  <div class="bn-item"><span class="bn-ico">&#128100;</span><span>Profil</span></div>
+</div>
+
+</div><!-- /phone-frame -->
+</div><!-- /desk-main -->
+
+<script>
+  const students = [
+    {id:1,name:'Aminata Fall',parcours:'DTS',av:'AF',color:'#E30613'},
+    {id:2,name:'Moussa Sow',parcours:'BTS',av:'MS',color:'#3b82f6'},
+    {id:3,name:'Fatou Diallo',parcours:'Licence',av:'FD',color:'#7c3aed'},
+    {id:4,name:'Ibrahima Ba',parcours:'Master',av:'IB',color:'#0891b2'},
+    {id:5,name:'Marietou Cisse',parcours:'BTS',av:'MC',color:'#be185d'},
+    {id:6,name:'Seydou Ndiaye',parcours:'DTS',av:'SN',color:'#f97316'},
+    {id:7,name:'Lamine Sarr',parcours:'DAP',av:'LS',color:'#92400e'},
+    {id:8,name:'Rokhaya Gueye',parcours:'BTS',av:'RG',color:'#15803d'},
+    {id:9,name:'Omar Diop',parcours:'BTS',av:'OD',color:'#1d4ed8'},
+    {id:10,name:'Aissatou Mbaye',parcours:'Cert.',av:'AM',color:'#065f46'},
+    {id:11,name:'Cheikh Fall',parcours:'DTS',av:'CF',color:'#7f1d1d'},
+    {id:12,name:'Ndene Ba',parcours:'BTS',av:'NB',color:'#4c1d95'},
+  ];
+
+  // Etat presences (present par defaut sauf 2 absents)
+  const presences = {};
+  students.forEach((s,i) => { presences[s.id] = i < 10 ? 'present' : 'absent'; });
+
+  function renderStudents(){
+    const list = document.getElementById('studentList');
+    list.innerHTML = students.map(s => `
+      <div class="student-row">
+        <div class="s-av" style="background:${s.color}">${s.av}</div>
+        <div class="s-info"><strong>${s.name}</strong><span>${s.parcours}</span></div>
+        <div class="presence-toggle">
+          <button class="pt-btn pt-present ${presences[s.id]==='present'?'active':''}" onclick="setPresence(${s.id},'present',this)">P</button>
+          <button class="pt-btn pt-retard ${presences[s.id]==='retard'?'active':''}" onclick="setPresence(${s.id},'retard',this)">R</button>
+          <button class="pt-btn pt-absent ${presences[s.id]==='absent'?'active':''}" onclick="setPresence(${s.id},'absent',this)">A</button>
+        </div>
+      </div>
+    `).join('');
+    updateCounts();
+  }
+
+  function setPresence(id, status, btn){
+    presences[id] = status;
+    const row = btn.closest('.presence-toggle');
+    row.querySelectorAll('.pt-btn').forEach(b => {
+      b.classList.remove('active');
+      if(b.classList.contains('pt-'+status)) b.classList.add('active');
+    });
+    updateCounts();
+  }
+
+  function setAll(status){
+    students.forEach(s => presences[s.id] = status);
+    renderStudents();
+  }
+
+  function updateCounts(){
+    const p = Object.values(presences).filter(v=>v==='present').length;
+    const a = Object.values(presences).filter(v=>v==='absent').length;
+    document.getElementById('presentCount').textContent = p + ' / ' + students.length;
+    document.getElementById('absentCount').textContent  = a + ' / ' + students.length;
+  }
+
+  function setprog(v){
+    document.getElementById('progVal').textContent = v + '%';
+    document.getElementById('progFill').style.width = v + '%';
+    document.querySelectorAll('.prog-step').forEach(s => {
+      s.classList.toggle('active', parseInt(s.textContent) === v);
+    });
+  }
+
+  function openEmar(){ document.getElementById('emarView').classList.add('open'); renderStudents(); }
+  function closeEmar(){ document.getElementById('emarView').classList.remove('open'); }
+  function submitEmar(){
+    document.getElementById('emarView').classList.remove('open');
+    document.getElementById('confirmView').classList.add('open');
+    // Mettre a jour carte cours
+    document.querySelector('.status-current').className = 'status-badge status-done';
+    document.querySelector('.status-done').textContent = '✓ Emarge';
+  }
+  function backToMain(){ document.getElementById('confirmView').classList.remove('open'); }
+
+  function toggleOffline(){
+    const bar = document.getElementById('offlineBar');
+    bar.classList.toggle('show');
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>UPTECH Campus — Emplois du temps</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Poppins',sans-serif;background:#f4f4f4;display:flex;min-height:100vh;font-size:13px;}
+
+    /* SIDEBAR */
+    .sidebar{width:230px;background:#111;display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100;}
+    .sidebar-logo{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,0.07);}
+    .sidebar-logo img{width:130px;}
+    .sidebar-logo span{display:block;color:rgba(255,255,255,0.35);font-size:9.5px;text-transform:uppercase;letter-spacing:1px;margin-top:6px;}
+    .nav-section{padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);}
+    .nav-section-label{color:#fff;font-size:12.5px;text-transform:uppercase;letter-spacing:0.4px;padding:8px 20px 4px;font-weight:600;}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:9px 20px;color:#fff;font-size:12.5px;font-weight:500;cursor:pointer;transition:all 0.15s;text-decoration:none;position:relative;}
+    .nav-item:hover{background:rgba(255,255,255,0.05);}
+    .nav-item.active{background:rgba(227,6,19,0.15);}
+    .nav-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#E30613;border-radius:0 2px 2px 0;}
+    .nav-item .ico{font-size:15px;width:18px;text-align:center;}
+    .nav-badge{margin-left:auto;background:#E30613;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:10px;}
+    .sidebar-footer{margin-top:auto;padding:16px 20px;border-top:1px solid rgba(255,255,255,0.07);}
+    .user-card{display:flex;align-items:center;gap:10px;}
+    .user-avatar{width:34px;height:34px;background:#E30613;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;}
+    .user-info strong{display:block;color:#fff;font-size:12px;font-weight:600;}
+    .user-info span{color:rgba(255,255,255,0.35);font-size:10px;}
+
+    /* MAIN */
+    .main{margin-left:230px;flex:1;display:flex;flex-direction:column;}
+    .topbar{background:#fff;border-bottom:1px solid #ebebeb;padding:0 28px;height:56px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50;}
+    .topbar h1{font-size:15px;font-weight:700;color:#111;}
+    .breadcrumb{font-size:11.5px;color:#aaa;}
+    .topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+    .btn-primary{display:inline-flex;align-items:center;gap:7px;background:#E30613;color:#fff;border:none;border-radius:4px;padding:9px 16px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;transition:background 0.2s;}
+    .btn-primary:hover{background:#c0000e;}
+    .btn-ghost{border:1.5px solid #e5e5e5;background:#fff;border-radius:4px;padding:8px 14px;font-family:'Poppins',sans-serif;font-size:12px;font-weight:600;color:#555;cursor:pointer;}
+    .btn-ghost:hover{border-color:#111;color:#111;}
+
+    .content{padding:20px 28px;flex:1;}
+
+    /* CONTROLS */
+    .controls{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap;}
+    .week-nav{display:flex;align-items:center;gap:8px;}
+    .week-btn{border:1.5px solid #e5e5e5;background:#fff;border-radius:4px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;transition:all 0.15s;color:#555;}
+    .week-btn:hover{border-color:#E30613;color:#E30613;}
+    .week-label{font-size:13px;font-weight:700;color:#111;min-width:200px;text-align:center;}
+    .filter-select{border:1.5px solid #e5e5e5;border-radius:4px;padding:8px 12px;font-family:'Poppins',sans-serif;font-size:12px;color:#444;background:#fff;outline:none;cursor:pointer;}
+    .filter-select:focus{border-color:#E30613;}
+    .view-toggle{display:flex;border:1.5px solid #e5e5e5;border-radius:4px;overflow:hidden;}
+    .vt-btn{padding:7px 14px;font-family:'Poppins',sans-serif;font-size:11.5px;font-weight:600;color:#888;background:#fff;border:none;cursor:pointer;transition:all 0.15s;}
+    .vt-btn.active{background:#111;color:#fff;}
+
+    /* LEGENDE */
+    .legend{display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap;}
+    .leg-item{display:flex;align-items:center;gap:6px;font-size:11px;color:#555;}
+    .leg-dot{width:10px;height:10px;border-radius:2px;}
+
+    /* GRILLE EDT */
+    .edt-wrap{background:#fff;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.05);overflow:auto;}
+
+    .edt-grid{display:grid;grid-template-columns:70px repeat(6,1fr);min-width:800px;}
+
+    /* En-tetes jours */
+    .day-header{background:#f9f9f9;border-bottom:2px solid #f0f0f0;padding:12px 8px;text-align:center;border-right:1px solid #f0f0f0;}
+    .day-header:first-child{border-right:2px solid #e5e5e5;}
+    .day-name{font-size:12px;font-weight:700;color:#111;}
+    .day-date{font-size:10px;color:#aaa;margin-top:2px;}
+    .day-header.today .day-name{color:#E30613;}
+    .day-header.today .day-date{color:#E30613;}
+
+    /* Colonne heures */
+    .time-col{border-right:2px solid #e5e5e5;display:flex;flex-direction:column;}
+    .time-slot{height:80px;display:flex;align-items:flex-start;justify-content:center;padding-top:6px;border-bottom:1px solid #f5f5f5;font-size:10.5px;color:#bbb;font-weight:500;}
+
+    /* Cellules */
+    .day-col{display:flex;flex-direction:column;border-right:1px solid #f0f0f0;}
+    .day-col:last-child{border-right:none;}
+    .cell{height:80px;border-bottom:1px solid #f5f5f5;position:relative;padding:3px;}
+    .cell:hover{background:#fafafa;}
+
+    /* Cours */
+    .cours{border-radius:4px;padding:6px 8px;cursor:pointer;transition:opacity 0.15s;height:100%;overflow:hidden;}
+    .cours:hover{opacity:0.88;}
+
+    .cours-presentiel{background:#fff0f0;border-left:3px solid #E30613;}
+    .cours-enligne{background:#eff6ff;border-left:3px solid #3b82f6;}
+    .cours-hybride{background:#f0fdf4;border-left:3px solid #22c55e;}
+    .cours-exam{background:#fdf4ff;border-left:3px solid #a855f7;}
+
+    .cours-matiere{font-size:11px;font-weight:700;color:#111;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .cours-info{font-size:9.5px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .cours-classe{font-size:9px;color:#999;margin-top:2px;}
+
+    /* Conflit */
+    .cours-conflit{background:#fff0f0;border-left:3px solid #E30613;border:1px solid #fecaca;}
+    .conflit-badge{position:absolute;top:4px;right:4px;background:#E30613;color:#fff;font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;}
+
+    /* Creneaux vides cliquables */
+    .cell-empty{cursor:pointer;}
+    .cell-empty:hover::after{content:'+ Ajouter';position:absolute;inset:4px;border:1.5px dashed #E30613;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#E30613;background:rgba(227,6,19,0.04);}
+
+    /* MODAL COURS */
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;align-items:center;justify-content:center;}
+    .modal-overlay.open{display:flex;}
+    .modal{background:#fff;border-radius:8px;width:520px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);}
+    .modal-header{padding:18px 22px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:1;}
+    .modal-header h3{font-size:15px;font-weight:700;color:#111;}
+    .modal-close{background:#f4f4f4;border:none;border-radius:4px;width:30px;height:30px;cursor:pointer;font-size:14px;color:#888;}
+    .modal-close:hover{background:#fff0f0;color:#E30613;}
+    .modal-body{padding:22px;}
+    .form-group{margin-bottom:16px;}
+    .form-group label{display:block;font-size:11.5px;font-weight:600;color:#333;text-transform:uppercase;letter-spacing:0.3px;margin-bottom:6px;}
+    .form-group input,.form-group select,.form-group textarea{width:100%;border:1.5px solid #e5e5e5;border-radius:4px;padding:10px 12px;font-family:'Poppins',sans-serif;font-size:13px;color:#111;outline:none;background:#fafafa;transition:border-color 0.2s;}
+    .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#E30613;background:#fff;}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
+    .modal-footer{padding:16px 22px;border-top:1px solid #f0f0f0;display:flex;justify-content:space-between;gap:10px;position:sticky;bottom:0;background:#fff;}
+
+    /* POPUP DETAIL COURS */
+    .cours-popup{display:none;position:absolute;z-index:300;background:#fff;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.18);width:280px;padding:16px;}
+    .cours-popup.open{display:block;}
+    .popup-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+    .popup-title{font-size:14px;font-weight:700;color:#111;}
+    .popup-close{background:none;border:none;font-size:14px;color:#888;cursor:pointer;}
+    .popup-row{display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #f5f5f5;font-size:12px;}
+    .popup-row:last-child{border-bottom:none;}
+    .popup-label{color:#888;width:90px;flex-shrink:0;}
+    .popup-val{color:#111;font-weight:600;}
+    .popup-actions{display:flex;gap:8px;margin-top:12px;}
+    .popup-btn{flex:1;padding:8px;border-radius:4px;font-family:'Poppins',sans-serif;font-size:11.5px;font-weight:600;cursor:pointer;text-align:center;transition:all 0.15s;}
+    .popup-btn-edit{background:#111;color:#fff;border:none;}
+    .popup-btn-del{background:#fff;color:#E30613;border:1.5px solid #fecaca;}
+    .popup-btn-del:hover{background:#fff0f0;}
+
+    /* MOBILE */
+    @media(max-width:768px){
+      .sidebar{display:none;}
+      .main{margin-left:0;padding-bottom:64px;}
+      .topbar{padding:0 16px;}
+      .breadcrumb{display:none;}
+      .content{padding:14px;}
+      .controls{gap:8px;}
+      .week-label{min-width:140px;font-size:12px;}
+      .legend{display:none;}
+      .bottom-nav{display:flex !important;position:fixed;bottom:0;left:0;right:0;height:60px;background:#111;border-top:1px solid rgba(255,255,255,0.08);z-index:200;justify-content:space-around;align-items:center;}
+      .bn-item{display:flex;flex-direction:column;align-items:center;gap:3px;color:rgba(255,255,255,0.5);font-size:9px;font-weight:600;cursor:pointer;padding:6px 10px;}
+      .bn-item.active{color:#E30613;}
+      .bn-item .bn-ico{font-size:20px;}
+    }
+    .bottom-nav{display:none;}
+  </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH"/>
+    <span>Campus v1.0</span>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Principal</div>
+    <a class="nav-item" href="03_dashboard_dg.html"><span class="ico">&#9732;</span> Tableau de bord</a>
+    <a class="nav-item"><span class="ico">&#128202;</span> Rapports</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Pedagogie</div>
+    <a class="nav-item" href="04_etudiants.html"><span class="ico">&#128100;</span> Etudiants <span class="nav-badge">247</span></a>
+    <a class="nav-item active"><span class="ico">&#128197;</span> Emplois du temps</a>
+    <a class="nav-item"><span class="ico">&#128203;</span> Notes & Bulletins</a>
+    <a class="nav-item"><span class="ico">&#9989;</span> Presences</a>
+    <a class="nav-item"><span class="ico">&#127979;</span> Intervenants</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Finances</div>
+    <a class="nav-item" href="05_paiements.html"><span class="ico">&#128176;</span> Paiements <span class="nav-badge">4</span></a>
+    <a class="nav-item"><span class="ico">&#128184;</span> Depenses</a>
+    <a class="nav-item"><span class="ico">&#128179;</span> Remuneration interv.</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Communication</div>
+    <a class="nav-item"><span class="ico">&#128172;</span> Messagerie <span class="nav-badge">3</span></a>
+    <a class="nav-item"><span class="ico">&#128276;</span> Notifications</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Administration</div>
+    <a class="nav-item"><span class="ico">&#128736;</span> Parametres</a>
+    <a class="nav-item"><span class="ico">&#128101;</span> Comptes utilisateurs</a>
+  </div>
+  <div class="sidebar-footer">
+    <div class="user-card">
+      <div class="user-avatar">DG</div>
+      <div class="user-info"><strong>Coordinateur</strong><span>Pedagogique</span></div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <h1>Emplois du temps <span class="breadcrumb">/ Semaine courante</span></h1>
+    <div class="topbar-right">
+      <button class="btn-ghost">&#128229; Exporter PDF</button>
+      <button class="btn-primary" onclick="openModal()">&#43; Ajouter un cours</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- CONTROLS -->
+    <div class="controls">
+      <div class="week-nav">
+        <button class="week-btn">&#8592;</button>
+        <span class="week-label">03 mars — 08 mars 2026</span>
+        <button class="week-btn">&#8594;</button>
+      </div>
+      <button class="btn-ghost" style="font-size:11.5px;padding:7px 12px;">Aujourd'hui</button>
+      <select class="filter-select">
+        <option>Toutes les classes</option>
+        <option selected>BTS-INFO-2A (Tronc commun)</option>
+        <option>BTS-INFO-1A</option>
+        <option>WEB-DEV-1A</option>
+        <option>RESEAUX-2A</option>
+        <option>MASTER-AV-1</option>
+      </select>
+      <select class="filter-select">
+        <option>Tous les intervenants</option>
+        <option>M. Diallo</option>
+        <option>Mme Sarr</option>
+        <option>M. Ndiaye</option>
+      </select>
+      <div class="view-toggle">
+        <button class="vt-btn active">Semaine</button>
+        <button class="vt-btn">Jour</button>
+        <button class="vt-btn">Mois</button>
+      </div>
+    </div>
+
+    <!-- LEGENDE -->
+    <div class="legend">
+      <div class="leg-item"><div class="leg-dot" style="background:#E30613"></div> Presentiel</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#3b82f6"></div> En ligne</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#22c55e"></div> Hybride</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#a855f7"></div> Examen / Evaluation</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#f97316"></div> Tronc commun</div>
+      <span style="margin-left:8px;font-size:11px;color:#aaa;">Classe : BTS-INFO-2A (Tronc commun)</span>
+    </div>
+
+    <!-- GRILLE EDT -->
+    <div class="edt-wrap">
+      <div class="edt-grid">
+
+        <!-- En-tetes -->
+        <div class="day-header" style="background:#f9f9f9;"></div>
+        <div class="day-header"><div class="day-name">Lundi</div><div class="day-date">03 mars</div></div>
+        <div class="day-header"><div class="day-name">Mardi</div><div class="day-date">04 mars</div></div>
+        <div class="day-header today"><div class="day-name">Mercredi</div><div class="day-date">05 mars</div></div>
+        <div class="day-header"><div class="day-name">Jeudi</div><div class="day-date">06 mars</div></div>
+        <div class="day-header"><div class="day-name">Vendredi</div><div class="day-date">07 mars</div></div>
+        <div class="day-header"><div class="day-name">Samedi</div><div class="day-date">08 mars</div></div>
+
+        <!-- 08h00 -->
+        <div class="time-col"><div class="time-slot">08:00</div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'Algorithmique','M. Diallo','08:00 - 10:00','BTS-INFO-2A','Presentiel','Salle A1')">
+          <div class="cours cours-presentiel">
+            <div class="cours-matiere">Algorithmique</div>
+            <div class="cours-info">M. Diallo — 08:00-10:00</div>
+            <div class="cours-classe">Salle A1</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'Bases de donnees','Mme Sarr','08:00 - 10:00','BTS-INFO-2A','En ligne','Zoom')">
+          <div class="cours cours-enligne">
+            <div class="cours-matiere">Bases de donnees</div>
+            <div class="cours-info">Mme Sarr — 08:00-10:00</div>
+            <div class="cours-classe">&#128248; Zoom</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'Reseaux (TC)','M. Ndiaye','08:00 - 10:00','Tronc commun','Presentiel','Salle B2')">
+          <div class="cours cours-presentiel" style="border-left-color:#f97316;background:#fff8f0;">
+            <div class="cours-matiere">Reseaux (TC)</div>
+            <div class="cours-info">M. Ndiaye — 08:00-10:00</div>
+            <div class="cours-classe">Tronc commun — Salle B2</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+
+        <!-- 10h00 -->
+        <div class="time-col"><div class="time-slot">10:00</div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'Programmation Web','Mme Sarr','10:00 - 12:00','BTS-INFO-2A','Presentiel','Labo Info')">
+          <div class="cours cours-presentiel">
+            <div class="cours-matiere">Programmation Web</div>
+            <div class="cours-info">Mme Sarr — 10:00-12:00</div>
+            <div class="cours-classe">Labo Info</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'Systemes d\'exploitation','M. Ba','10:00 - 12:00','BTS-INFO-2A','Presentiel','Salle A1')">
+          <div class="cours cours-presentiel">
+            <div class="cours-matiere">Systemes d'exploitation</div>
+            <div class="cours-info">M. Ba — 10:00-12:00</div>
+            <div class="cours-classe">Salle A1</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'Gestion de projet','M. Diallo','10:00 - 12:00','BTS-INFO-2A','Hybride','Salle A2 + Teams')">
+          <div class="cours cours-hybride">
+            <div class="cours-matiere">Gestion de projet</div>
+            <div class="cours-info">M. Diallo — 10:00-12:00</div>
+            <div class="cours-classe">&#127758; Hybride — Salle A2</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'Anglais Professionnel','Mme Kane','10:00 - 12:00','BTS-INFO-2A','Presentiel','Salle C1')">
+          <div class="cours cours-presentiel">
+            <div class="cours-matiere">Anglais Professionnel</div>
+            <div class="cours-info">Mme Kane — 10:00-12:00</div>
+            <div class="cours-classe">Salle C1</div>
+          </div>
+        </div></div>
+
+        <!-- 12h00 (pause) -->
+        <div class="time-col"><div class="time-slot" style="color:#f0f0f0">12:00</div></div>
+        <div class="day-col"><div class="cell" style="background:#fafafa;"><span style="font-size:9.5px;color:#ddd;padding:4px;display:block;text-align:center">Pause dejeuner</span></div></div>
+        <div class="day-col"><div class="cell" style="background:#fafafa;"></div></div>
+        <div class="day-col"><div class="cell" style="background:#fafafa;"></div></div>
+        <div class="day-col"><div class="cell" style="background:#fafafa;"></div></div>
+        <div class="day-col"><div class="cell" style="background:#fafafa;"></div></div>
+        <div class="day-col"><div class="cell" style="background:#fafafa;"></div></div>
+
+        <!-- 14h00 -->
+        <div class="time-col"><div class="time-slot">14:00</div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'Comptabilite','M. Mbaye','14:00 - 16:00','BTS-INFO-2A','Presentiel','Salle A2')">
+          <div class="cours cours-presentiel">
+            <div class="cours-matiere">Comptabilite</div>
+            <div class="cours-info">M. Mbaye — 14:00-16:00</div>
+            <div class="cours-classe">Salle A2</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'TP Algorithmique','M. Diallo','14:00 - 16:00','BTS-INFO-2A','Presentiel','Labo Info')">
+          <div class="cours cours-presentiel">
+            <div class="cours-matiere">TP Algorithmique</div>
+            <div class="cours-info">M. Diallo — 14:00-16:00</div>
+            <div class="cours-classe">Labo Info</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell" style="position:relative">
+          <div class="cours cours-conflit">
+            <div class="cours-matiere">Securite Reseaux</div>
+            <div class="cours-info">M. Ndiaye — 14:00-16:00</div>
+          </div>
+          <span class="conflit-badge">&#9888; CONFLIT</span>
+        </div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'DST — Programmation Web','Mme Sarr','14:00 - 16:00','BTS-INFO-2A','Presentiel','Salle A1')">
+          <div class="cours cours-exam">
+            <div class="cours-matiere">DST — Programmation Web</div>
+            <div class="cours-info">Mme Sarr — 14:00-16:00</div>
+            <div class="cours-classe">&#9997; Evaluation — Salle A1</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+
+        <!-- 16h00 -->
+        <div class="time-col"><div class="time-slot">16:00</div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'Droit des TIC','M. Faye','16:00 - 18:00','BTS-INFO-2A','Presentiel','Salle A1')">
+          <div class="cours cours-presentiel">
+            <div class="cours-matiere">Droit des TIC</div>
+            <div class="cours-info">M. Faye — 16:00-18:00</div>
+            <div class="cours-classe">Salle A1</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'Architecture logicielle','M. Diallo','16:00 - 18:00','BTS-INFO-2A','En ligne','Teams')">
+          <div class="cours cours-enligne">
+            <div class="cours-matiere">Architecture logicielle</div>
+            <div class="cours-info">M. Diallo — 16:00-18:00</div>
+            <div class="cours-classe">&#128248; Teams</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+
+        <!-- 18h00 (soir) -->
+        <div class="time-col"><div class="time-slot">18:00</div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell" onclick="showPopup(event,'Formation continue — SQL','M. Ba','18:00 - 20:00','Formation continue','Presentiel','Salle B1')">
+          <div class="cours cours-presentiel" style="border-left-color:#f97316;background:#fff8f0;">
+            <div class="cours-matiere">SQL — Formation continue</div>
+            <div class="cours-info">M. Ba — 18:00-20:00</div>
+            <div class="cours-classe">&#127773; Soir — Salle B1</div>
+          </div>
+        </div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+        <div class="day-col"><div class="cell cell-empty"></div></div>
+
+      </div>
+    </div>
+
+  </div>
+</div><!-- /main -->
+
+<!-- POPUP DETAIL COURS -->
+<div class="cours-popup" id="coursPopup">
+  <div class="popup-header">
+    <span class="popup-title" id="pTitle">Algorithmique</span>
+    <button class="popup-close" onclick="closePopup()">&#10005;</button>
+  </div>
+  <div class="popup-row"><span class="popup-label">Intervenant</span><span class="popup-val" id="pInterv">M. Diallo</span></div>
+  <div class="popup-row"><span class="popup-label">Horaire</span><span class="popup-val" id="pHoraire">08:00 — 10:00</span></div>
+  <div class="popup-row"><span class="popup-label">Classe</span><span class="popup-val" id="pClasse">BTS-INFO-2A</span></div>
+  <div class="popup-row"><span class="popup-label">Mode</span><span class="popup-val" id="pMode">Presentiel</span></div>
+  <div class="popup-row"><span class="popup-label">Salle / Lien</span><span class="popup-val" id="pSalle">Salle A1</span></div>
+  <div class="popup-actions">
+    <button class="popup-btn popup-btn-edit" onclick="openModal()">&#9998; Modifier</button>
+    <button class="popup-btn popup-btn-del" onclick="closePopup()">&#128465; Supprimer</button>
+  </div>
+</div>
+
+<!-- MODAL AJOUT COURS -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>&#128197; Ajouter / Modifier un cours</h3>
+      <button class="modal-close" onclick="closeModal()">&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Matiere</label>
+          <select>
+            <option>Algorithmique</option>
+            <option>Bases de donnees</option>
+            <option>Programmation Web</option>
+            <option>Reseaux</option>
+            <option>Gestion de projet</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Intervenant</label>
+          <select>
+            <option>M. Diallo</option>
+            <option>Mme Sarr</option>
+            <option>M. Ndiaye</option>
+            <option>M. Ba</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Classe</label>
+          <select>
+            <option selected>BTS-INFO-2A (Tronc commun)</option>
+            <option>BTS-INFO-1A</option>
+            <option>WEB-DEV-1A</option>
+            <option>RESEAUX-2A</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Jour</label>
+          <select>
+            <option>Lundi 03 mars</option>
+            <option>Mardi 04 mars</option>
+            <option selected>Mercredi 05 mars</option>
+            <option>Jeudi 06 mars</option>
+            <option>Vendredi 07 mars</option>
+            <option>Samedi 08 mars</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Heure debut</label>
+          <input type="time" value="08:00"/>
+        </div>
+        <div class="form-group">
+          <label>Heure fin</label>
+          <input type="time" value="10:00"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Mode</label>
+          <select>
+            <option selected>Presentiel</option>
+            <option>En ligne</option>
+            <option>Hybride</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Salle / Lien connexion</label>
+          <input type="text" placeholder="Ex: Salle A1 ou https://zoom.us/..."/>
+        </div>
+      </div>
+
+      <!-- Alerte conflit -->
+      <div style="background:#fff0f0;border-left:3px solid #E30613;border-radius:4px;padding:10px 14px;font-size:12px;color:#b91c1c;font-weight:500;">
+        &#9888; Aucun conflit detecte pour ce creneau — Verification automatique activee
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal()">Annuler</button>
+      <button class="btn-primary" onclick="closeModal()">&#10003; Enregistrer le cours</button>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM NAV MOBILE -->
+<nav class="bottom-nav">
+  <div class="bn-item"><span class="bn-ico">&#9732;</span><span>Accueil</span></div>
+  <div class="bn-item"><span class="bn-ico">&#128100;</span><span>Etudiants</span></div>
+  <div class="bn-item active"><span class="bn-ico">&#128197;</span><span>EDT</span></div>
+  <div class="bn-item"><span class="bn-ico">&#128176;</span><span>Finances</span></div>
+  <div class="bn-item"><span class="bn-ico">&#8942;</span><span>Plus</span></div>
+</nav>
+
+<script>
+  function showPopup(e, matiere, interv, horaire, classe, mode, salle){
+    e.stopPropagation();
+    const p = document.getElementById('coursPopup');
+    document.getElementById('pTitle').textContent  = matiere;
+    document.getElementById('pInterv').textContent = interv;
+    document.getElementById('pHoraire').textContent= horaire;
+    document.getElementById('pClasse').textContent = classe;
+    document.getElementById('pMode').textContent   = mode;
+    document.getElementById('pSalle').textContent  = salle;
+    p.style.left = Math.min(e.pageX, window.innerWidth - 300) + 'px';
+    p.style.top  = (e.pageY - 10) + 'px';
+    p.style.position = 'fixed';
+    p.style.left = Math.min(e.clientX, window.innerWidth - 300) + 'px';
+    p.style.top  = Math.min(e.clientY - 10, window.innerHeight - 280) + 'px';
+    p.classList.add('open');
+  }
+  function closePopup(){ document.getElementById('coursPopup').classList.remove('open'); }
+  function openModal(){ closePopup(); document.getElementById('modalOverlay').classList.add('open'); }
+  function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
+  document.getElementById('modalOverlay').addEventListener('click',function(e){ if(e.target===this)closeModal(); });
+  document.addEventListener('click', function(e){
+    const p = document.getElementById('coursPopup');
+    if(!p.contains(e.target)) closePopup();
+  });
+  document.querySelectorAll('.vt-btn').forEach(b=>b.addEventListener('click',function(){ document.querySelectorAll('.vt-btn').forEach(x=>x.classList.remove('active')); this.classList.add('active'); }));
+</script>
+
+</body>
+</html>

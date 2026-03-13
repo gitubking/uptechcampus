@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>UPTECH Campus — Paiements</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Poppins',sans-serif;background:#f4f4f4;display:flex;min-height:100vh;font-size:13px;}
+
+    /* SIDEBAR */
+    .sidebar{width:230px;background:#111;display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100;}
+    .sidebar-logo{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,0.07);}
+    .sidebar-logo img{width:130px;}
+    .sidebar-logo span{display:block;color:rgba(255,255,255,0.35);font-size:9.5px;text-transform:uppercase;letter-spacing:1px;margin-top:6px;}
+    .nav-section{padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);}
+    .nav-section-label{color:#fff;font-size:12.5px;text-transform:uppercase;letter-spacing:0.4px;padding:8px 20px 4px;font-weight:600;}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:9px 20px;color:#fff;font-size:12.5px;font-weight:500;cursor:pointer;transition:all 0.15s;text-decoration:none;position:relative;}
+    .nav-item:hover{background:rgba(255,255,255,0.05);}
+    .nav-item.active{background:rgba(227,6,19,0.15);}
+    .nav-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#E30613;border-radius:0 2px 2px 0;}
+    .nav-item .ico{font-size:15px;width:18px;text-align:center;}
+    .nav-badge{margin-left:auto;background:#E30613;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:10px;}
+    .sidebar-footer{margin-top:auto;padding:16px 20px;border-top:1px solid rgba(255,255,255,0.07);}
+    .user-card{display:flex;align-items:center;gap:10px;}
+    .user-avatar{width:34px;height:34px;background:#E30613;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;}
+    .user-info strong{display:block;color:#fff;font-size:12px;font-weight:600;}
+    .user-info span{color:rgba(255,255,255,0.35);font-size:10px;}
+
+    /* MAIN */
+    .main{margin-left:230px;flex:1;display:flex;flex-direction:column;}
+    .topbar{background:#fff;border-bottom:1px solid #ebebeb;padding:0 28px;height:56px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50;}
+    .topbar h1{font-size:15px;font-weight:700;color:#111;}
+    .breadcrumb{font-size:11.5px;color:#aaa;}
+    .topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+    .btn-primary{display:inline-flex;align-items:center;gap:7px;background:#E30613;color:#fff;border:none;border-radius:4px;padding:9px 16px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;transition:background 0.2s;}
+    .btn-primary:hover{background:#c0000e;}
+
+    .content{padding:24px 28px;flex:1;}
+
+    /* KPI */
+    .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
+    .kpi-card{background:#fff;border-radius:6px;padding:16px 18px;box-shadow:0 2px 8px rgba(0,0,0,0.05);position:relative;overflow:hidden;}
+    .kpi-card::after{content:'';position:absolute;top:0;right:0;width:4px;height:100%;}
+    .kpi-card.green::after{background:#22c55e;}
+    .kpi-card.red::after{background:#E30613;}
+    .kpi-card.orange::after{background:#f97316;}
+    .kpi-card.blue::after{background:#3b82f6;}
+    .kpi-label{color:#888;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px;}
+    .kpi-value{font-size:20px;font-weight:700;color:#111;margin-bottom:4px;}
+    .kpi-value small{font-size:12px;font-weight:500;color:#555;}
+    .kpi-trend{font-size:11px;font-weight:500;}
+    .trend-up{color:#22c55e;} .trend-down{color:#E30613;} .trend-neu{color:#aaa;}
+
+    /* TOOLBAR */
+    .toolbar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center;}
+    .search-wrap{position:relative;flex:1;min-width:200px;}
+    .search-wrap .ico{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#bbb;font-size:14px;}
+    .search-wrap input{width:100%;border:1.5px solid #e5e5e5;border-radius:4px;padding:9px 12px 9px 35px;font-family:'Poppins',sans-serif;font-size:12.5px;color:#111;outline:none;background:#fff;transition:border-color 0.2s;}
+    .search-wrap input:focus{border-color:#E30613;}
+    .search-wrap input::placeholder{color:#ccc;}
+    .filter-select{border:1.5px solid #e5e5e5;border-radius:4px;padding:9px 12px;font-family:'Poppins',sans-serif;font-size:12px;color:#444;background:#fff;outline:none;cursor:pointer;}
+    .filter-select:focus{border-color:#E30613;}
+
+    /* TABS */
+    .tabs-bar{display:flex;gap:2px;margin-bottom:16px;background:#fff;border-radius:6px;padding:4px;box-shadow:0 2px 8px rgba(0,0,0,0.05);width:fit-content;}
+    .tab-pill{padding:7px 18px;border-radius:4px;font-size:12px;font-weight:600;color:#888;cursor:pointer;border:none;background:none;font-family:'Poppins',sans-serif;transition:all 0.15s;}
+    .tab-pill.active{background:#E30613;color:#fff;}
+    .tab-pill:hover:not(.active){color:#111;}
+
+    /* TABLE */
+    .table-wrap{background:#fff;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.05);overflow:hidden;}
+    table{width:100%;border-collapse:collapse;}
+    thead tr{background:#f9f9f9;border-bottom:2px solid #f0f0f0;}
+    thead th{padding:11px 14px;text-align:left;font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap;}
+    tbody tr{border-bottom:1px solid #f5f5f5;transition:background 0.12s;}
+    tbody tr:last-child{border-bottom:none;}
+    tbody tr:hover{background:#fafafa;}
+    tbody td{padding:11px 14px;font-size:12.5px;color:#222;vertical-align:middle;}
+
+    .student-cell{display:flex;align-items:center;gap:9px;}
+    .s-avatar{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;}
+    .s-name strong{display:block;font-size:12.5px;font-weight:600;color:#111;}
+    .s-name span{font-size:10.5px;color:#aaa;}
+
+    .recu-num{font-size:11px;font-family:monospace;color:#888;}
+
+    /* Badges mode paiement */
+    .mode-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:10.5px;font-weight:600;}
+    .mode-wave{background:#e0f2fe;color:#0369a1;}
+    .mode-cash{background:#f1f5f9;color:#475569;}
+    .mode-om{background:#fff8f0;color:#c2410c;}
+    .mode-virement{background:#f0fdf4;color:#15803d;}
+    .mode-cheque{background:#fdf4ff;color:#7e22ce;}
+
+    /* Badges statut */
+    .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:10.5px;font-weight:600;}
+    .badge-ok{background:#f0fdf4;color:#15803d;}
+    .badge-attente{background:#fefce8;color:#854d0e;}
+    .badge-rejete{background:#fff0f0;color:#b91c1c;}
+    .badge-dot{width:5px;height:5px;border-radius:50%;}
+    .dot-green{background:#22c55e;} .dot-yellow{background:#eab308;} .dot-red{background:#E30613;}
+
+    .amount-pos{font-weight:700;color:#22c55e;}
+    .amount-neg{font-weight:700;color:#E30613;}
+
+    .row-btn{border:1px solid #e5e5e5;background:#fff;border-radius:4px;padding:4px 9px;font-size:11px;font-weight:600;color:#555;cursor:pointer;transition:all 0.15s;font-family:'Poppins',sans-serif;}
+    .row-btn:hover{border-color:#E30613;color:#E30613;}
+
+    /* RELANCES */
+    .relance-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+    .relance-card{background:#fff;border-radius:6px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,0.05);border-top:3px solid;}
+    .relance-card.j3{border-color:#3b82f6;}
+    .relance-card.j7{border-color:#f97316;}
+    .relance-card.j15{border-color:#E30613;}
+    .relance-card.j30{border-color:#7f1d1d;}
+    .relance-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;}
+    .relance-card.j3 .relance-label{color:#3b82f6;}
+    .relance-card.j7 .relance-label{color:#f97316;}
+    .relance-card.j15 .relance-label{color:#E30613;}
+    .relance-card.j30 .relance-label{color:#7f1d1d;}
+    .relance-count{font-size:28px;font-weight:700;color:#111;line-height:1;}
+    .relance-desc{font-size:10.5px;color:#888;margin-top:4px;}
+    .relance-canal{font-size:10px;color:#aaa;margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;}
+
+    /* PAGINATION */
+    .pagination{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid #f0f0f0;background:#fafafa;}
+    .pagination-info{font-size:11.5px;color:#888;}
+    .pagination-btns{display:flex;gap:4px;}
+    .page-btn{border:1px solid #e5e5e5;background:#fff;border-radius:4px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#555;cursor:pointer;transition:all 0.15s;}
+    .page-btn:hover{border-color:#E30613;color:#E30613;}
+    .page-btn.active{background:#E30613;border-color:#E30613;color:#fff;}
+    .page-btn.disabled{opacity:0.3;cursor:not-allowed;}
+
+    /* MODAL PAIEMENT */
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;align-items:center;justify-content:center;}
+    .modal-overlay.open{display:flex;}
+    .modal{background:#fff;border-radius:8px;width:520px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);}
+    .modal-header{padding:18px 22px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:1;}
+    .modal-header h3{font-size:15px;font-weight:700;color:#111;}
+    .modal-close{background:#f4f4f4;border:none;border-radius:4px;width:30px;height:30px;cursor:pointer;font-size:14px;color:#888;}
+    .modal-close:hover{background:#fff0f0;color:#E30613;}
+    .modal-body{padding:22px;}
+    .form-group{margin-bottom:16px;}
+    .form-group label{display:block;font-size:11.5px;font-weight:600;color:#333;text-transform:uppercase;letter-spacing:0.3px;margin-bottom:6px;}
+    .form-group input,.form-group select{width:100%;border:1.5px solid #e5e5e5;border-radius:4px;padding:11px 12px;font-family:'Poppins',sans-serif;font-size:13px;color:#111;outline:none;background:#fafafa;transition:border-color 0.2s;}
+    .form-group input:focus,.form-group select:focus{border-color:#E30613;background:#fff;}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
+
+    /* Apercu recu */
+    .recu-preview{background:#f9f9f9;border:1px solid #e5e5e5;border-radius:6px;padding:18px;margin-top:16px;}
+    .recu-preview-title{font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:14px;text-align:center;}
+    .recu-logo{text-align:center;margin-bottom:12px;}
+    .recu-logo strong{font-size:16px;font-weight:700;color:#111;}
+    .recu-logo span{display:block;font-size:10px;color:#888;}
+    .recu-num-box{text-align:center;font-size:11px;font-family:monospace;color:#E30613;font-weight:700;margin-bottom:12px;}
+    .recu-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #efefef;font-size:11.5px;}
+    .recu-row:last-child{border-bottom:none;}
+    .recu-row .rl{color:#888;}
+    .recu-row .rv{font-weight:600;color:#111;}
+    .recu-total{display:flex;justify-content:space-between;padding:10px 0 0;font-size:14px;font-weight:700;color:#111;margin-top:4px;}
+    .recu-total .rt-val{color:#22c55e;}
+    .recu-sms-note{text-align:center;font-size:10px;color:#aaa;margin-top:12px;}
+
+    .modal-footer{padding:16px 22px;border-top:1px solid #f0f0f0;display:flex;justify-content:space-between;gap:10px;position:sticky;bottom:0;background:#fff;}
+    .btn-ghost{border:1.5px solid #e5e5e5;background:#fff;border-radius:4px;padding:10px 20px;font-family:'Poppins',sans-serif;font-size:13px;font-weight:600;color:#555;cursor:pointer;}
+    .btn-ghost:hover{border-color:#111;color:#111;}
+
+    /* MOBILE */
+    @media(max-width:768px){
+      .sidebar{display:none;}
+      .main{margin-left:0;padding-bottom:64px;}
+      .topbar{padding:0 16px;}
+      .breadcrumb{display:none;}
+      .content{padding:14px;}
+      .kpi-grid{grid-template-columns:1fr 1fr;gap:10px;}
+      .relance-grid{grid-template-columns:1fr 1fr;gap:8px;}
+      thead th:nth-child(3),thead th:nth-child(5),tbody td:nth-child(3),tbody td:nth-child(5){display:none;}
+      .modal{width:95vw;}
+      .form-row{grid-template-columns:1fr;}
+      .bottom-nav{display:flex !important;position:fixed;bottom:0;left:0;right:0;height:60px;background:#111;border-top:1px solid rgba(255,255,255,0.08);z-index:200;justify-content:space-around;align-items:center;}
+      .bn-item{display:flex;flex-direction:column;align-items:center;gap:3px;color:rgba(255,255,255,0.5);font-size:9px;font-weight:600;cursor:pointer;padding:6px 10px;}
+      .bn-item.active{color:#E30613;}
+      .bn-item .bn-ico{font-size:20px;}
+    }
+    .bottom-nav{display:none;}
+  </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH"/>
+    <span>Campus v1.0</span>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Principal</div>
+    <a class="nav-item" href="03_dashboard_dg.html"><span class="ico">&#9732;</span> Tableau de bord</a>
+    <a class="nav-item"><span class="ico">&#128202;</span> Rapports</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Pedagogie</div>
+    <a class="nav-item" href="04_etudiants.html"><span class="ico">&#128100;</span> Etudiants <span class="nav-badge">247</span></a>
+    <a class="nav-item"><span class="ico">&#128197;</span> Emplois du temps</a>
+    <a class="nav-item"><span class="ico">&#128203;</span> Notes & Bulletins</a>
+    <a class="nav-item"><span class="ico">&#9989;</span> Presences</a>
+    <a class="nav-item"><span class="ico">&#127979;</span> Intervenants</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Finances</div>
+    <a class="nav-item active"><span class="ico">&#128176;</span> Paiements <span class="nav-badge">4</span></a>
+    <a class="nav-item"><span class="ico">&#128184;</span> Depenses</a>
+    <a class="nav-item"><span class="ico">&#128179;</span> Remuneration interv.</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Communication</div>
+    <a class="nav-item"><span class="ico">&#128172;</span> Messagerie <span class="nav-badge">3</span></a>
+    <a class="nav-item"><span class="ico">&#128276;</span> Notifications</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Administration</div>
+    <a class="nav-item"><span class="ico">&#128736;</span> Parametres</a>
+    <a class="nav-item"><span class="ico">&#128101;</span> Comptes utilisateurs</a>
+  </div>
+  <div class="sidebar-footer">
+    <div class="user-card">
+      <div class="user-avatar">DG</div>
+      <div class="user-info"><strong>Directeur General</strong><span>Acces complet</span></div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+
+  <div class="topbar">
+    <h1>Paiements <span class="breadcrumb">/ Scolarite & Comptabilite</span></h1>
+    <div class="topbar-right">
+      <button class="btn-primary" onclick="openModal()">&#43; Enregistrer un paiement</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- KPI -->
+    <div class="kpi-grid">
+      <div class="kpi-card green">
+        <div class="kpi-label">Encaisse ce mois</div>
+        <div class="kpi-value">4 850 000 <small>FCFA</small></div>
+        <div class="kpi-trend trend-up">&#8679; +12% vs mois precedent</div>
+      </div>
+      <div class="kpi-card red">
+        <div class="kpi-label">Total impayes</div>
+        <div class="kpi-value">1 240 000 <small>FCFA</small></div>
+        <div class="kpi-trend trend-down">&#8681; 18 etudiants en retard</div>
+      </div>
+      <div class="kpi-card orange">
+        <div class="kpi-label">En attente confirmation</div>
+        <div class="kpi-value">4 <small>dossiers</small></div>
+        <div class="kpi-trend trend-neu">Wave / OM / Virement</div>
+      </div>
+      <div class="kpi-card blue">
+        <div class="kpi-label">Prevision mois prochain</div>
+        <div class="kpi-value">5 200 000 <small>FCFA</small></div>
+        <div class="kpi-trend trend-up">&#8679; Base contractuelle</div>
+      </div>
+    </div>
+
+    <!-- Relances automatiques -->
+    <div class="relance-grid">
+      <div class="relance-card j3">
+        <div class="relance-label">J+3</div>
+        <div class="relance-count">8</div>
+        <div class="relance-desc">etudiants en retard</div>
+        <div class="relance-canal">SMS automatique envoye</div>
+      </div>
+      <div class="relance-card j7">
+        <div class="relance-label">J+7</div>
+        <div class="relance-count">6</div>
+        <div class="relance-desc">etudiants en retard</div>
+        <div class="relance-canal">SMS + WhatsApp + Email</div>
+      </div>
+      <div class="relance-card j15">
+        <div class="relance-label">J+15</div>
+        <div class="relance-count">4</div>
+        <div class="relance-desc">etudiants en retard</div>
+        <div class="relance-canal">&#9888; Alerte secrétariat</div>
+      </div>
+      <div class="relance-card j30">
+        <div class="relance-label">J+30</div>
+        <div class="relance-count">4</div>
+        <div class="relance-desc">etudiants en retard</div>
+        <div class="relance-canal">&#128308; Alerte direction</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs-bar">
+      <button class="tab-pill active" onclick="switchTab(this)">Tous les paiements</button>
+      <button class="tab-pill" onclick="switchTab(this)">En attente</button>
+      <button class="tab-pill" onclick="switchTab(this)">Impayes</button>
+      <button class="tab-pill" onclick="switchTab(this)">Bourses & Reductions</button>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span class="ico">&#128269;</span>
+        <input type="text" placeholder="Rechercher par nom, numero etudiant ou numero de recu..."/>
+      </div>
+      <select class="filter-select">
+        <option>Tous les modes</option>
+        <option>Wave</option>
+        <option>Especes (Cash)</option>
+        <option>Orange Money</option>
+        <option>Virement bancaire</option>
+        <option>Cheque</option>
+      </select>
+      <select class="filter-select">
+        <option>Toutes les filieres</option>
+        <option>Informatique de Gestion</option>
+        <option>Webmaster & Dev. Mobile</option>
+        <option>Reseaux & Systemes</option>
+      </select>
+      <select class="filter-select">
+        <option>Mars 2026</option>
+        <option>Fevrier 2026</option>
+        <option>Janvier 2026</option>
+        <option>Decembre 2025</option>
+      </select>
+    </div>
+
+    <!-- Tableau -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>N° Recu</th>
+            <th>Etudiant</th>
+            <th>Filiere</th>
+            <th>Mode</th>
+            <th>Mois concerne</th>
+            <th>Montant</th>
+            <th>Statut</th>
+            <th>Date</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="recu-num">RECU-2026-00201</td>
+            <td><div class="student-cell"><div class="s-avatar" style="background:#E30613">AF</div><div class="s-name"><strong>Aminata Fall</strong><span>UPTECH-2025-001</span></div></div></td>
+            <td>DTS Informatique</td>
+            <td><span class="mode-badge mode-wave">&#128241; Wave</span></td>
+            <td>Mars 2026</td>
+            <td class="amount-pos">+75 000 FCFA</td>
+            <td><span class="badge badge-ok"><span class="badge-dot dot-green"></span>Confirme</span></td>
+            <td>07/03/2026</td>
+            <td><button class="row-btn">&#128196; Recu</button></td>
+          </tr>
+          <tr>
+            <td class="recu-num">RECU-2026-00200</td>
+            <td><div class="student-cell"><div class="s-avatar" style="background:#3b82f6">MS</div><div class="s-name"><strong>Moussa Sow</strong><span>UPTECH-2025-002</span></div></div></td>
+            <td>BTS Webmaster</td>
+            <td><span class="mode-badge mode-cash">&#128176; Cash</span></td>
+            <td>Fevrier 2026</td>
+            <td class="amount-pos">+60 000 FCFA</td>
+            <td><span class="badge badge-ok"><span class="badge-dot dot-green"></span>Confirme</span></td>
+            <td>06/03/2026</td>
+            <td><button class="row-btn">&#128196; Recu</button></td>
+          </tr>
+          <tr>
+            <td class="recu-num">RECU-2026-00199</td>
+            <td><div class="student-cell"><div class="s-avatar" style="background:#7c3aed">FD</div><div class="s-name"><strong>Fatou Diallo</strong><span>UPTECH-2025-003</span></div></div></td>
+            <td>Licence Informatique</td>
+            <td><span class="mode-badge mode-om">&#128242; Orange Money</span></td>
+            <td>Mars 2026</td>
+            <td class="amount-pos">+85 000 FCFA</td>
+            <td><span class="badge badge-ok"><span class="badge-dot dot-green"></span>Confirme</span></td>
+            <td>05/03/2026</td>
+            <td><button class="row-btn">&#128196; Recu</button></td>
+          </tr>
+          <tr>
+            <td class="recu-num">RECU-2026-00198</td>
+            <td><div class="student-cell"><div class="s-avatar" style="background:#0891b2">IB</div><div class="s-name"><strong>Ibrahima Ba</strong><span>UPTECH-2025-005</span></div></div></td>
+            <td>Master Audiovisuel</td>
+            <td><span class="mode-badge mode-virement">&#127968; Virement</span></td>
+            <td>Mars 2026</td>
+            <td class="amount-pos">+110 000 FCFA</td>
+            <td><span class="badge badge-attente"><span class="badge-dot dot-yellow"></span>En attente</span></td>
+            <td>05/03/2026</td>
+            <td><button class="row-btn" style="color:#22c55e;border-color:#bbf7d0">&#10003; Confirmer</button></td>
+          </tr>
+          <tr>
+            <td class="recu-num">RECU-2026-00197</td>
+            <td><div class="student-cell"><div class="s-avatar" style="background:#be185d">MC</div><div class="s-name"><strong>Marietou Cisse</strong><span>UPTECH-2025-006</span></div></div></td>
+            <td>BTS Infographie</td>
+            <td><span class="mode-badge mode-cheque">&#128196; Cheque</span></td>
+            <td>Janvier 2026</td>
+            <td class="amount-neg">-75 000 FCFA</td>
+            <td><span class="badge badge-rejete"><span class="badge-dot dot-red"></span>Cheque rejete</span></td>
+            <td>04/03/2026</td>
+            <td><button class="row-btn">Voir details</button></td>
+          </tr>
+          <tr>
+            <td class="recu-num">RECU-2026-00196</td>
+            <td><div class="student-cell"><div class="s-avatar" style="background:#f97316">SN</div><div class="s-name"><strong>Seydou Ndiaye</strong><span>UPTECH-2025-004</span></div></div></td>
+            <td>DTS Reseaux</td>
+            <td><span class="mode-badge mode-wave">&#128241; Wave</span></td>
+            <td>Novembre 2025</td>
+            <td class="amount-pos">+75 000 FCFA</td>
+            <td><span class="badge badge-ok"><span class="badge-dot dot-green"></span>Confirme</span></td>
+            <td>01/11/2025</td>
+            <td><button class="row-btn">&#128196; Recu</button></td>
+          </tr>
+          <tr>
+            <td class="recu-num">RECU-2026-00195</td>
+            <td><div class="student-cell"><div class="s-avatar" style="background:#15803d">ND</div><div class="s-name"><strong>Ndene Diop</strong><span>UPTECH-2025-008</span></div></div></td>
+            <td>Certificat Specialisation</td>
+            <td><span class="mode-badge mode-wave">&#128241; Wave</span></td>
+            <td>Mars 2026</td>
+            <td class="amount-pos">+45 000 FCFA</td>
+            <td><span class="badge badge-ok"><span class="badge-dot dot-green"></span>Confirme</span></td>
+            <td>03/03/2026</td>
+            <td><button class="row-btn">&#128196; Recu</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="pagination">
+        <span class="pagination-info">Affichage 1–7 sur 312 paiements</span>
+        <div class="pagination-btns">
+          <button class="page-btn disabled">&#8592;</button>
+          <button class="page-btn active">1</button>
+          <button class="page-btn">2</button>
+          <button class="page-btn">3</button>
+          <span style="color:#aaa;padding:0 4px;font-size:12px">...</span>
+          <button class="page-btn">45</button>
+          <button class="page-btn">&#8594;</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div><!-- /main -->
+
+<!-- MODAL PAIEMENT -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>&#128176; Enregistrer un paiement</h3>
+      <button class="modal-close" onclick="closeModal()">&#10005;</button>
+    </div>
+    <div class="modal-body">
+
+      <div class="form-group">
+        <label>Etudiant</label>
+        <select>
+          <option>-- Rechercher un etudiant --</option>
+          <option selected>Aminata Fall — UPTECH-2025-001</option>
+          <option>Moussa Sow — UPTECH-2025-002</option>
+          <option>Fatou Diallo — UPTECH-2025-003</option>
+          <option>Seydou Ndiaye — UPTECH-2025-004</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Type de paiement</label>
+          <select>
+            <option>Mensualite de scolarite</option>
+            <option>Frais d'inscription</option>
+            <option>Rattrapage de mensualite</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Mois concerne</label>
+          <select>
+            <option selected>Mars 2026</option>
+            <option>Fevrier 2026</option>
+            <option>Janvier 2026</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Montant (FCFA)</label>
+          <input type="number" value="75000"/>
+        </div>
+        <div class="form-group">
+          <label>Mode de paiement</label>
+          <select>
+            <option>Especes (Cash)</option>
+            <option selected>Wave</option>
+            <option>Orange Money</option>
+            <option>Virement bancaire</option>
+            <option>Cheque</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Reference / Observation (optionnel)</label>
+        <input type="text" placeholder="Ex: Ref Wave #TX2026030712345"/>
+      </div>
+
+      <!-- Apercu recu -->
+      <div class="recu-preview">
+        <div class="recu-preview-title">Apercu du recu — Genere automatiquement</div>
+        <div class="recu-logo"><strong>UPTECH Campus</strong><span>Institut Superieur de Formation</span></div>
+        <div class="recu-num-box">RECU-2026-00202</div>
+        <div class="recu-row"><span class="rl">Etudiant</span><span class="rv">Aminata Fall</span></div>
+        <div class="recu-row"><span class="rl">N° Etudiant</span><span class="rv" style="font-family:monospace">UPTECH-2025-001</span></div>
+        <div class="recu-row"><span class="rl">Date</span><span class="rv">07/03/2026</span></div>
+        <div class="recu-row"><span class="rl">Mois concerne</span><span class="rv">Mars 2026</span></div>
+        <div class="recu-row"><span class="rl">Mode</span><span class="rv">Wave</span></div>
+        <div class="recu-row"><span class="rl">Solde restant apres</span><span class="rv" style="color:#22c55e">0 FCFA (A jour)</span></div>
+        <div class="recu-total"><span>Total paye</span><span class="rt-val">75 000 FCFA</span></div>
+        <div class="recu-sms-note">&#128241; Un SMS + WhatsApp sera envoye automatiquement a l'etudiant</div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal()">Annuler</button>
+      <button class="btn-primary" onclick="closeModal()">&#128196; Confirmer & Imprimer le recu</button>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM NAV MOBILE -->
+<nav class="bottom-nav">
+  <div class="bn-item"><span class="bn-ico">&#9732;</span><span>Accueil</span></div>
+  <div class="bn-item"><span class="bn-ico">&#128100;</span><span>Etudiants</span></div>
+  <div class="bn-item active"><span class="bn-ico">&#128176;</span><span>Finances</span></div>
+  <div class="bn-item"><span class="bn-ico">&#128172;</span><span>Messages</span></div>
+  <div class="bn-item"><span class="bn-ico">&#8942;</span><span>Plus</span></div>
+</nav>
+
+<script>
+  function openModal(){ document.getElementById('modalOverlay').classList.add('open'); }
+  function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
+  document.getElementById('modalOverlay').addEventListener('click',function(e){ if(e.target===this)closeModal(); });
+  function switchTab(btn){ document.querySelectorAll('.tab-pill').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); }
+</script>
+
+</body>
+</html>
