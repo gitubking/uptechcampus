@@ -124,7 +124,8 @@
       "mcp__5ea5e374-f5dd-475a-9724-2f3e698c6c87__list_deployments",
       "mcp__5ea5e374-f5dd-475a-9724-2f3e698c6c87__deploy_to_vercel",
       "Bash(npx vercel:*)",
-      "Bash(php artisan:*)"
+      "Bash(php artisan:*)",
+      "Bash(grep -r \"semestre\" \"C:\\\\Users\\\\hp\\\\Desktop\\\\Uptech_Campus\\\\backend\\\\database\\\\migrations\"\" --include=\"*.php \" -l)"
     ]
   }
 }
