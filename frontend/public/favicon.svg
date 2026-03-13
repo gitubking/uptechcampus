@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Red rounded border -->
+  <rect x="2" y="2" width="96" height="96" rx="14" ry="14" fill="#c8102e" />
+  <!-- White inner padding -->
+  <rect x="8" y="8" width="84" height="84" rx="9" ry="9" fill="white" />
+  <!-- Top-left quadrant: black -->
+  <path d="M8,8 Q8,17 17,17 H50 V50 H8 Z" fill="#1a1a1a"/>
+  <!-- Top-right quadrant: red -->
+  <path d="M50,17 H83 Q92,17 92,26 V50 H50 Z" fill="#c8102e"/>
+  <!-- Bottom-left quadrant: red -->
+  <path d="M8,50 H50 V83 Q50,92 41,92 H17 Q8,92 8,83 Z" fill="#c8102e"/>
+  <!-- Bottom-right quadrant: black -->
+  <path d="M50,50 H92 V74 Q92,92 74,92 H50 Z" fill="#1a1a1a"/>
+  <!-- White cross dividers -->
+  <rect x="47" y="8" width="6" height="84" fill="white"/>
+  <rect x="8" y="47" width="84" height="6" fill="white"/>
+</svg>
