@@ -88,7 +88,7 @@ function avatarInitials(nom: string) {
   return parts.map((p: string) => p[0]).join('').substring(0, 2).toUpperCase()
 }
 
-const avatarColors = ['bg-blue-500','bg-green-500','bg-purple-500','bg-amber-500','bg-red-600','bg-indigo-500']
+const avatarColors = ['bg-blue-500','bg-green-500','bg-purple-500','bg-amber-500','bg-red-600','bg-red-500']
 function avatarColor(id: number) {
   return avatarColors[id % avatarColors.length]
 }
@@ -554,5 +554,5 @@ const progressionFinanciere = computed(() => {
 .bg-purple-500 { background:#a855f7; }
 .bg-amber-500 { background:#f59e0b; }
 .bg-red-600 { background:#E30613; }
-.bg-indigo-500 { background:#6366f1; }
+.bg-red-500 { background:#6366f1; }
 </style>

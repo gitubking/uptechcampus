@@ -91,7 +91,7 @@ onMounted(load)
         <p class="text-xs text-gray-400 mt-0.5">Scolarité & Comptabilité</p>
       </div>
       <button @click="showModal = true"
-        class="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition">
+        class="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-700 transition">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         Enregistrer un paiement
       </button>
@@ -141,7 +141,7 @@ onMounted(load)
       <button v-for="tab in [{key:'tous',label:'Tous'},{key:'attente',label:'En attente'},{key:'impayes',label:'Impayés'},{key:'bourses',label:'Bourses'}]"
         :key="tab.key" @click="activeTab = tab.key"
         class="px-4 py-2 rounded-lg text-xs font-semibold transition"
-        :class="activeTab === tab.key ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:text-gray-700'">
+        :class="activeTab === tab.key ? 'bg-red-600 text-white' : 'text-gray-500 hover:text-gray-700'">
         {{ tab.label }}
       </button>
     </div>
@@ -151,9 +151,9 @@ onMounted(load)
       <div class="relative flex-1 min-w-48">
         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input v-model="search" type="text" placeholder="Rechercher…"
-          class="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-400 bg-white"/>
+          class="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-red-400 bg-white"/>
       </div>
-      <select v-model="filterMode" class="border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400 bg-white">
+      <select v-model="filterMode" class="border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400 bg-white">
         <option value="">Tous les modes</option>
         <option value="wave">Wave</option>
         <option value="cash">Espèces</option>
@@ -211,7 +211,7 @@ onMounted(load)
             <td class="px-4 py-3 text-xs text-gray-400 hidden lg:table-cell">{{ p.date }}</td>
             <td class="px-4 py-3">
               <button v-if="p.statut === 'en_attente'" class="text-xs border border-green-200 text-green-600 px-2 py-1 rounded hover:bg-green-50 transition">✓ Confirmer</button>
-              <button v-else class="text-xs border border-gray-200 text-gray-500 px-2 py-1 rounded hover:border-indigo-300 hover:text-indigo-600 transition">Reçu</button>
+              <button v-else class="text-xs border border-gray-200 text-gray-500 px-2 py-1 rounded hover:border-red-300 hover:text-red-600 transition">Reçu</button>
             </td>
           </tr>
           <tr v-if="!filtered.length">
@@ -223,8 +223,8 @@ onMounted(load)
         <span class="text-xs text-gray-400">{{ filtered.length }} paiement(s)</span>
         <div class="flex gap-1">
           <button class="w-8 h-8 border border-gray-200 rounded text-xs text-gray-400 opacity-40">←</button>
-          <button class="w-8 h-8 border border-indigo-600 bg-indigo-600 rounded text-xs text-white font-bold">1</button>
-          <button class="w-8 h-8 border border-gray-200 rounded text-xs text-gray-500 hover:border-indigo-300">→</button>
+          <button class="w-8 h-8 border border-red-600 bg-red-600 rounded text-xs text-white font-bold">1</button>
+          <button class="w-8 h-8 border border-gray-200 rounded text-xs text-gray-500 hover:border-red-300">→</button>
         </div>
       </div>
     </div>
@@ -240,7 +240,7 @@ onMounted(load)
           <div class="p-5 space-y-4">
             <div>
               <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Étudiant</label>
-              <select v-model="form.etudiant_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400">
+              <select v-model="form.etudiant_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400">
                 <option value="">-- Sélectionner --</option>
                 <option value="1">Aminata Fall — UPTECH-2025-001</option>
                 <option value="2">Moussa Sow — UPTECH-2025-002</option>
@@ -250,7 +250,7 @@ onMounted(load)
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Type</label>
-                <select v-model="form.type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400">
+                <select v-model="form.type" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400">
                   <option value="mensualite">Mensualité</option>
                   <option value="inscription">Inscription</option>
                   <option value="rattrapage">Rattrapage</option>
@@ -258,17 +258,17 @@ onMounted(load)
               </div>
               <div>
                 <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Mois concerné</label>
-                <input v-model="form.mois_concerne" type="month" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400"/>
+                <input v-model="form.mois_concerne" type="month" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400"/>
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Montant (FCFA)</label>
-                <input v-model="form.montant" type="number" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400"/>
+                <input v-model="form.montant" type="number" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400"/>
               </div>
               <div>
                 <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Mode</label>
-                <select v-model="form.mode" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400">
+                <select v-model="form.mode" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400">
                   <option value="cash">Espèces</option>
                   <option value="wave">Wave</option>
                   <option value="orange_money">Orange Money</option>
@@ -279,7 +279,7 @@ onMounted(load)
             </div>
             <div>
               <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Référence (optionnel)</label>
-              <input v-model="form.reference" type="text" placeholder="Ex: Ref Wave #TX2026…" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400"/>
+              <input v-model="form.reference" type="text" placeholder="Ex: Ref Wave #TX2026…" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400"/>
             </div>
             <div v-if="form.etudiant_id" class="bg-gray-50 border border-gray-200 rounded-xl p-4">
               <p class="text-xs font-bold text-gray-400 text-center uppercase tracking-wide mb-3">Aperçu du reçu</p>
@@ -294,7 +294,7 @@ onMounted(load)
           </div>
           <div class="flex justify-between gap-3 p-5 border-t border-gray-100 sticky bottom-0 bg-white">
             <button @click="showModal = false" class="px-4 py-2 border border-gray-200 rounded-lg text-sm font-semibold text-gray-600 hover:border-gray-300">Annuler</button>
-            <button @click="savePaiement" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition">Confirmer & Imprimer</button>
+            <button @click="savePaiement" class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition">Confirmer & Imprimer</button>
           </div>
         </div>
       </div>

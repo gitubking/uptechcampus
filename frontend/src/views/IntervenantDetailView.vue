@@ -118,7 +118,7 @@ onMounted(load)
                 </span>
                 <select v-if="canWrite" :value="intervenant.statut" @change="updateStatut(($event.target as HTMLSelectElement).value)"
                   :disabled="updatingStatut"
-                  class="px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50">
+                  class="px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50">
                   <option value="en_attente">En attente</option>
                   <option value="actif">Actif</option>
                   <option value="inactif">Inactif</option>

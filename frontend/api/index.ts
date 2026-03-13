@@ -490,8 +490,25 @@ app.delete('/classes/:id', requireAuth, role('dg', 'coordinateur'), async (c) =>
 
 // ─── ETUDIANTS ────────────────────────────────────────────────────────────────
 app.get('/etudiants', requireAuth, async (c) => {
-  const { rows } = await pool.query('SELECT * FROM etudiants ORDER BY nom,prenom')
-  return c.json(rows)
+  const search = c.req.query('search') || ''
+  const page = Math.max(1, parseInt(c.req.query('page') || '1'))
+  const perPage = 20
+  const offset = (page - 1) * perPage
+  const searchParam = search ? `%${search}%` : null
+  const whereClause = searchParam
+    ? `WHERE (nom ILIKE $1 OR prenom ILIKE $1 OR numero_etudiant ILIKE $1 OR email ILIKE $1)`
+    : ''
+  const { rows: countRows } = await pool.query(
+    `SELECT COUNT(*)::int as total FROM etudiants ${whereClause}`,
+    searchParam ? [searchParam] : []
+  )
+  const total = countRows[0].total
+  const { rows } = await pool.query(
+    `SELECT * FROM etudiants ${whereClause} ORDER BY nom,prenom LIMIT $${searchParam ? 2 : 1} OFFSET $${searchParam ? 3 : 2}`,
+    searchParam ? [searchParam, perPage, offset] : [perPage, offset]
+  )
+  const lastPage = Math.max(1, Math.ceil(total / perPage))
+  return c.json({ data: rows, current_page: page, last_page: lastPage, per_page: perPage, total })
 })
 
 app.get('/etudiants/:id', requireAuth, async (c) => {

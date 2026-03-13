@@ -125,7 +125,7 @@ function formatFileSize(bytes: number) {
 
     <!-- Chargement -->
     <div v-if="loading" class="flex items-center justify-center py-20">
-      <svg class="animate-spin w-8 h-8 text-indigo-400" fill="none" viewBox="0 0 24 24">
+      <svg class="animate-spin w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
       </svg>
@@ -137,11 +137,11 @@ function formatFileSize(bytes: number) {
       <div class="bg-white rounded-xl border border-gray-200 p-6 mb-5 flex items-start gap-6">
         <!-- Avatar / Photo -->
         <div class="relative flex-shrink-0">
-          <div class="w-20 h-20 rounded-xl overflow-hidden bg-indigo-100 flex items-center justify-center">
+          <div class="w-20 h-20 rounded-xl overflow-hidden bg-red-100 flex items-center justify-center">
             <img v-if="etudiant.photo_path"
               :src="`http://localhost:8000/storage/${etudiant.photo_path}`"
               class="w-full h-full object-cover" />
-            <span v-else class="text-2xl font-bold text-indigo-700 uppercase">
+            <span v-else class="text-2xl font-bold text-red-700 uppercase">
               {{ etudiant.prenom[0] }}{{ etudiant.nom[0] }}
             </span>
           </div>
@@ -204,7 +204,7 @@ function formatFileSize(bytes: number) {
           @click="activeTab = tab.key as any"
           class="px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition"
           :class="activeTab === tab.key
-            ? 'border-indigo-600 text-indigo-600'
+            ? 'border-red-600 text-red-600'
             : 'border-transparent text-gray-500 hover:text-gray-700'"
         >
           {{ tab.label }}
@@ -283,7 +283,7 @@ function formatFileSize(bytes: number) {
           <h3 class="text-sm font-medium text-gray-700 mb-3">Ajouter un document</h3>
           <div class="flex items-center gap-3">
             <select v-model="docType"
-              class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
               <option v-for="dt in docTypes" :key="dt.value" :value="dt.value">{{ dt.label }}</option>
             </select>
             <button @click="docInput?.click()" :disabled="docLoading"
@@ -317,7 +317,7 @@ function formatFileSize(bytes: number) {
                 class="border-b border-gray-100 last:border-0">
                 <td class="px-5 py-3">
                   <a :href="`http://localhost:8000/storage/${doc.fichier_path}`" target="_blank"
-                    class="text-indigo-600 hover:underline flex items-center gap-2"
+                    class="text-red-600 hover:underline flex items-center gap-2"
                     @click.stop>
                     <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />

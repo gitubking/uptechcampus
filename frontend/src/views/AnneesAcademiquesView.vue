@@ -87,7 +87,7 @@ onMounted(load)
         <p class="text-sm text-gray-500 mt-0.5">Gestion des périodes scolaires</p>
       </div>
       <button @click="openCreate"
-        class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition">
+        class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
         </svg>
@@ -133,7 +133,7 @@ onMounted(load)
             </td>
             <td class="px-5 py-3.5 text-right">
               <button @click="openEdit(a)" title="Modifier"
-                class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition">
+                class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -158,30 +158,30 @@ onMounted(load)
             <div>
               <label class="block text-xs font-medium text-gray-700 mb-1">Libellé <span class="text-red-500">*</span></label>
               <input v-model="form.libelle" required placeholder="ex: 2025-2026"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-xs font-medium text-gray-700 mb-1">Date de début <span class="text-red-500">*</span></label>
                 <input v-model="form.date_debut" type="date" required
-                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
               </div>
               <div>
                 <label class="block text-xs font-medium text-gray-700 mb-1">Date de fin <span class="text-red-500">*</span></label>
                 <input v-model="form.date_fin" type="date" required
-                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
               </div>
             </div>
             <label class="flex items-center gap-2.5 cursor-pointer">
               <input type="checkbox" v-model="form.actif"
-                class="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                class="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500" />
               <span class="text-sm text-gray-700">Définir comme année active</span>
             </label>
             <div class="flex gap-3 pt-2">
               <button type="button" @click="showForm = false"
                 class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition">Annuler</button>
               <button type="submit" :disabled="saving"
-                class="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
+                class="flex-1 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 transition">
                 {{ saving ? 'Enregistrement…' : 'Enregistrer' }}
               </button>
             </div>

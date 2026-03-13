@@ -94,7 +94,7 @@ onMounted(load)
         <p class="text-sm text-gray-500 mt-0.5">Taux horaires par type de formation et année académique</p>
       </div>
       <button @click="openCreate"
-        class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition">
+        class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
         </svg>
@@ -151,32 +151,32 @@ onMounted(load)
             <div>
               <label class="block text-xs font-medium text-gray-700 mb-1">Type de formation <span class="text-red-500">*</span></label>
               <select v-model="form.type_formation_id" required
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-500">
                 <option v-for="tf in typesFormation" :key="tf.id" :value="tf.id">{{ tf.nom }}</option>
               </select>
             </div>
             <div>
               <label class="block text-xs font-medium text-gray-700 mb-1">Année académique <span class="text-red-500">*</span></label>
               <select v-model="form.annee_academique_id" required
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-500">
                 <option v-for="a in annees" :key="a.id" :value="a.id">{{ a.libelle }}</option>
               </select>
             </div>
             <div>
               <label class="block text-xs font-medium text-gray-700 mb-1">Taux horaire (FCFA/h) <span class="text-red-500">*</span></label>
               <input v-model.number="form.montant_horaire" type="number" min="0" required
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
             </div>
             <div>
               <label class="block text-xs font-medium text-gray-700 mb-1">Date d'effet <span class="text-red-500">*</span></label>
               <input v-model="form.date_effet" type="date" required
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
             </div>
             <div class="flex gap-3 pt-2">
               <button type="button" @click="showForm = false"
                 class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition">Annuler</button>
               <button type="submit" :disabled="saving"
-                class="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
+                class="flex-1 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 transition">
                 {{ saving ? 'Enregistrement…' : 'Enregistrer' }}
               </button>
             </div>

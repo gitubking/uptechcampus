@@ -271,7 +271,7 @@ onMounted(async () => {
             <td>
               <div v-if="i.filieres?.length" class="flex flex-wrap gap-1">
                 <span v-for="f in i.filieres" :key="f.filiere_id"
-                  class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700">
+                  class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-red-50 text-red-700">
                   {{ f.filiere?.nom ?? f.filiere_id }}
                 </span>
               </div>
@@ -280,7 +280,7 @@ onMounted(async () => {
             <td style="text-align:right;">
               <div class="flex items-center justify-end gap-1">
                 <button v-if="canWrite" @click="openEdit(i)" title="Modifier"
-                  class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition">
+                  class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                       d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />

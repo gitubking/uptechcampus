@@ -85,12 +85,12 @@ const catColors: Record<string, string> = {
   loyer_charges: 'bg-blue-100 text-blue-700', salaires: 'bg-violet-100 text-violet-700',
   materiel: 'bg-orange-100 text-orange-700', fournitures: 'bg-green-100 text-green-700',
   internet_tel: 'bg-cyan-100 text-cyan-700', entretien: 'bg-pink-100 text-pink-700',
-  communication: 'bg-indigo-100 text-indigo-700', autre: 'bg-gray-100 text-gray-600',
+  communication: 'bg-red-100 text-red-700', autre: 'bg-gray-100 text-gray-600',
 }
 const catBarColors: Record<string, string> = {
   loyer_charges: 'bg-blue-400', salaires: 'bg-violet-400', materiel: 'bg-orange-400',
   fournitures: 'bg-green-400', internet_tel: 'bg-cyan-400', entretien: 'bg-pink-400',
-  communication: 'bg-indigo-400', autre: 'bg-gray-400',
+  communication: 'bg-red-400', autre: 'bg-gray-400',
 }
 const modeLabels: Record<string, string> = {
   virement: 'Virement', wave: 'Wave', orange_money: 'Orange Money',

@@ -39,7 +39,7 @@ const roleColors: Record<string, string> = {
   dg: 'bg-purple-100 text-purple-700',
   dir_peda: 'bg-blue-100 text-blue-700',
   resp_fin: 'bg-emerald-100 text-emerald-700',
-  coordinateur: 'bg-indigo-100 text-indigo-700',
+  coordinateur: 'bg-red-100 text-red-700',
   secretariat: 'bg-yellow-100 text-yellow-700',
   intervenant: 'bg-orange-100 text-orange-700',
   etudiant: 'bg-gray-100 text-gray-700',
@@ -139,7 +139,7 @@ onMounted(load)
       </div>
       <button
         @click="openCreate"
-        class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition"
+        class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -151,12 +151,12 @@ onMounted(load)
     <!-- Filters -->
     <div class="flex gap-3 mb-4">
       <select v-model="filterRole"
-        class="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+        class="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white">
         <option value="">Tous les rôles</option>
         <option v-for="(label, key) in roleLabels" :key="key" :value="key">{{ label }}</option>
       </select>
       <select v-model="filterStatut"
-        class="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+        class="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white">
         <option value="">Tous les statuts</option>
         <option value="actif">Actif</option>
         <option value="inactif">Inactif</option>
@@ -190,8 +190,8 @@ onMounted(load)
           <tr v-for="u in filtered" :key="u.id" class="hover:bg-gray-50 transition">
             <td class="px-5 py-3.5">
               <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                  <span class="text-xs font-bold text-indigo-700 uppercase">{{ u.prenom[0] }}{{ u.nom[0] }}</span>
+                <div class="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <span class="text-xs font-bold text-red-700 uppercase">{{ u.prenom[0] }}{{ u.nom[0] }}</span>
                 </div>
                 <div>
                   <p class="text-sm font-medium text-gray-900">{{ u.prenom }} {{ u.nom }}</p>
@@ -215,7 +215,7 @@ onMounted(load)
             <td class="px-5 py-3.5 text-right">
               <div class="flex items-center justify-end gap-1">
                 <button @click="openEdit(u)" title="Modifier"
-                  class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition">
+                  class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                       d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -253,36 +253,36 @@ onMounted(load)
               <div>
                 <label class="block text-xs font-medium text-gray-700 mb-1">Prénom <span class="text-red-500">*</span></label>
                 <input v-model="form.prenom" required
-                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
               </div>
               <div>
                 <label class="block text-xs font-medium text-gray-700 mb-1">Nom <span class="text-red-500">*</span></label>
                 <input v-model="form.nom" required
-                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
               </div>
             </div>
             <div>
               <label class="block text-xs font-medium text-gray-700 mb-1">Email <span class="text-red-500">*</span></label>
               <input v-model="form.email" type="email" required
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
             </div>
             <div>
               <label class="block text-xs font-medium text-gray-700 mb-1">Téléphone</label>
               <input v-model="form.telephone"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
                 placeholder="+221 77 000 00 00" />
             </div>
             <div>
               <label class="block text-xs font-medium text-gray-700 mb-1">Rôle <span class="text-red-500">*</span></label>
               <select v-model="form.role" required :disabled="!!editTarget"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white disabled:bg-gray-50 disabled:text-gray-500">
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white disabled:bg-gray-50 disabled:text-gray-500">
                 <option v-for="(label, key) in roleLabels" :key="key" :value="key">{{ label }}</option>
               </select>
             </div>
             <div v-if="editTarget">
               <label class="block text-xs font-medium text-gray-700 mb-1">Statut</label>
               <select v-model="form.statut"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white">
                 <option value="actif">Actif</option>
                 <option value="inactif">Inactif</option>
                 <option value="suspendu">Suspendu</option>
@@ -295,7 +295,7 @@ onMounted(load)
                 Annuler
               </button>
               <button type="submit" :disabled="saving"
-                class="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
+                class="flex-1 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 transition">
                 {{ saving ? 'Enregistrement…' : 'Enregistrer' }}
               </button>
             </div>
