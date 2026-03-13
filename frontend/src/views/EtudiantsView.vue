@@ -115,12 +115,27 @@ async function loadRefs() {
   refsLoaded.value = true
 }
 
-// ── Panel (slide-over) ────────────────────────────────────────────────
+// ── Modal (popup centré) ───────────────────────────────────────────────
 type PanelMode = 'inscrire' | 'edit-etudiant' | 'gerer-inscription'
 const showPanel = ref(false)
 const panelMode = ref<PanelMode>('inscrire')
 const panelLoading = ref(false)
 const panelError = ref('')
+const currentStep = ref(1)   // 1 = identité, 2 = inscription (mode inscrire seulement)
+
+function goToStep2() {
+  if (!studentForm.value.prenom.trim() || !studentForm.value.nom.trim() || !studentForm.value.email.trim()) {
+    panelError.value = 'Veuillez remplir les champs obligatoires : Prénom, Nom et Email.'
+    return
+  }
+  panelError.value = ''
+  currentStep.value = 2
+}
+
+function goToStep1() {
+  panelError.value = ''
+  currentStep.value = 1
+}
 
 // ── Formulaire étudiant ───────────────────────────────────────────────
 const editingEtudiantId = ref<number | null>(null)
@@ -197,6 +212,7 @@ const filteredFilieresForEdit = computed(() =>
 async function openInscrire() {
   panelMode.value = 'inscrire'
   panelError.value = ''
+  currentStep.value = 1
   editingEtudiantId.value = null
   studentForm.value = { prenom: '', nom: '', email: '', telephone: '', date_naissance: '', lieu_naissance: '', adresse: '', cni_numero: '', nom_parent: '', telephone_parent: '' }
   selectedType.value = null
@@ -515,375 +531,385 @@ onMounted(() => {
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
-         SLIDE-OVER PANEL
+         MODAL POPUP CENTRÉ
          ═══════════════════════════════════════════════════════════ -->
     <Teleport to="body">
-      <Transition name="overlay">
-        <div v-if="showPanel" class="fixed inset-0 z-40 flex justify-end">
-          <div class="absolute inset-0 bg-black/40" @click="showPanel = false" />
-          <Transition name="panel">
-            <div class="relative z-50 w-full max-w-xl bg-white shadow-2xl flex flex-col h-full">
+      <Transition name="modal-fade">
+        <div v-if="showPanel" class="insc-overlay" @click.self="showPanel = false">
+          <div class="insc-modal">
 
-              <!-- Header Panel -->
-              <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #f0f0f0;position:sticky;top:0;background:#fff;z-index:1;">
-                <h2 style="font-size:15px;font-weight:700;color:#111;">
-                  <span v-if="panelMode === 'inscrire'">Inscrire un étudiant</span>
+            <!-- ── Header ── -->
+            <div class="insc-modal-header">
+              <div>
+                <h2 class="insc-modal-title">
+                  <span v-if="panelMode === 'inscrire'">Nouvel étudiant</span>
                   <span v-else-if="panelMode === 'edit-etudiant'">Modifier l'étudiant</span>
-                  <span v-else>Gérer l'inscription — {{ currentEtudiant?.prenom }} {{ currentEtudiant?.nom }}</span>
+                  <span v-else>Inscription — {{ currentEtudiant?.prenom }} {{ currentEtudiant?.nom }}</span>
                 </h2>
-                <button @click="showPanel = false" class="modal-close">✕</button>
+                <!-- Indicateur d'étapes (mode inscrire seulement) -->
+                <div v-if="panelMode === 'inscrire'" class="insc-steps">
+                  <span class="insc-step" :class="{ 'insc-step--active': currentStep === 1, 'insc-step--done': currentStep > 1 }">
+                    <span class="insc-step-num">{{ currentStep > 1 ? '✓' : '1' }}</span> Identité
+                  </span>
+                  <span class="insc-step-arrow">→</span>
+                  <span class="insc-step" :class="{ 'insc-step--active': currentStep === 2 }">
+                    <span class="insc-step-num">2</span> Inscription
+                  </span>
+                </div>
               </div>
+              <button @click="showPanel = false" class="modal-close">✕</button>
+            </div>
 
-              <!-- Body Panel -->
-              <div class="flex-1 overflow-y-auto" style="padding:22px;">
-                <div v-if="panelError" style="margin-bottom:16px;padding:10px 14px;background:#fff0f0;border-left:3px solid #E30613;border-radius:4px;font-size:12.5px;color:#b91c1c;">
-                  {{ panelError }}
+            <!-- ── Body ── -->
+            <div class="insc-modal-body">
+              <div v-if="panelError" class="insc-error">{{ panelError }}</div>
+
+              <!-- ══ INSCRIRE — ÉTAPE 1 : Identité ══ -->
+              <template v-if="panelMode === 'inscrire' && currentStep === 1">
+                <div class="form-section-label">Informations personnelles</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Prénom <span class="req">*</span></label>
+                    <input v-model="studentForm.prenom" required type="text" placeholder="Ex : Mamadou" />
+                  </div>
+                  <div class="form-group">
+                    <label>Nom <span class="req">*</span></label>
+                    <input v-model="studentForm.nom" required type="text" placeholder="Ex : Diallo" />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Email <span class="req">*</span></label>
+                    <input v-model="studentForm.email" required type="email" placeholder="email@example.com" />
+                  </div>
+                  <div class="form-group">
+                    <label>Téléphone</label>
+                    <input v-model="studentForm.telephone" type="tel" placeholder="+221 77…" />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Date de naissance</label>
+                    <input v-model="studentForm.date_naissance" type="date" />
+                  </div>
+                  <div class="form-group">
+                    <label>Lieu de naissance</label>
+                    <input v-model="studentForm.lieu_naissance" type="text" placeholder="Dakar" />
+                  </div>
+                </div>
+                <div class="form-row full">
+                  <div class="form-group">
+                    <label>Adresse</label>
+                    <textarea v-model="studentForm.adresse" rows="2" style="resize:none;"></textarea>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>N° CNI</label>
+                    <input v-model="studentForm.cni_numero" type="text" placeholder="1 234 567 890 12" />
+                  </div>
+                  <div class="form-group"></div>
+                </div>
+                <div class="form-section-label" style="margin-top:4px;">Contact parent / tuteur</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Nom complet</label>
+                    <input v-model="studentForm.nom_parent" type="text" placeholder="Nom complet" />
+                  </div>
+                  <div class="form-group">
+                    <label>Téléphone</label>
+                    <input v-model="studentForm.telephone_parent" type="tel" placeholder="+221 77..." />
+                  </div>
+                </div>
+              </template>
+
+              <!-- ══ INSCRIRE — ÉTAPE 2 : Inscription ══ -->
+              <template v-else-if="panelMode === 'inscrire' && currentStep === 2">
+                <div class="form-section-label">Paramètres d'inscription</div>
+
+                <!-- Statut -->
+                <div class="form-row-radio">
+                  <label class="radio-card" :class="{ active: inscriptionForm.statut === 'inscrit_actif' }">
+                    <input type="radio" v-model="inscriptionForm.statut" value="inscrit_actif" style="display:none;" />
+                    <div class="radio-card-title">Inscrit actif</div>
+                    <div class="radio-card-sub">Dossier validé</div>
+                  </label>
+                  <label class="radio-card" :class="{ active: inscriptionForm.statut === 'pre_inscrit', orange: true }">
+                    <input type="radio" v-model="inscriptionForm.statut" value="pre_inscrit" style="display:none;" />
+                    <div class="radio-card-title">Pré-inscrit</div>
+                    <div class="radio-card-sub">En attente</div>
+                  </label>
                 </div>
 
-                <!-- ── MODE INSCRIRE ─────────────────────────────── -->
-                <form v-if="panelMode === 'inscrire'" id="panel-form" @submit.prevent="submitInscrire">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Type de formation</label>
+                    <select v-model="selectedType" @change="onTypeChange">
+                      <option :value="null">— Tous les types —</option>
+                      <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }} ({{ t.code }})</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Année académique <span class="req">*</span></label>
+                    <select v-model="inscriptionForm.annee_academique_id" required>
+                      <option v-for="a in annees" :key="a.id" :value="a.id">{{ a.libelle }}{{ a.actif ? ' (en cours)' : '' }}</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row full">
+                  <div class="form-group">
+                    <label>Filière <span class="req">*</span></label>
+                    <select v-model="inscriptionForm.filiere_id" @change="onFiliereChange" required>
+                      <option :value="null">— Sélectionner une filière —</option>
+                      <option v-for="f in filteredFilieres" :key="f.id" :value="f.id">{{ f.nom }} ({{ f.code }})</option>
+                    </select>
+                    <div v-if="selectedFiliereObj" class="filiere-preview">
+                      <span>Insc. : <strong>{{ new Intl.NumberFormat('fr-FR').format(selectedFiliereObj.frais_inscription) }} F</strong></span>
+                      <span>Mens. : <strong>{{ new Intl.NumberFormat('fr-FR').format(selectedFiliereObj.mensualite) }} F</strong></span>
+                      <span v-if="selectedFiliereObj.duree_mois">Durée : <strong>{{ selectedFiliereObj.duree_mois }} mois</strong></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Niveau d'entrée <span class="req">*</span></label>
+                    <select v-model="inscriptionForm.niveau_entree_id" required>
+                      <option :value="null">— Sélectionner —</option>
+                      <option v-for="n in niveauxEntree" :key="n.id" :value="n.id">{{ n.nom }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Bourse</label>
+                    <select v-model="inscriptionForm.niveau_bourse_id">
+                      <option :value="null">— Aucune bourse —</option>
+                      <option v-for="b in niveauxBourse" :key="b.id" :value="b.id">{{ b.nom }} ({{ b.pourcentage }}%)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Frais de tenue (FCFA)</label>
+                    <input v-model.number="inscriptionForm.frais_tenue" type="number" min="0" placeholder="0" />
+                  </div>
+                  <div class="form-group"></div>
+                </div>
 
-                  <!-- Section étudiant -->
-                  <div class="form-section-label">Informations personnelles</div>
-                  <div class="form-row">
-                    <div class="form-group">
-                      <label>Prénom <span style="color:#E30613">*</span></label>
-                      <input v-model="studentForm.prenom" required type="text" />
-                    </div>
-                    <div class="form-group">
-                      <label>Nom <span style="color:#E30613">*</span></label>
-                      <input v-model="studentForm.nom" required type="text" />
-                    </div>
+                <!-- Bourse info -->
+                <div v-if="selectedBourse && selectedFiliereObj" class="bourse-info">
+                  <span>Mensualité après bourse : <strong>{{ formatAmount(mensualitePrevu) }}</strong></span>
+                  <span v-if="selectedBourse.applique_inscription"> — Frais insc. après bourse : <strong>{{ formatAmount(fraisInscriptionPrevu) }}</strong></span>
+                </div>
+
+                <!-- Résumé financier -->
+                <div v-if="selectedFiliereObj" class="fin-recap">
+                  <p class="fin-recap-title">Résumé financier</p>
+                  <div class="fin-row"><span>Frais d'inscription</span><span>{{ formatAmount(fraisInscriptionPrevu) }}</span></div>
+                  <div class="fin-row"><span>Mensualité</span><span>{{ formatAmount(mensualitePrevu) }}</span></div>
+                  <div v-if="inscriptionForm.frais_tenue > 0" class="fin-row"><span>Tenue</span><span>{{ formatAmount(inscriptionForm.frais_tenue) }}</span></div>
+                </div>
+              </template>
+
+              <!-- ══ EDIT ÉTUDIANT ══ -->
+              <template v-else-if="panelMode === 'edit-etudiant'">
+                <div class="form-section-label">Informations personnelles</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Prénom <span class="req">*</span></label>
+                    <input v-model="studentForm.prenom" required type="text" />
                   </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Email <span style="color:#E30613">*</span></label>
-                      <input v-model="studentForm.email" required type="email" />
-                    </div>
+                  <div class="form-group">
+                    <label>Nom <span class="req">*</span></label>
+                    <input v-model="studentForm.nom" required type="text" />
                   </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Téléphone</label>
-                      <input v-model="studentForm.telephone" type="tel" />
-                    </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Email <span class="req">*</span></label>
+                    <input v-model="studentForm.email" required type="email" />
                   </div>
-                  <div class="form-row">
-                    <div class="form-group">
-                      <label>Date de naissance</label>
-                      <input v-model="studentForm.date_naissance" type="date" />
-                    </div>
-                    <div class="form-group">
-                      <label>Lieu de naissance</label>
-                      <input v-model="studentForm.lieu_naissance" type="text" />
-                    </div>
+                  <div class="form-group">
+                    <label>Téléphone</label>
+                    <input v-model="studentForm.telephone" type="tel" />
                   </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Adresse</label>
-                      <textarea v-model="studentForm.adresse" rows="2" style="resize:none;"></textarea>
-                    </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Date de naissance</label>
+                    <input v-model="studentForm.date_naissance" type="date" />
                   </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>N° CNI</label>
-                      <input v-model="studentForm.cni_numero" type="text" />
-                    </div>
+                  <div class="form-group">
+                    <label>Lieu de naissance</label>
+                    <input v-model="studentForm.lieu_naissance" type="text" />
                   </div>
-                  <div class="form-row">
-                    <div class="form-group">
-                      <label>Nom du parent</label>
-                      <input v-model="studentForm.nom_parent" type="text" placeholder="Nom complet" />
-                    </div>
-                    <div class="form-group">
-                      <label>Tél. parent</label>
-                      <input v-model="studentForm.telephone_parent" type="tel" placeholder="+221 77..." />
+                </div>
+                <div class="form-row full">
+                  <div class="form-group">
+                    <label>Adresse</label>
+                    <textarea v-model="studentForm.adresse" rows="2" style="resize:none;"></textarea>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>N° CNI</label>
+                    <input v-model="studentForm.cni_numero" type="text" />
+                  </div>
+                  <div class="form-group"></div>
+                </div>
+                <div class="form-section-label" style="margin-top:4px;">Contact parent / tuteur</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Nom complet</label>
+                    <input v-model="studentForm.nom_parent" type="text" />
+                  </div>
+                  <div class="form-group">
+                    <label>Téléphone</label>
+                    <input v-model="studentForm.telephone_parent" type="tel" />
+                  </div>
+                </div>
+              </template>
+
+              <!-- ══ GÉRER INSCRIPTION ══ -->
+              <template v-else-if="panelMode === 'gerer-inscription'">
+                <div v-if="!currentInscription" style="padding:32px;text-align:center;color:#aaa;font-size:12px;">Chargement…</div>
+                <div v-else>
+                  <!-- Infos inscription — lecture -->
+                  <div v-if="!editingInscription" style="background:#f9f9f9;border-radius:4px;padding:14px;margin-bottom:16px;">
+                    <div class="info-row"><span class="info-label">Filière</span><span class="info-value">{{ currentInscription.filiere?.nom ?? '—' }}</span></div>
+                    <div class="info-row"><span class="info-label">Niveau d'entrée</span><span class="info-value">{{ currentInscription.niveau_entree?.nom ?? '—' }}</span></div>
+                    <div class="info-row"><span class="info-label">Bourse</span><span class="info-value">{{ currentInscription.niveau_bourse?.nom ?? 'Aucune' }}</span></div>
+                    <div class="info-row"><span class="info-label">Classe</span><span class="info-value">{{ currentInscription.classe?.nom ?? 'Pool' }}</span></div>
+                    <div class="info-row" style="border-top:1px solid #e5e5e5;padding-top:8px;margin-top:4px;"><span class="info-label">Frais inscription</span><span class="info-value">{{ formatAmount(currentInscription.frais_inscription) }}</span></div>
+                    <div class="info-row"><span class="info-label">Mensualité</span><span class="info-value">{{ formatAmount(currentInscription.mensualite) }}</span></div>
+                    <div v-if="currentInscription.frais_tenue > 0" class="info-row"><span class="info-label">Frais de tenue</span><span class="info-value">{{ formatAmount(currentInscription.frais_tenue) }}</span></div>
+                    <div v-if="canWrite" style="margin-top:10px;padding-top:10px;border-top:1px solid #e5e5e5;">
+                      <button @click="openEditInscription" class="btn-ghost" style="width:100%;">✏️ Modifier les paramètres d'inscription</button>
                     </div>
                   </div>
 
-                  <!-- Section inscription -->
-                  <div class="form-section-label" style="margin-top:8px;">Inscription</div>
-
-                  <!-- Statut -->
-                  <div class="form-row full" style="margin-bottom:12px;">
-                    <div style="display:flex;gap:10px;">
-                      <label class="radio-card" :class="{ active: inscriptionForm.statut === 'inscrit_actif' }">
-                        <input type="radio" v-model="inscriptionForm.statut" value="inscrit_actif" style="display:none;" />
-                        <div style="font-size:12px;font-weight:600;color:#111;">Inscrit actif</div>
-                        <div style="font-size:10.5px;color:#888;">Dossier validé</div>
-                      </label>
-                      <label class="radio-card" :class="{ active: inscriptionForm.statut === 'pre_inscrit', orange: true }">
-                        <input type="radio" v-model="inscriptionForm.statut" value="pre_inscrit" style="display:none;" />
-                        <div style="font-size:12px;font-weight:600;color:#111;">Pré-inscrit</div>
-                        <div style="font-size:10.5px;color:#888;">En attente</div>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Type de formation</label>
-                      <select v-model="selectedType" @change="onTypeChange">
-                        <option :value="null">— Tous les types —</option>
-                        <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }} ({{ t.code }})</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Filière <span style="color:#E30613">*</span></label>
-                      <select v-model="inscriptionForm.filiere_id" @change="onFiliereChange" required>
-                        <option :value="null">— Sélectionner une filière —</option>
-                        <option v-for="f in filteredFilieres" :key="f.id" :value="f.id">{{ f.nom }} ({{ f.code }})</option>
-                      </select>
-                      <div v-if="selectedFiliereObj" style="margin-top:6px;padding:8px 10px;background:#fff5f5;border-radius:4px;font-size:11px;color:#E30613;display:flex;gap:12px;">
-                        <span>Insc. : <strong>{{ new Intl.NumberFormat('fr-FR').format(selectedFiliereObj.frais_inscription) }} F</strong></span>
-                        <span>Mens. : <strong>{{ new Intl.NumberFormat('fr-FR').format(selectedFiliereObj.mensualite) }} F</strong></span>
-                        <span v-if="selectedFiliereObj.duree_mois">Durée : <strong>{{ selectedFiliereObj.duree_mois }} mois</strong></span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Niveau d'entrée <span style="color:#E30613">*</span></label>
-                      <select v-model="inscriptionForm.niveau_entree_id" required>
-                        <option :value="null">— Sélectionner un niveau —</option>
-                        <option v-for="n in niveauxEntree" :key="n.id" :value="n.id">{{ n.nom }} — {{ n.est_superieur_bac ? 'Crédits ECTS' : 'Coefficients' }}</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Bourse</label>
-                      <select v-model="inscriptionForm.niveau_bourse_id">
-                        <option :value="null">— Aucune bourse —</option>
-                        <option v-for="b in niveauxBourse" :key="b.id" :value="b.id">{{ b.nom }} ({{ b.pourcentage }}%)</option>
-                      </select>
-                      <div v-if="selectedBourse && selectedFiliereObj" style="margin-top:6px;padding:8px 10px;background:#f0fdf4;border-radius:4px;font-size:11px;color:#15803d;">
-                        <p>Mensualité après bourse : <strong>{{ formatAmount(mensualitePrevu) }}</strong></p>
-                        <p v-if="selectedBourse.applique_inscription">Frais inscription après bourse : <strong>{{ formatAmount(fraisInscriptionPrevu) }}</strong></p>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Année académique <span style="color:#E30613">*</span></label>
-                      <select v-model="inscriptionForm.annee_academique_id" required>
-                        <option v-for="a in annees" :key="a.id" :value="a.id">{{ a.libelle }}{{ a.actif ? ' (en cours)' : '' }}</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Frais de tenue (FCFA)</label>
-                      <input v-model.number="inscriptionForm.frais_tenue" type="number" min="0" placeholder="0" />
-                    </div>
-                  </div>
-
-                  <!-- Résumé financier -->
-                  <div v-if="selectedFiliereObj" style="background:#f9f9f9;border-radius:4px;padding:12px;margin-top:4px;margin-bottom:14px;">
-                    <p style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Résumé financier</p>
-                    <div class="fin-row"><span>Frais d'inscription</span><span>{{ formatAmount(fraisInscriptionPrevu) }}</span></div>
-                    <div class="fin-row"><span>Mensualité</span><span>{{ formatAmount(mensualitePrevu) }}</span></div>
-                    <div v-if="inscriptionForm.frais_tenue > 0" class="fin-row"><span>Tenue</span><span>{{ formatAmount(inscriptionForm.frais_tenue) }}</span></div>
-                  </div>
-                </form>
-
-                <!-- ── MODE EDIT ÉTUDIANT ────────────────────────── -->
-                <form v-else-if="panelMode === 'edit-etudiant'" id="panel-form" @submit.prevent="submitEditEtudiant">
-                  <div class="form-section-label">Informations personnelles</div>
-                  <div class="form-row">
-                    <div class="form-group">
-                      <label>Prénom <span style="color:#E30613">*</span></label>
-                      <input v-model="studentForm.prenom" required type="text" />
-                    </div>
-                    <div class="form-group">
-                      <label>Nom <span style="color:#E30613">*</span></label>
-                      <input v-model="studentForm.nom" required type="text" />
-                    </div>
-                  </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Email <span style="color:#E30613">*</span></label>
-                      <input v-model="studentForm.email" required type="email" />
-                    </div>
-                  </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Téléphone</label>
-                      <input v-model="studentForm.telephone" type="tel" />
-                    </div>
-                  </div>
-                  <div class="form-row">
-                    <div class="form-group">
-                      <label>Date de naissance</label>
-                      <input v-model="studentForm.date_naissance" type="date" />
-                    </div>
-                    <div class="form-group">
-                      <label>Lieu de naissance</label>
-                      <input v-model="studentForm.lieu_naissance" type="text" />
-                    </div>
-                  </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>Adresse</label>
-                      <textarea v-model="studentForm.adresse" rows="2" style="resize:none;"></textarea>
-                    </div>
-                  </div>
-                  <div class="form-row full">
-                    <div class="form-group">
-                      <label>N° CNI</label>
-                      <input v-model="studentForm.cni_numero" type="text" />
-                    </div>
-                  </div>
-                  <div class="form-row">
-                    <div class="form-group">
-                      <label>Nom du parent</label>
-                      <input v-model="studentForm.nom_parent" type="text" placeholder="Nom complet" />
-                    </div>
-                    <div class="form-group">
-                      <label>Tél. parent</label>
-                      <input v-model="studentForm.telephone_parent" type="tel" placeholder="+221 77..." />
-                    </div>
-                  </div>
-                </form>
-
-                <!-- ── MODE GÉRER INSCRIPTION ───────────────────── -->
-                <div v-else-if="panelMode === 'gerer-inscription'">
-                  <div v-if="!currentInscription" style="padding:32px;text-align:center;color:#aaa;font-size:12px;">Chargement…</div>
-                  <div v-else>
-
-                    <!-- Infos inscription — lecture -->
-                    <div v-if="!editingInscription" style="background:#f9f9f9;border-radius:4px;padding:14px;margin-bottom:16px;">
-                      <div class="info-row"><span class="info-label">Filière</span><span class="info-value">{{ currentInscription.filiere?.nom ?? '—' }}</span></div>
-                      <div class="info-row"><span class="info-label">Niveau d'entrée</span><span class="info-value">{{ currentInscription.niveau_entree?.nom ?? '—' }}</span></div>
-                      <div class="info-row"><span class="info-label">Bourse</span><span class="info-value">{{ currentInscription.niveau_bourse?.nom ?? 'Aucune' }}</span></div>
-                      <div class="info-row"><span class="info-label">Classe</span><span class="info-value">{{ currentInscription.classe?.nom ?? 'Pool' }}</span></div>
-                      <div class="info-row" style="border-top:1px solid #e5e5e5;padding-top:8px;margin-top:4px;"><span class="info-label">Frais inscription</span><span class="info-value">{{ formatAmount(currentInscription.frais_inscription) }}</span></div>
-                      <div class="info-row"><span class="info-label">Mensualité</span><span class="info-value">{{ formatAmount(currentInscription.mensualite) }}</span></div>
-                      <div v-if="currentInscription.frais_tenue > 0" class="info-row"><span class="info-label">Frais de tenue</span><span class="info-value">{{ formatAmount(currentInscription.frais_tenue) }}</span></div>
-                      <div v-if="canWrite" style="margin-top:10px;padding-top:10px;border-top:1px solid #e5e5e5;">
-                        <button @click="openEditInscription" style="width:100%;padding:9px;background:#fff;border:1.5px solid #e5e5e5;border-radius:4px;font-size:12px;font-weight:600;color:#555;cursor:pointer;font-family:'Poppins',sans-serif;transition:all 0.15s;"
-                          onmouseover="this.style.borderColor='#E30613';this.style.color='#E30613'"
-                          onmouseout="this.style.borderColor='#e5e5e5';this.style.color='#555'">
-                          ✏️ Modifier les paramètres d'inscription
-                        </button>
-                      </div>
-                    </div>
-
-                    <!-- Formulaire d'édition inscription -->
-                    <div v-else style="background:#fff5f5;border-radius:4px;padding:14px;margin-bottom:16px;border:1px solid #fecaca;">
-                      <p style="font-size:10.5px;font-weight:700;color:#E30613;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Modifier l'inscription</p>
-                      <div class="form-row full">
-                        <div class="form-group">
-                          <label>Type de formation</label>
-                          <select v-model="inscriptionEditType" @change="inscriptionEditForm.filiere_id = null">
-                            <option :value="null">— Tous les types —</option>
-                            <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }}</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div class="form-row full">
-                        <div class="form-group">
-                          <label>Filière <span style="color:#E30613">*</span></label>
-                          <select v-model="inscriptionEditForm.filiere_id">
-                            <option :value="null" disabled>— Choisir —</option>
-                            <option v-for="f in filteredFilieresForEdit" :key="f.id" :value="f.id">{{ f.nom }}</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div class="form-row full">
-                        <div class="form-group">
-                          <label>Niveau d'entrée <span style="color:#E30613">*</span></label>
-                          <select v-model="inscriptionEditForm.niveau_entree_id">
-                            <option :value="null" disabled>— Choisir —</option>
-                            <option v-for="n in niveauxEntree" :key="n.id" :value="n.id">{{ n.nom }}</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div class="form-row full">
-                        <div class="form-group">
-                          <label>Bourse</label>
-                          <select v-model="inscriptionEditForm.niveau_bourse_id">
-                            <option :value="null">Aucune bourse</option>
-                            <option v-for="b in niveauxBourse" :key="b.id" :value="b.id">{{ b.nom }}</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div class="form-row full">
-                        <div class="form-group">
-                          <label>Frais de tenue (FCFA)</label>
-                          <input v-model.number="inscriptionEditForm.frais_tenue" type="number" min="0" placeholder="0" />
-                        </div>
-                      </div>
-                      <div style="display:flex;gap:8px;margin-top:4px;">
-                        <button @click="editingInscription = false" class="btn-ghost" style="flex:1;">Annuler</button>
-                        <button @click="submitEditInscription" :disabled="savingInscription || !inscriptionEditForm.filiere_id || !inscriptionEditForm.niveau_entree_id"
-                          class="uc-btn-primary" style="flex:1;padding:10px;font-size:12.5px;opacity:1;"
-                          :style="{ opacity: (savingInscription || !inscriptionEditForm.filiere_id || !inscriptionEditForm.niveau_entree_id) ? '0.5' : '1' }">
-                          {{ savingInscription ? 'Enregistrement…' : 'Enregistrer' }}
-                        </button>
-                      </div>
-                    </div>
-
-                    <!-- Statut actuel -->
-                    <div style="margin-bottom:14px;">
-                      <p style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Statut actuel</p>
-                      <span class="uc-badge" :class="statutBadgeClass(currentInscription.statut)">
-                        <span class="badge-dot" :class="statutDotClass(currentInscription.statut)"></span>
-                        {{ statutLabel[currentInscription.statut] ?? currentInscription.statut }}
-                      </span>
-                      <span v-if="currentInscription.acces_bloque" style="margin-left:8px;font-size:11px;font-weight:600;color:#E30613;">🔒 Accès bloqué</span>
-                    </div>
-
-                    <!-- Actions selon statut -->
-                    <div v-if="canWrite" style="display:flex;flex-direction:column;gap:8px;">
-                      <!-- pre_inscrit → activer -->
-                      <template v-if="currentInscription.statut === 'pre_inscrit'">
-                        <button @click="changerStatut('inscrit_actif')" :disabled="updatingStatut" class="action-btn action-btn-green">
-                          {{ updatingStatut ? 'En cours…' : '✓ Activer l\'inscription' }}
-                        </button>
-                        <label class="action-btn action-btn-ghost" style="cursor:pointer;">
-                          {{ uploadingContrat ? 'Upload…' : '↑ Téléverser le contrat signé (PDF)' }}
-                          <input type="file" accept=".pdf" class="hidden" :disabled="uploadingContrat" @change="onUploadContrat" />
-                        </label>
-                      </template>
-
-                      <!-- en_examen → valider -->
-                      <button v-else-if="currentInscription.statut === 'en_examen'" @click="validerInscription" :disabled="updatingStatut" class="action-btn action-btn-green">
-                        {{ updatingStatut ? 'Validation…' : '✓ Valider le dossier' }}
-                      </button>
-
-                      <!-- inscrit_actif / suspendu / abandonne → changer statut -->
-                      <div v-else-if="['inscrit_actif', 'suspendu', 'abandonne'].includes(currentInscription.statut)" class="form-group">
-                        <label>Changer le statut</label>
-                        <select :value="currentInscription.statut" :disabled="updatingStatut"
-                          @change="changerStatut(($event.target as HTMLSelectElement).value)">
-                          <option value="inscrit_actif">Actif</option>
-                          <option value="suspendu">Suspendu</option>
-                          <option value="abandonne">Abandonné</option>
-                          <option value="diplome">Diplômé</option>
+                  <!-- Formulaire d'édition inscription -->
+                  <div v-else style="background:#fff5f5;border-radius:4px;padding:14px;margin-bottom:16px;border:1px solid #fecaca;">
+                    <p style="font-size:10.5px;font-weight:700;color:#E30613;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Modifier l'inscription</p>
+                    <div class="form-row full">
+                      <div class="form-group">
+                        <label>Type de formation</label>
+                        <select v-model="inscriptionEditType" @change="inscriptionEditForm.filiere_id = null">
+                          <option :value="null">— Tous les types —</option>
+                          <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }}</option>
                         </select>
                       </div>
                     </div>
+                    <div class="form-row full">
+                      <div class="form-group">
+                        <label>Filière <span class="req">*</span></label>
+                        <select v-model="inscriptionEditForm.filiere_id">
+                          <option :value="null" disabled>— Choisir —</option>
+                          <option v-for="f in filteredFilieresForEdit" :key="f.id" :value="f.id">{{ f.nom }}</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="form-row full">
+                      <div class="form-group">
+                        <label>Niveau d'entrée <span class="req">*</span></label>
+                        <select v-model="inscriptionEditForm.niveau_entree_id">
+                          <option :value="null" disabled>— Choisir —</option>
+                          <option v-for="n in niveauxEntree" :key="n.id" :value="n.id">{{ n.nom }}</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="form-row full">
+                      <div class="form-group">
+                        <label>Bourse</label>
+                        <select v-model="inscriptionEditForm.niveau_bourse_id">
+                          <option :value="null">Aucune bourse</option>
+                          <option v-for="b in niveauxBourse" :key="b.id" :value="b.id">{{ b.nom }}</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="form-row full">
+                      <div class="form-group">
+                        <label>Frais de tenue (FCFA)</label>
+                        <input v-model.number="inscriptionEditForm.frais_tenue" type="number" min="0" placeholder="0" />
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:4px;">
+                      <button @click="editingInscription = false" class="btn-ghost" style="flex:1;">Annuler</button>
+                      <button @click="submitEditInscription" :disabled="savingInscription || !inscriptionEditForm.filiere_id || !inscriptionEditForm.niveau_entree_id"
+                        class="uc-btn-primary" style="flex:1;padding:10px;font-size:12.5px;"
+                        :style="{ opacity: (savingInscription || !inscriptionEditForm.filiere_id || !inscriptionEditForm.niveau_entree_id) ? '0.5' : '1' }">
+                        {{ savingInscription ? 'Enregistrement…' : 'Enregistrer' }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Statut actuel -->
+                  <div style="margin-bottom:14px;">
+                    <p style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Statut actuel</p>
+                    <span class="uc-badge" :class="statutBadgeClass(currentInscription.statut)">
+                      <span class="badge-dot" :class="statutDotClass(currentInscription.statut)"></span>
+                      {{ statutLabel[currentInscription.statut] ?? currentInscription.statut }}
+                    </span>
+                    <span v-if="currentInscription.acces_bloque" style="margin-left:8px;font-size:11px;font-weight:600;color:#E30613;">🔒 Accès bloqué</span>
+                  </div>
+
+                  <!-- Actions selon statut -->
+                  <div v-if="canWrite" style="display:flex;flex-direction:column;gap:8px;">
+                    <template v-if="currentInscription.statut === 'pre_inscrit'">
+                      <button @click="changerStatut('inscrit_actif')" :disabled="updatingStatut" class="action-btn action-btn-green">
+                        {{ updatingStatut ? 'En cours…' : '✓ Activer l\'inscription' }}
+                      </button>
+                      <label class="action-btn action-btn-ghost" style="cursor:pointer;">
+                        {{ uploadingContrat ? 'Upload…' : '↑ Téléverser le contrat signé (PDF)' }}
+                        <input type="file" accept=".pdf" class="hidden" :disabled="uploadingContrat" @change="onUploadContrat" />
+                      </label>
+                    </template>
+                    <button v-else-if="currentInscription.statut === 'en_examen'" @click="validerInscription" :disabled="updatingStatut" class="action-btn action-btn-green">
+                      {{ updatingStatut ? 'Validation…' : '✓ Valider le dossier' }}
+                    </button>
+                    <div v-else-if="['inscrit_actif', 'suspendu', 'abandonne'].includes(currentInscription.statut)" class="form-group">
+                      <label>Changer le statut</label>
+                      <select :value="currentInscription.statut" :disabled="updatingStatut"
+                        @change="changerStatut(($event.target as HTMLSelectElement).value)">
+                        <option value="inscrit_actif">Actif</option>
+                        <option value="suspendu">Suspendu</option>
+                        <option value="abandonne">Abandonné</option>
+                        <option value="diplome">Diplômé</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
-              </div>
-
-              <!-- Footer Panel -->
-              <div style="padding:14px 22px;border-top:1px solid #f0f0f0;display:flex;gap:10px;justify-content:flex-end;background:#fff;position:sticky;bottom:0;">
-                <button @click="showPanel = false" class="btn-ghost">
-                  {{ panelMode === 'gerer-inscription' ? 'Fermer' : 'Annuler' }}
-                </button>
-                <button v-if="panelMode !== 'gerer-inscription'"
-                  type="submit" form="panel-form" :disabled="panelLoading"
-                  class="uc-btn-primary" style="padding:10px 20px;font-size:13px;"
-                  :style="{ opacity: panelLoading ? '0.6' : '1' }">
-                  {{ panelLoading ? 'Enregistrement…' : (panelMode === 'inscrire' ? 'Créer & Inscrire' : 'Enregistrer') }}
-                </button>
-              </div>
-
+              </template>
             </div>
-          </Transition>
+
+            <!-- ── Footer ── -->
+            <div class="insc-modal-footer">
+              <!-- Annuler / Fermer -->
+              <button @click="showPanel = false" class="btn-ghost">
+                {{ panelMode === 'gerer-inscription' ? 'Fermer' : 'Annuler' }}
+              </button>
+
+              <!-- Inscrire étape 1 → Suivant -->
+              <button v-if="panelMode === 'inscrire' && currentStep === 1" @click="goToStep2" class="uc-btn-primary insc-btn-next">
+                Suivant →
+              </button>
+
+              <!-- Inscrire étape 2 → Retour + Créer -->
+              <template v-if="panelMode === 'inscrire' && currentStep === 2">
+                <button @click="goToStep1" class="btn-ghost">← Retour</button>
+                <button @click="submitInscrire" :disabled="panelLoading || !inscriptionForm.filiere_id || !inscriptionForm.niveau_entree_id"
+                  class="uc-btn-primary"
+                  :style="{ opacity: (panelLoading || !inscriptionForm.filiere_id || !inscriptionForm.niveau_entree_id) ? '0.55' : '1' }">
+                  {{ panelLoading ? 'Création…' : 'Créer & Inscrire' }}
+                </button>
+              </template>
+
+              <!-- Edit étudiant → Enregistrer -->
+              <button v-if="panelMode === 'edit-etudiant'" @click="submitEditEtudiant" :disabled="panelLoading"
+                class="uc-btn-primary" :style="{ opacity: panelLoading ? '0.6' : '1' }">
+                {{ panelLoading ? 'Enregistrement…' : 'Enregistrer' }}
+              </button>
+            </div>
+
+          </div>
         </div>
       </Transition>
     </Teleport>
@@ -892,11 +918,124 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* Transitions panel */
-.overlay-enter-active, .overlay-leave-active { transition: opacity 0.2s; }
-.overlay-enter-from, .overlay-leave-to { opacity: 0; }
-.panel-enter-active, .panel-leave-active { transition: transform 0.25s ease; }
-.panel-enter-from, .panel-leave-to { transform: translateX(100%); }
+/* ── Modal transitions ── */
+.modal-fade-enter-active, .modal-fade-leave-active { transition: opacity 0.2s; }
+.modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
+.modal-fade-enter-active .insc-modal, .modal-fade-leave-active .insc-modal { transition: transform 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.2s; }
+.modal-fade-enter-from .insc-modal, .modal-fade-leave-to .insc-modal { transform: scale(0.96); opacity: 0; }
+
+/* ── Modal overlay / box ── */
+.insc-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.45);
+  padding: 16px;
+}
+.insc-modal {
+  background: #fff; border-radius: 10px;
+  width: 100%; max-width: 640px;
+  max-height: 90vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.22);
+  overflow: hidden;
+}
+
+/* ── Modal header ── */
+.insc-modal-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid #f0f0f0;
+  flex-shrink: 0;
+}
+.insc-modal-title {
+  font-size: 16px; font-weight: 700; color: #111; margin: 0 0 8px;
+}
+
+/* ── Step indicator ── */
+.insc-steps {
+  display: flex; align-items: center; gap: 8px; margin-top: 4px;
+}
+.insc-step {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 600; color: #bbb;
+}
+.insc-step-num {
+  width: 20px; height: 20px; border-radius: 50%; background: #e5e5e5; color: #888;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; flex-shrink: 0;
+}
+.insc-step--active { color: #E30613; }
+.insc-step--active .insc-step-num { background: #E30613; color: #fff; }
+.insc-step--done { color: #22c55e; }
+.insc-step--done .insc-step-num { background: #22c55e; color: #fff; }
+.insc-step-arrow { font-size: 12px; color: #ccc; }
+
+/* ── Modal body (scrollable) ── */
+.insc-modal-body {
+  flex: 1; overflow-y: auto;
+  padding: 20px 24px;
+}
+
+/* ── Modal footer ── */
+.insc-modal-footer {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  padding: 14px 24px;
+  border-top: 1px solid #f0f0f0;
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+/* ── Error banner ── */
+.insc-error {
+  margin-bottom: 14px; padding: 10px 14px;
+  background: #fff0f0; border-left: 3px solid #E30613;
+  border-radius: 4px; font-size: 12.5px; color: #b91c1c;
+}
+
+/* ── Radio cards (statut) ── */
+.form-row-radio {
+  display: flex; gap: 10px; margin-bottom: 16px;
+}
+
+/* ── Filière preview ── */
+.filiere-preview {
+  margin-top: 6px; padding: 8px 10px;
+  background: #fff5f5; border-radius: 4px;
+  font-size: 11px; color: #E30613;
+  display: flex; gap: 12px; flex-wrap: wrap;
+}
+
+/* ── Bourse info ── */
+.bourse-info {
+  margin-bottom: 12px; padding: 8px 10px;
+  background: #f0fdf4; border-radius: 4px;
+  font-size: 11px; color: #15803d;
+}
+
+/* ── Résumé financier ── */
+.fin-recap {
+  background: #f9f9f9; border-radius: 4px;
+  padding: 12px; margin-top: 8px; margin-bottom: 4px;
+}
+.fin-recap-title {
+  font-size: 10px; font-weight: 700; color: #888;
+  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;
+}
+
+/* ── req asterisk ── */
+.req { color: #E30613; }
+
+/* ── Next button ── */
+.insc-btn-next { min-width: 120px; justify-content: center; }
+
+@media (max-width: 640px) {
+  .insc-modal { max-height: 95vh; border-radius: 8px; }
+  .insc-modal-header { padding: 16px 16px 12px; }
+  .insc-modal-body { padding: 16px; }
+  .insc-modal-footer { padding: 12px 16px; flex-wrap: wrap; }
+  .insc-modal-footer > * { flex: 1; min-width: 0; }
+  .insc-btn-next { width: 100%; }
+}
 
 /* Search input */
 .uc-search-input {
