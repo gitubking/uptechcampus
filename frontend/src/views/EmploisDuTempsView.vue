@@ -801,4 +801,12 @@ onMounted(load)
 .uc-btn-primary { display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; background: #E30613; color: #fff; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; transition: background 0.15s; }
 .uc-btn-primary:hover { background: #c0050f; }
 .uc-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@media (max-width: 768px) {
+  /* Emplois du temps : grille hebdo → scroll horizontal */
+  .edt-grid-header { overflow-x: auto; min-width: 0; grid-template-columns: 48px repeat(5, minmax(90px, 1fr)); }
+  .edt-grid-body { overflow-x: auto; min-width: 0; grid-template-columns: 48px repeat(5, minmax(90px, 1fr)); }
+  .edt-form-grid { grid-template-columns: 1fr !important; }
+  .edt-card { overflow-x: auto; }
+}
 </style>

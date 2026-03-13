@@ -666,6 +666,61 @@ body {
   /* Trésorerie card */
   .uc-tres-card { padding: 16px; }
   .uc-tres-card > div:nth-child(2) { font-size: 24px !important; }
+
+  /* ════════════════════════════════════════════════════════════
+     OVERRIDE GLOBAL DES INLINE STYLES NON-RESPONSIVES
+     ════════════════════════════════════════════════════════════ */
+
+  /* ── Grilles de formulaire → 1 colonne sur mobile ── */
+  [style*="grid-template-columns:1fr 1fr"],
+  [style*="grid-template-columns: 1fr 1fr"],
+  [style*="grid-template-columns:1fr 1fr 1fr"],
+  [style*="grid-template-columns: 1fr 1fr 1fr"],
+  [style*="grid-template-columns:2fr 1fr"],
+  [style*="grid-template-columns: 2fr 1fr"],
+  [style*="grid-template-columns:1fr 2fr"],
+  [style*="grid-template-columns: 1fr 2fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ── En-têtes de page (titre + bouton) → empilement ── */
+  [style*="justify-content:space-between"][style*="margin-bottom"] {
+    flex-wrap: wrap !important;
+    row-gap: 10px;
+  }
+  [style*="justify-content:space-between"][style*="margin-bottom"] > .uc-btn-primary,
+  [style*="justify-content:space-between"][style*="margin-bottom"] > .uc-btn-dark,
+  [style*="justify-content:space-between"][style*="margin-bottom"] > button[style*="background:#E30613"],
+  [style*="justify-content:space-between"][style*="margin-bottom"] > button[style*="background: #E30613"] {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  /* ── Barres de filtres/toolbars → colonne verticale ── */
+  [style*="display:flex"][style*="gap:"][style*="align-items:center"][style*="margin-bottom:"],
+  [style*="display: flex"][style*="gap:"][style*="align-items:center"][style*="margin-bottom:"] {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  [style*="display:flex"][style*="gap:"][style*="align-items:center"][style*="margin-bottom:"] > div[style*="position:relative"],
+  [style*="display:flex"][style*="gap:"][style*="align-items:center"][style*="margin-bottom:"] > select,
+  [style*="display:flex"][style*="gap:"][style*="align-items:center"][style*="margin-bottom:"] > button {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
+  }
+
+  /* ── Boîtes modales fixes → responsive ── */
+  [style*="background:#fff"][style*="width:560px"],
+  [style*="background:#fff"][style*="width:680px"],
+  [style*="background:#fff"][style*="width:520px"],
+  [style*="background:#fff"][style*="width:600px"],
+  [style*="background: #fff"][style*="width: 560px"],
+  [style*="background: #fff"][style*="width: 680px"],
+  [style*="background:#fff"][style*="width:640px"] {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+  }
 }
 
 @media (min-width: 769px) and (max-width: 1024px) {

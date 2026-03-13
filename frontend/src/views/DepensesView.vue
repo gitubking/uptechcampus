@@ -615,4 +615,10 @@ onMounted(load)
 @media (max-width: 900px) {
   .dep-main-grid { grid-template-columns: 1fr; }
 }
+
+@media (max-width: 768px) {
+  .dep-modal { width: calc(100vw - 24px) !important; max-width: calc(100vw - 24px) !important; }
+  .dep-modal-sm { width: calc(100vw - 24px) !important; }
+  .dep-modal-body { overflow-y: auto; }
+}
 </style>

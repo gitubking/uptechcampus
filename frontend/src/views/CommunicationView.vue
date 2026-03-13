@@ -670,4 +670,13 @@ function toggleChip(arr: string[], val: string) {
 
 /* Empty */
 .cm-empty-text { text-align:center; font-size:13px; color:#aaa; padding:16px; }
+
+@media (max-width: 768px) {
+  /* Chat : colonne unique (liste conversations au-dessus du chat) */
+  .cm-body { flex-direction: column; overflow: auto; }
+  .cm-col-left { width: 100%; flex-shrink: 0; max-height: 280px; border-right: none; border-bottom: 1px solid #eee; }
+  .cm-conv-list { max-height: 200px; }
+  .cm-header { padding: 10px 14px; flex-wrap: wrap; gap: 8px; }
+  .cm-header-actions { width: 100%; justify-content: flex-end; }
+}
 </style>
