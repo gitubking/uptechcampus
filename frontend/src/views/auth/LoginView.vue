@@ -50,7 +50,7 @@ async function submit() {
             <img src="https://uptechformation.com/wp-content/uploads/2024/02/logo-blanc.png" alt="UPTECH Formation" />
           </div>
           <h1>UPTECH Campus</h1>
-          <p>Institut Supérieur de Formation<br>aux Métiers du Numérique</p>
+          <p>Institut Supérieur de Formation<br>aux Métiers de l'informatique et de la communication</p>
         </div>
 
         <div class="auth-sep"></div>
