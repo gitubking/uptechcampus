@@ -496,15 +496,35 @@ app.get('/etudiants', requireAuth, async (c) => {
   const offset = (page - 1) * perPage
   const searchParam = search ? `%${search}%` : null
   const whereClause = searchParam
-    ? `WHERE (nom ILIKE $1 OR prenom ILIKE $1 OR numero_etudiant ILIKE $1 OR email ILIKE $1)`
+    ? `WHERE (e.nom ILIKE $1 OR e.prenom ILIKE $1 OR e.numero_etudiant ILIKE $1 OR e.email ILIKE $1)`
     : ''
   const { rows: countRows } = await pool.query(
-    `SELECT COUNT(*)::int as total FROM etudiants ${whereClause}`,
+    `SELECT COUNT(*)::int as total FROM etudiants e ${whereClause}`,
     searchParam ? [searchParam] : []
   )
   const total = countRows[0].total
   const { rows } = await pool.query(
-    `SELECT * FROM etudiants ${whereClause} ORDER BY nom,prenom LIMIT $${searchParam ? 2 : 1} OFFSET $${searchParam ? 3 : 2}`,
+    `SELECT e.*,
+      (SELECT jsonb_build_object(
+        'id', ins.id, 'statut', ins.statut, 'acces_bloque', ins.acces_bloque,
+        'frais_inscription', ins.frais_inscription, 'mensualite', ins.mensualite,
+        'frais_tenue', ins.frais_tenue, 'contrat_path', ins.contrat_path,
+        'filiere', CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code) ELSE NULL END,
+        'classe', CASE WHEN cl.id IS NOT NULL THEN jsonb_build_object('id',cl.id,'nom',cl.nom) ELSE NULL END,
+        'niveau_entree', CASE WHEN ne.id IS NOT NULL THEN jsonb_build_object('id',ne.id,'nom',ne.nom) ELSE NULL END,
+        'niveau_bourse', CASE WHEN nb.id IS NOT NULL THEN jsonb_build_object('id',nb.id,'nom',nb.nom,'pourcentage',nb.pourcentage) ELSE NULL END
+      )
+      FROM inscriptions ins
+      LEFT JOIN filieres f ON ins.filiere_id = f.id
+      LEFT JOIN classes cl ON ins.classe_id = cl.id
+      LEFT JOIN niveaux_entree ne ON ins.niveau_entree_id = ne.id
+      LEFT JOIN niveaux_bourse nb ON ins.niveau_bourse_id = nb.id
+      WHERE ins.etudiant_id = e.id AND ins.statut = 'inscrit_actif'
+      ORDER BY ins.created_at DESC LIMIT 1
+      ) as inscription_active
+    FROM etudiants e
+    ${whereClause} ORDER BY e.nom,e.prenom
+    LIMIT $${searchParam ? 2 : 1} OFFSET $${searchParam ? 3 : 2}`,
     searchParam ? [searchParam, perPage, offset] : [perPage, offset]
   )
   const lastPage = Math.max(1, Math.ceil(total / perPage))
@@ -549,17 +569,29 @@ app.post('/etudiants/:id/photo', requireAuth, role('secretariat', 'dg'), async (
 
 // ─── INSCRIPTIONS ─────────────────────────────────────────────────────────────
 app.get('/inscriptions', requireAuth, async (c) => {
+  const classeId = c.req.query('classe_id')
+  const statut = c.req.query('statut')
+  const etudiantId = c.req.query('etudiant_id')
+  const conditions: string[] = []
+  const params: any[] = []
+  if (classeId) { params.push(classeId); conditions.push(`i.classe_id = $${params.length}`) }
+  if (statut) { params.push(statut); conditions.push(`i.statut = $${params.length}`) }
+  if (etudiantId) { params.push(etudiantId); conditions.push(`i.etudiant_id = $${params.length}`) }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const { rows } = await pool.query(`
     SELECT i.*,
       jsonb_build_object('id',e.id,'nom',e.nom,'prenom',e.prenom,'email',e.email,'numero_etudiant',e.numero_etudiant) as etudiant,
       CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom) ELSE NULL END as classe,
-      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom) ELSE NULL END as filiere
+      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom) ELSE NULL END as filiere,
+      CASE WHEN p.id IS NOT NULL THEN jsonb_build_object('id',p.id,'nom',p.nom) ELSE NULL END as parcours
     FROM inscriptions i
     LEFT JOIN etudiants e ON i.etudiant_id = e.id
     LEFT JOIN classes c ON i.classe_id = c.id
     LEFT JOIN filieres f ON i.filiere_id = f.id
-    ORDER BY i.created_at DESC
-  `)
+    LEFT JOIN parcours p ON i.parcours_id = p.id
+    ${where}
+    ORDER BY e.nom,e.prenom
+  `, params)
   return c.json(rows)
 })
 
@@ -632,13 +664,35 @@ app.delete('/documents/:id', requireAuth, role('secretariat', 'dg'), async (c) =
 
 // ─── INTERVENANTS ─────────────────────────────────────────────────────────────
 app.get('/intervenants', requireAuth, async (c) => {
+  const search = c.req.query('search') || ''
+  const statut = c.req.query('statut') || ''
+  const page = Math.max(1, parseInt(c.req.query('page') || '1'))
+  const perPage = 20
+  const offset = (page - 1) * perPage
+  const conditions: string[] = []
+  const params: any[] = []
+  if (search) { params.push(`%${search}%`); conditions.push(`(i.nom ILIKE $${params.length} OR i.prenom ILIKE $${params.length} OR i.email ILIKE $${params.length} OR i.numero_contrat ILIKE $${params.length})`) }
+  if (statut) { params.push(statut); conditions.push(`i.statut = $${params.length}`) }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const { rows: countRows } = await pool.query(`SELECT COUNT(*)::int as total FROM intervenants i ${where}`, params)
+  const total = countRows[0].total
+  params.push(perPage); const p1 = params.length
+  params.push(offset); const p2 = params.length
   const { rows } = await pool.query(`
-    SELECT i.*, aa.libelle as annee_academique_libelle
+    SELECT i.*,
+      jsonb_build_object('id',aa.id,'libelle',aa.libelle,'actif',aa.actif) as annee_academique,
+      COALESCE((
+        SELECT json_agg(jsonb_build_object('filiere_id',iv.filiere_id,'matiere',iv.matiere,'filiere',
+          jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code)))
+        FROM intervenant_filieres iv LEFT JOIN filieres f ON iv.filiere_id = f.id
+        WHERE iv.intervenant_id = i.id
+      ), '[]'::json) as filieres
     FROM intervenants i
     LEFT JOIN annees_academiques aa ON i.annee_academique_id = aa.id
-    ORDER BY i.nom,i.prenom
-  `)
-  return c.json(rows)
+    ${where} ORDER BY i.nom,i.prenom LIMIT $${p1} OFFSET $${p2}
+  `, params)
+  const lastPage = Math.max(1, Math.ceil(total / perPage))
+  return c.json({ data: rows, current_page: page, last_page: lastPage, per_page: perPage, total })
 })
 
 app.get('/intervenants/:id', requireAuth, async (c) => {
@@ -649,25 +703,65 @@ app.get('/intervenants/:id', requireAuth, async (c) => {
 
 app.post('/intervenants', requireAuth, role('dg', 'secretariat'), async (c) => {
   const b = await c.req.json()
-  if (!b.user_id) return c.json({ message: 'user_id requis.' }, 422)
   if (!b.annee_academique_id) return c.json({ message: 'annee_academique_id requis.' }, 422)
+  // Auto-create user account if user_id not provided
+  let userId = b.user_id
+  if (!userId && b.email) {
+    const bcrypt = await import('bcryptjs')
+    const hash = await bcrypt.hash('Uptech@2026', 10)
+    const existingUser = await pool.query('SELECT id FROM users WHERE email=$1', [b.email])
+    if (existingUser.rows[0]) {
+      userId = existingUser.rows[0].id
+    } else {
+      const newUser = await pool.query(
+        `INSERT INTO users (nom,prenom,email,telephone,role,statut,password) VALUES ($1,$2,$3,$4,'intervenant','actif',$5) RETURNING id`,
+        [b.nom, b.prenom, b.email, b.telephone || null, hash]
+      )
+      userId = newUser.rows[0].id
+    }
+  }
   const seq = await nextSeq('intervenants')
   const numero = `CONT-${year()}-${pad(seq)}`
   const { rows } = await pool.query(
     `INSERT INTO intervenants (user_id,numero_contrat,nom,prenom,email,telephone,statut,annee_academique_id,created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-    [b.user_id, numero, b.nom, b.prenom, b.email || null, b.telephone || null,
+    [userId || null, numero, b.nom, b.prenom, b.email || null, b.telephone || null,
      b.statut || 'en_attente', b.annee_academique_id, u(c).id]
   )
-  return c.json(rows[0], 201)
+  const intervenant = rows[0]
+  // Save filières
+  if (b.filieres?.length) {
+    await pool.query('DELETE FROM intervenant_filieres WHERE intervenant_id=$1', [intervenant.id])
+    for (const f of b.filieres) {
+      if (f.filiere_id && f.matiere) {
+        await pool.query(
+          'INSERT INTO intervenant_filieres (intervenant_id,filiere_id,matiere) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
+          [intervenant.id, f.filiere_id, f.matiere]
+        )
+      }
+    }
+  }
+  return c.json(intervenant, 201)
 })
 
 app.put('/intervenants/:id', requireAuth, role('dg', 'secretariat'), async (c) => {
   const b = await c.req.json()
+  const id = c.req.param('id')
   const { rows } = await pool.query(
     'UPDATE intervenants SET nom=$1,prenom=$2,email=$3,telephone=$4,statut=$5 WHERE id=$6 RETURNING *',
-    [b.nom, b.prenom, b.email || null, b.telephone || null, b.statut || 'actif', c.req.param('id')]
+    [b.nom, b.prenom, b.email || null, b.telephone || null, b.statut || 'actif', id]
   )
+  if (b.filieres !== undefined) {
+    await pool.query('DELETE FROM intervenant_filieres WHERE intervenant_id=$1', [id])
+    for (const f of (b.filieres || [])) {
+      if (f.filiere_id && f.matiere) {
+        await pool.query(
+          'INSERT INTO intervenant_filieres (intervenant_id,filiere_id,matiere) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
+          [id, f.filiere_id, f.matiere]
+        )
+      }
+    }
+  }
   return c.json(rows[0])
 })
 
@@ -918,26 +1012,117 @@ app.delete('/ues/:id', requireAuth, role('dg', 'dir_peda', 'coordinateur'), asyn
 
 // ─── NOTES ────────────────────────────────────────────────────────────────────
 app.get('/notes', requireAuth, async (c) => {
-  const { rows } = await pool.query(`
-    SELECT n.*,
-      jsonb_build_object('id',ue.id,'code',ue.code,'intitule',ue.intitule) as ue,
+  const classeId = c.req.query('classe_id')
+  const session = c.req.query('session') || 'normale'
+  if (!classeId) return c.json({ ues: [], inscriptions: [], notes: [] })
+
+  // UEs for this class
+  const { rows: ues } = await pool.query(`
+    SELECT ue.*,
+      CASE WHEN i.id IS NOT NULL THEN jsonb_build_object('id',i.id,'nom',i.nom,'prenom',i.prenom) ELSE NULL END as intervenant
+    FROM unites_enseignement ue
+    LEFT JOIN intervenants i ON ue.intervenant_id = i.id
+    WHERE ue.classe_id = $1
+    ORDER BY ue.ordre, ue.code
+  `, [classeId])
+
+  // Inscriptions actives in this class
+  const { rows: inscriptions } = await pool.query(`
+    SELECT ins.*,
       jsonb_build_object('id',e.id,'nom',e.nom,'prenom',e.prenom) as etudiant
-    FROM notes n
-    LEFT JOIN unites_enseignement ue ON n.ue_id = ue.id
-    LEFT JOIN inscriptions i ON n.inscription_id = i.id
-    LEFT JOIN etudiants e ON i.etudiant_id = e.id
-    ORDER BY n.created_at DESC
-  `)
-  return c.json(rows)
+    FROM inscriptions ins
+    LEFT JOIN etudiants e ON ins.etudiant_id = e.id
+    WHERE ins.classe_id = $1 AND ins.statut = 'inscrit_actif'
+    ORDER BY e.nom, e.prenom
+  `, [classeId])
+
+  // Notes for these inscriptions and session
+  const inscriptionIds = inscriptions.map((i: any) => i.id)
+  let notes: any[] = []
+  if (inscriptionIds.length && ues.length) {
+    const { rows } = await pool.query(
+      `SELECT * FROM notes WHERE inscription_id = ANY($1) AND session = $2`,
+      [inscriptionIds, session]
+    )
+    notes = rows
+  }
+
+  return c.json({ ues, inscriptions, notes })
 })
 
 app.get('/notes/bulletin/:inscription_id', requireAuth, async (c) => {
-  const { rows } = await pool.query(`
-    SELECT n.*, jsonb_build_object('id',ue.id,'code',ue.code,'intitule',ue.intitule,'coefficient',ue.coefficient,'credits_ects',ue.credits_ects) as ue
-    FROM notes n LEFT JOIN unites_enseignement ue ON n.ue_id = ue.id
-    WHERE n.inscription_id=$1
-  `, [c.req.param('inscription_id')])
-  return c.json(rows)
+  const inscriptionId = c.req.param('inscription_id')
+  // Get inscription with student + class + filiere + annee info
+  const { rows: inscRows } = await pool.query(`
+    SELECT ins.*,
+      jsonb_build_object('id',e.id,'nom',e.nom,'prenom',e.prenom,'numero_etudiant',e.numero_etudiant) as etudiant,
+      CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom,'filiere',
+        CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom) ELSE NULL END
+      ) ELSE NULL END as classe,
+      CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique
+    FROM inscriptions ins
+    LEFT JOIN etudiants e ON ins.etudiant_id = e.id
+    LEFT JOIN classes c ON ins.classe_id = c.id
+    LEFT JOIN filieres f ON ins.filiere_id = f.id
+    LEFT JOIN annees_academiques aa ON ins.annee_academique_id = aa.id
+    WHERE ins.id = $1
+  `, [inscriptionId])
+  if (!inscRows[0]) return c.json({ message: 'Inscription introuvable.' }, 404)
+
+  // UEs for this class
+  const classeId = inscRows[0].classe_id
+  const { rows: ues } = await pool.query(
+    `SELECT * FROM unites_enseignement WHERE classe_id = $1 ORDER BY ordre, code`,
+    [classeId]
+  )
+
+  // Notes for this inscription (session normale only for bulletin)
+  const { rows: notesRows } = await pool.query(
+    `SELECT * FROM notes WHERE inscription_id = $1 AND session = 'normale'`,
+    [inscriptionId]
+  )
+  const noteMap: Record<number, number> = {}
+  notesRows.forEach((n: any) => { noteMap[n.ue_id] = parseFloat(n.note) })
+
+  // Compute bulletin
+  let totalPts = 0, totalCoef = 0, creditsValides = 0, creditsTotal = 0
+  const uesBulletin = ues.map((ue: any) => {
+    const note = noteMap[ue.id] ?? null
+    const coef = parseFloat(ue.coefficient) || 1
+    const credits = parseInt(ue.credits_ects) || 0
+    creditsTotal += credits
+    let points = null
+    if (note !== null) {
+      points = Math.round(note * coef * 100) / 100
+      totalPts += note * coef
+      totalCoef += coef
+      if (note >= 10) creditsValides += credits
+    }
+    return { ...ue, note, points, valide: note !== null && note >= 10 }
+  })
+
+  const moyenne = totalCoef > 0 ? Math.round(totalPts / totalCoef * 100) / 100 : null
+  let mention: string | null = null
+  let decision = 'en_attente'
+  if (moyenne !== null) {
+    if (moyenne >= 16) mention = 'Très Bien'
+    else if (moyenne >= 14) mention = 'Bien'
+    else if (moyenne >= 12) mention = 'Assez Bien'
+    else if (moyenne >= 10) mention = 'Passable'
+    if (moyenne >= 10) decision = 'admis'
+    else if (moyenne >= 8) decision = 'rattrapage'
+    else decision = 'redoublant'
+  }
+
+  return c.json({
+    inscription: inscRows[0],
+    ues: uesBulletin,
+    moyenne,
+    mention,
+    decision,
+    credits_valides: creditsValides,
+    credits_total: creditsTotal,
+  })
 })
 
 app.post('/notes/batch', requireAuth, role('dg', 'dir_peda', 'coordinateur'), async (c) => {
