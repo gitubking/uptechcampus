@@ -843,4 +843,12 @@ onMounted(load)
 .ue-form-group { display:flex; flex-direction:column; gap:4px; }
 .ue-full { grid-column:1 / -1; }
 .ue-badge-vol { background:#ecfdf5; color:#059669; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; }
+
+@media (max-width: 768px) {
+  .cl-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .cl-table { min-width: 520px; }
+  .ue-form-grid { grid-template-columns: 1fr !important; }
+  .cl-modal-lg { max-height: 95vh; }
+  .cl-tabs { overflow-x: auto; padding: 0 12px; }
+}
 </style>

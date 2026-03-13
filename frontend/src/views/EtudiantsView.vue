@@ -1089,4 +1089,12 @@ onMounted(() => {
   font-size: 13px; font-weight: 600; color: #555; cursor: pointer; transition: all 0.15s;
 }
 .btn-ghost:hover { border-color: #111; color: #111; }
+
+@media (max-width: 768px) {
+  .uc-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .uc-table { min-width: 520px; }
+  .form-row { grid-template-columns: 1fr; }
+  .uc-pagination { flex-direction: column; gap: 8px; align-items: flex-start; }
+  .row-actions { opacity: 1; }
+}
 </style>

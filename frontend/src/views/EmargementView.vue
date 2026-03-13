@@ -347,4 +347,12 @@ onMounted(load)
 .em-btn-save { width:100%; padding:11px; background:#E30613; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:600; cursor:pointer; font-family:'Poppins',sans-serif; }
 .em-btn-save:hover { background:#c00; }
 .em-btn-save:disabled { opacity:0.5; cursor:not-allowed; }
+
+@media (max-width: 768px) {
+  .em-grid { grid-template-columns: 1fr !important; }
+  .em-compteurs { grid-template-columns: repeat(2, 1fr) !important; }
+  .em-compteur:nth-child(2) { border-right: none; }
+  .em-students-list { max-height: none; }
+  .em-seances-list { max-height: 260px; }
+}
 </style>

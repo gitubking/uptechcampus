@@ -554,4 +554,11 @@ onMounted(load)
 .nb-btn-cancel { flex:1; border:1.5px solid #e5e5e5; background:#fff; color:#555; border-radius:4px; padding:9px; font-size:13px; font-weight:600; cursor:pointer; font-family:'Poppins',sans-serif; }
 .nb-btn-save { flex:1; background:#E30613; color:#fff; border:none; border-radius:4px; padding:9px; font-size:13px; font-weight:600; cursor:pointer; font-family:'Poppins',sans-serif; }
 .nb-btn-save:disabled { opacity:0.5; }
+
+@media (max-width: 768px) {
+  .nb-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .nb-table { min-width: 480px; }
+  .nb-table-toolbar { flex-wrap: wrap; gap: 8px; }
+  .nb-tabs { overflow-x: auto; }
+}
 </style>

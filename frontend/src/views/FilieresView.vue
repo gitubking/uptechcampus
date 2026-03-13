@@ -305,7 +305,7 @@ onMounted(load)
           <div style="padding:18px 22px;overflow-y:auto;max-height:calc(88vh - 130px);">
             <div v-if="error" style="background:#fff0f0;border:1px solid #fecaca;border-radius:4px;padding:10px 14px;font-size:12px;color:#b91c1c;margin-bottom:14px;font-family:'Poppins',sans-serif;">{{ error }}</div>
             <form @submit.prevent="save" style="display:flex;flex-direction:column;gap:14px;">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="fl-form-grid-2">
                 <div class="fl-form-group">
                   <label>Nom <span style="color:#E30613;">*</span></label>
                   <input v-model="form.nom" required placeholder="Ex: Informatique" />
@@ -326,7 +326,7 @@ onMounted(load)
                   <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }} ({{ t.code }})</option>
                 </select>
               </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+              <div class="fl-form-grid-3">
                 <div class="fl-form-group">
                   <label>Frais inscription (F) <span style="color:#E30613;">*</span></label>
                   <input v-model.number="form.frais_inscription" type="number" min="0" step="500" required />
@@ -735,5 +735,13 @@ onMounted(load)
 .fl-btn-save:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.fl-form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fl-form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+@media (max-width: 768px) {
+  .fl-form-grid-2 { grid-template-columns: 1fr; }
+  .fl-form-grid-3 { grid-template-columns: 1fr; }
 }
 </style>

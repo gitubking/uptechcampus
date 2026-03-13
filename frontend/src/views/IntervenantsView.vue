@@ -449,4 +449,9 @@ onMounted(async () => {
 .uc-iv-search::placeholder { color: #ccc; }
 .uc-iv-select { border:1.5px solid #e5e5e5;border-radius:4px;padding:9px 12px;font-family:'Poppins',sans-serif;font-size:12px;color:#444;background:#fff;outline:none;cursor:pointer;transition:border-color 0.2s; }
 .uc-iv-select:focus { border-color: #E30613; }
+
+@media (max-width: 768px) {
+  .uc-modal-iv { width: calc(100vw - 24px) !important; }
+  .uc-table-wrap-iv { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
 </style>

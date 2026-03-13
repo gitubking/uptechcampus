@@ -234,7 +234,7 @@ onMounted(load)
     </div>
 
     <!-- Layout 2 colonnes -->
-    <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;">
+    <div class="dep-main-grid">
 
       <!-- Journal des dépenses -->
       <div class="dep-table-wrap">
@@ -606,4 +606,13 @@ onMounted(load)
   cursor: pointer;
 }
 .dep-btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.dep-main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px; }
+
+@media (max-width: 768px) {
+  .dep-main-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  .dep-main-grid { grid-template-columns: 1fr; }
+}
 </style>

@@ -516,6 +516,47 @@ body {
   margin-bottom: 16px;
 }
 
+/* ── Page header ─────────────────────────────────────────────── */
+.uc-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Toolbar / filter bar ─────────────────────────────────────── */
+.uc-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ── Generic modal overlay ────────────────────────────────────── */
+.uc-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 12px;
+}
+
+.uc-modal-box {
+  background: #fff;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
 /* ── Dashboard grilles responsives ───────────────────────────── */
 .uc-dash-bottom-grid {
   display: grid;
@@ -586,6 +627,29 @@ body {
   .uc-kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .uc-kpi-card { padding: 14px 14px; }
   .uc-kpi-value { font-size: 20px; }
+
+  /* Page headers : bouton passe en pleine largeur */
+  .uc-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .uc-page-header > button,
+  .uc-page-header .uc-btn,
+  .uc-page-header .uc-btn-primary,
+  .uc-page-header .uc-btn-dark {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Toolbar : vertical */
+  .uc-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .uc-toolbar select,
+  .uc-toolbar input {
+    width: 100%;
+  }
 
   /* Dashboard grille du bas : 1 colonne */
   .uc-dash-bottom-grid {
