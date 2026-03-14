@@ -435,6 +435,7 @@ function printFiche(etd: any, insc: any, anneeLabel?: string) {
   const annee = anneeLabel ?? insc?.annee_academique?.libelle ?? '—'
   const sLabel = (statutLabel as Record<string, string>)[insc?.statut] ?? insc?.statut ?? '—'
   const logoUrl = `${window.location.origin}/icons/icon-192.png`
+  const dots = '◦ '.repeat(80)
 
   const html = `<!DOCTYPE html>
 <html lang="fr"><head>
@@ -442,101 +443,126 @@ function printFiche(etd: any, insc: any, anneeLabel?: string) {
 <title>Fiche d'inscription — ${etd.prenom} ${etd.nom}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padding:32px}
-@page{size:A4;margin:20mm 15mm}
-@media print{body{padding:0}}
-.hdr{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #E30613;padding-bottom:16px;margin-bottom:20px}
-.hdr-left{display:flex;align-items:center;gap:14px}
-.hdr-left img{width:58px;height:58px;object-fit:contain}
-.hdr-school h1{font-size:22px;font-weight:900;color:#E30613;letter-spacing:2px}
-.hdr-school p{font-size:9.5px;color:#555;max-width:270px;line-height:1.5;margin-top:3px}
-.hdr-right{text-align:right}
-.hdr-right h2{font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:1px}
-.hdr-right .annee{font-size:11px;color:#E30613;font-weight:600;margin-top:3px}
-.hdr-right .num{font-size:10px;color:#aaa;margin-top:2px}
-.hdr-right .badge{display:inline-block;margin-top:6px;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;background:#dcfce7;color:#166534}
-.sec{margin-bottom:18px}
-.sec-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#E30613;border-left:3px solid #E30613;padding-left:8px;margin-bottom:10px}
+body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:20mm 15mm}
+@page{size:A4 portrait;margin:0}
+@media print{body{padding:20mm 15mm}}
+
+/* ── En-tête ── */
+.hdr{display:flex;align-items:center;gap:16px;margin-bottom:6px}
+.hdr img{width:72px;height:72px;object-fit:contain;flex-shrink:0}
+.hdr-info{flex:1;text-align:center}
+.hdr-info h1{font-size:28px;font-weight:900;color:#E30613;letter-spacing:3px;margin-bottom:2px}
+.hdr-info .tagline{font-size:10px;font-weight:700;color:#111;margin-bottom:3px}
+.hdr-info .meta{font-size:9px;color:#333;line-height:1.6}
+.hdr-info .agree{font-size:8.5px;color:#333;font-weight:700;text-decoration:underline}
+.dots{font-size:8px;color:#E30613;letter-spacing:1px;overflow:hidden;white-space:nowrap;margin:8px 0 16px;opacity:.7}
+
+/* ── Titre fiche ── */
+.fiche-title{text-align:center;margin-bottom:18px}
+.fiche-title h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:2px;border:2px solid #111;display:inline-block;padding:6px 24px}
+.fiche-title .meta-row{font-size:10px;color:#555;margin-top:6px;display:flex;justify-content:center;gap:24px}
+.fiche-title .badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:10px;font-weight:700;background:#dcfce7;color:#166534;border:1px solid #bbf7d0}
+
+/* ── Sections ── */
+.sec{margin-bottom:14px}
+.sec-title{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#fff;background:#E30613;padding:4px 10px;margin-bottom:0}
 table{width:100%;border-collapse:collapse}
-td{padding:6px 10px;border:1px solid #e5e5e5;vertical-align:top}
-td:first-child{font-weight:600;color:#555;width:35%;background:#fafafa}
-.fin-tbl td{text-align:right}
-.fin-tbl td:first-child{text-align:left}
-.sign-row{display:flex;gap:20px;margin-top:32px}
-.sign-box{flex:1;border:1px solid #e5e5e5;border-radius:6px;padding:16px}
-.sign-box h4{font-size:10px;font-weight:700;text-transform:uppercase;color:#555;margin-bottom:56px}
-.sign-box .sign-line{border-top:1px solid #ccc;padding-top:5px;font-size:10px;color:#aaa;text-align:center}
-.mention{margin-top:18px;font-size:9px;color:#aaa;border-top:1px solid #f0f0f0;padding-top:8px;text-align:center}
-.footer-bar{margin-top:24px;background:#111;color:#fff;padding:9px 16px;font-size:9.5px;text-align:center;border-radius:4px}
+td{padding:5px 9px;border:1px solid #ccc;vertical-align:middle;font-size:11px}
+td.lbl{font-weight:700;color:#444;width:32%;background:#f5f5f5;white-space:nowrap}
+td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowrap}
+
+/* ── Financier ── */
+.fin-wrap{display:flex;gap:16px}
+.fin-wrap table{flex:1}
+.fin-tbl td:last-child{text-align:right;font-weight:600}
+
+/* ── Signatures ── */
+.sign-row{display:flex;gap:16px;margin-top:24px}
+.sign-box{flex:1;border:1px solid #ccc;padding:12px 14px;min-height:90px}
+.sign-box h4{font-size:9.5px;font-weight:700;text-transform:uppercase;color:#555;margin-bottom:50px;border-bottom:1px dashed #ddd;padding-bottom:6px}
+.sign-box .sign-line{border-top:1px solid #bbb;padding-top:4px;font-size:9px;color:#aaa;text-align:center}
+
+/* ── Pied de page ── */
+.mention{margin-top:16px;font-size:8.5px;color:#777;text-align:center;font-style:italic}
+.footer-bar{margin-top:10px;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
 </style>
 </head><body>
+
+<!-- En-tête UPTECH -->
 <div class="hdr">
-  <div class="hdr-left">
-    <img src="${logoUrl}" alt="UPTECH"/>
-    <div class="hdr-school">
-      <h1>UP'TECH</h1>
-      <p>Institut Supérieur de Formation aux Nouveaux Métiers de l'Informatique et de la Communication</p>
-    </div>
+  <img src="${logoUrl}" alt="UP'TECH"/>
+  <div class="hdr-info">
+    <h1>UP'TECH</h1>
+    <div class="tagline">Institut Supérieur de Formation aux Nouveaux Métiers de l'Informatique et de la Communication</div>
+    <div class="meta">NINEA 006118310 &nbsp;_&nbsp; BP 50281 RP DAKAR</div>
+    <div class="agree">Agréé par l'État&nbsp;: N°RepSEN/Ensup-priv/AP/387-2021_N°14191/MFPAA/SG/DFPT</div>
   </div>
-  <div class="hdr-right">
-    <h2>Fiche d'Inscription</h2>
-    <div class="annee">${annee}</div>
-    ${etd.numero_etudiant ? `<div class="num">N° ${etd.numero_etudiant}</div>` : ''}
-    <span class="badge">${sLabel}</span>
+</div>
+<div class="dots">${dots}</div>
+
+<!-- Titre -->
+<div class="fiche-title">
+  <h2>Fiche d'Inscription</h2>
+  <div class="meta-row">
+    <span>Année académique&nbsp;: <strong>${annee}</strong></span>
+    ${etd.numero_etudiant ? `<span>N° Étudiant&nbsp;: <strong>${etd.numero_etudiant}</strong></span>` : ''}
+    <span>Statut&nbsp;: <span class="badge">${sLabel}</span></span>
+    <span>Imprimé le&nbsp;: <strong>${new Date().toLocaleDateString('fr-FR')}</strong></span>
   </div>
 </div>
 
+<!-- Identité -->
 <div class="sec">
-  <div class="sec-title">Identité de l'étudiant</div>
+  <div class="sec-title">Identité de l'étudiant(e)</div>
   <table>
-    <tr><td>Prénom</td><td>${val(etd.prenom)}</td><td style="font-weight:600;color:#555;background:#fafafa;width:35%">Nom</td><td>${val(etd.nom)}</td></tr>
-    <tr><td>Date de naissance</td><td>${fmtDate(etd.date_naissance)}</td><td style="font-weight:600;color:#555;background:#fafafa">Lieu de naissance</td><td>${val(etd.lieu_naissance)}</td></tr>
-    <tr><td>Email</td><td>${val(etd.email)}</td><td style="font-weight:600;color:#555;background:#fafafa">Téléphone</td><td>${val(etd.telephone)}</td></tr>
-    <tr><td>Adresse</td><td colspan="3">${val(etd.adresse)}</td></tr>
-    <tr><td>N° CNI / Passeport</td><td colspan="3">${val(etd.cni_numero)}</td></tr>
+    <tr><td class="lbl">Prénom</td><td>${val(etd.prenom)}</td><td class="lbl2">Nom</td><td>${val(etd.nom)}</td></tr>
+    <tr><td class="lbl">Date de naissance</td><td>${fmtDate(etd.date_naissance)}</td><td class="lbl2">Lieu de naissance</td><td>${val(etd.lieu_naissance)}</td></tr>
+    <tr><td class="lbl">Email</td><td>${val(etd.email)}</td><td class="lbl2">Téléphone</td><td>${val(etd.telephone)}</td></tr>
+    <tr><td class="lbl">Adresse</td><td colspan="3">${val(etd.adresse)}</td></tr>
+    <tr><td class="lbl">N° CNI / Passeport</td><td colspan="3">${val(etd.cni_numero)}</td></tr>
+    <tr><td class="lbl">Parent / Tuteur</td><td>${val(etd.nom_parent)}</td><td class="lbl2">Tél. parent</td><td>${val(etd.telephone_parent)}</td></tr>
   </table>
 </div>
 
-${(etd.nom_parent || etd.telephone_parent) ? `
-<div class="sec">
-  <div class="sec-title">Contact parent / tuteur</div>
-  <table>
-    <tr><td>Nom complet</td><td>${val(etd.nom_parent)}</td><td style="font-weight:600;color:#555;background:#fafafa;width:35%">Téléphone</td><td>${val(etd.telephone_parent)}</td></tr>
-  </table>
-</div>` : ''}
-
+<!-- Inscription -->
 <div class="sec">
   <div class="sec-title">Paramètres d'inscription</div>
   <table>
-    <tr><td>Filière</td><td>${filiere}</td><td style="font-weight:600;color:#555;background:#fafafa;width:35%">Niveau d'entrée</td><td>${niveau}</td></tr>
-    <tr><td>Année académique</td><td>${annee}</td><td style="font-weight:600;color:#555;background:#fafafa">Bourse</td><td>${bourse}</td></tr>
-    <tr><td>Classe</td><td colspan="3">${insc?.classe?.nom ?? 'Pool (à affecter)'}</td></tr>
+    <tr><td class="lbl">Filière</td><td>${filiere}</td><td class="lbl2">Niveau d'entrée</td><td>${niveau}</td></tr>
+    <tr><td class="lbl">Année académique</td><td>${annee}</td><td class="lbl2">Bourse</td><td>${bourse}</td></tr>
+    <tr><td class="lbl">Classe affectée</td><td colspan="3">${insc?.classe?.nom ?? 'Pool (à affecter ultérieurement)'}</td></tr>
   </table>
 </div>
 
+<!-- Financier -->
 <div class="sec">
   <div class="sec-title">Conditions financières</div>
   <table class="fin-tbl">
-    <tr><td>Frais d'inscription</td><td>${fmt(insc?.frais_inscription)}</td></tr>
-    <tr><td>Mensualité</td><td>${fmt(insc?.mensualite)}</td></tr>
-    ${insc?.frais_tenue ? `<tr><td>Frais de tenue</td><td>${fmt(insc.frais_tenue)}</td></tr>` : ''}
+    <tr><td class="lbl" style="width:40%">Frais d'inscription</td><td>${fmt(insc?.frais_inscription)}</td></tr>
+    <tr><td class="lbl">Mensualité</td><td>${fmt(insc?.mensualite)}</td></tr>
+    ${insc?.frais_tenue ? `<tr><td class="lbl">Frais de tenue</td><td>${fmt(insc.frais_tenue)}</td></tr>` : ''}
   </table>
 </div>
 
+<!-- Signatures -->
 <div class="sign-row">
-  <div class="sign-box"><h4>Signature de l'étudiant(e)</h4><div class="sign-line">Lu et approuvé — Signature</div></div>
-  <div class="sign-box"><h4>Cachet et signature de la Direction</h4><div class="sign-line">Tampon + Signature</div></div>
+  <div class="sign-box">
+    <h4>Signature de l'étudiant(e)</h4>
+    <div class="sign-line">Lu et approuvé — Signature</div>
+  </div>
+  <div class="sign-box">
+    <h4>Cachet et signature de la Direction</h4>
+    <div class="sign-line">Tampon + Signature</div>
+  </div>
 </div>
 
-<div class="mention">
-  En signant cette fiche, l'étudiant(e) reconnaît avoir pris connaissance du règlement intérieur et s'engage à respecter ses obligations académiques et financières. — Imprimé le ${new Date().toLocaleDateString('fr-FR')}
-</div>
-<div class="footer-bar">UPTECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal — +221 77 841 50 44 / 77 618 45 52</div>
+<div class="mention">En signant cette fiche, l'étudiant(e) reconnaît avoir pris connaissance du règlement intérieur de l'établissement et s'engage à respecter ses obligations académiques et financières.</div>
+<div class="footer-bar">Amitié 1, Villa n°3031 — Dakar, Sénégal &nbsp;|&nbsp; +221 77 841 50 44 / 77 618 45 52 &nbsp;|&nbsp; uptechformation.com</div>
 
 <script>window.onload=()=>{window.print()}<\/script>
 </body></html>`
 
-  const w = window.open('', '_blank', 'width=920,height=750')
+  const w = window.open('', '_blank', 'width=820,height=1100')
   if (w) { w.document.write(html); w.document.close() }
 }
 
