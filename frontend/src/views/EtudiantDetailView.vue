@@ -99,10 +99,12 @@ async function generateCard() {
   if (!canvas) return
   const ctx = canvas.getContext('2d')!
 
-  // Landscape — 85.6 × 54 mm @ ×10
-  const W = 856, H = 540
-  canvas.width = W
-  canvas.height = H
+  // Landscape — 85.60 × 53.98 mm @ 300 DPI
+  const W = 856, H = 540          // coordonnées logiques (inchangées)
+  const PW = 1010, PH = 638       // pixels physiques 300 DPI
+  canvas.width = PW
+  canvas.height = PH
+  ctx.scale(PW / W, PH / H)       // tout le dessin utilise toujours 856×540
 
   const annee = etudiant.value.inscriptions?.[0]?.annee_academique?.libelle ?? '2025-2026'
   const filiere = etudiant.value.inscriptions?.[0]?.classe?.filiere?.nom ?? ''
