@@ -570,12 +570,9 @@ app.put('/etudiants/:id', requireAuth, role('secretariat', 'dg'), async (c) => {
 })
 
 app.post('/etudiants/:id/photo', requireAuth, role('secretariat', 'dg'), async (c) => {
-  const body = await c.req.parseBody()
-  const file = body['photo'] as File | undefined
-  if (!file || !file.type.startsWith('image/')) return c.json({ message: 'Fichier image requis.' }, 400)
-  const arrayBuffer = await file.arrayBuffer()
-  const base64 = Buffer.from(arrayBuffer).toString('base64')
-  const dataUrl = `data:${file.type};base64,${base64}`
+  const b = await c.req.json()
+  const dataUrl = b.photo_base64
+  if (!dataUrl || !dataUrl.startsWith('data:image/')) return c.json({ message: 'Image base64 requise.' }, 400)
   const { rows } = await pool.query(
     'UPDATE etudiants SET photo_path=$1 WHERE id=$2 RETURNING photo_path',
     [dataUrl, c.req.param('id')]

@@ -49,17 +49,38 @@ async function uploadPhoto(e: Event) {
   if (!file) return
   photoLoading.value = true
   try {
-    const fd = new FormData()
-    fd.append('photo', file)
-    const { data } = await api.post(`/etudiants/${etudiant.value.id}/photo`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    // Compresser l'image client-side via Canvas (max 300x300, JPEG 80%)
+    const dataUrl = await compressImage(file, 300, 0.8)
+    const { data } = await api.post(`/etudiants/${etudiant.value.id}/photo`, { photo_base64: dataUrl })
     etudiant.value.photo_path = data.photo_path
   } catch (err: any) {
     alert(err?.response?.data?.message || 'Erreur upload photo')
   } finally {
     photoLoading.value = false
+    if (photoInput.value) photoInput.value.value = ''
   }
+}
+
+function compressImage(file: File, maxSize: number, quality: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1)
+        canvas.width = Math.round(img.width * ratio)
+        canvas.height = Math.round(img.height * ratio)
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.onerror = reject
+      img.src = ev.target?.result as string
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 
 // --- Carte étudiant ---
