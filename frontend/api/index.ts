@@ -331,8 +331,8 @@ app.get('/niveaux-bourse', requireAuth, async (c) => {
 app.post('/niveaux-bourse', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'INSERT INTO niveaux_bourse (nom,pourcentage,description) VALUES ($1,$2,$3) RETURNING *',
-    [b.nom, b.pourcentage || 0, b.description || null]
+    'INSERT INTO niveaux_bourse (nom,pourcentage,applique_inscription,actif) VALUES ($1,$2,$3,$4) RETURNING *',
+    [b.nom, b.pourcentage || 0, b.applique_inscription ?? false, b.actif ?? true]
   )
   return c.json(rows[0], 201)
 })
@@ -340,8 +340,8 @@ app.post('/niveaux-bourse', requireAuth, role('dg'), async (c) => {
 app.put('/niveaux-bourse/:id', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'UPDATE niveaux_bourse SET nom=$1,pourcentage=$2,description=$3 WHERE id=$4 RETURNING *',
-    [b.nom, b.pourcentage || 0, b.description || null, c.req.param('id')]
+    'UPDATE niveaux_bourse SET nom=$1,pourcentage=$2,applique_inscription=$3,actif=$4 WHERE id=$5 RETURNING *',
+    [b.nom, b.pourcentage || 0, b.applique_inscription ?? false, b.actif ?? true, c.req.param('id')]
   )
   return c.json(rows[0])
 })
