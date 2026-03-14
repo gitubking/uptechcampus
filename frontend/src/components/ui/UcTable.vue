@@ -6,7 +6,7 @@
           <th
             v-for="col in cols"
             :key="col.key"
-            :style="col.align ? { textAlign: col.align } : {}"
+            :style="col.align ? ({ textAlign: col.align } as any) : {}"
           >
             {{ col.label }}
           </th>
@@ -29,7 +29,7 @@
 <script setup lang="ts">
 withDefaults(defineProps<{
   cols: { key: string; label: string; align?: string }[]
-  data: unknown[]
+  data: any[]
   emptyText?: string
 }>(), {
   emptyText: 'Aucune donnée',
