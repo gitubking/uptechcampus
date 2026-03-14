@@ -396,10 +396,23 @@ function printCard() {
 }
 
 // --- Fiche & Certificat d'inscription ---
+function openPrintWindow(html: string) {
+  const blob = new Blob([html], { type: 'text/html' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.target = '_blank'
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 10000)
+}
+
 function printFicheDetail() {
   const etd = etudiant.value
   const insc = etd.inscriptions?.[0]
-  if (!etd || !insc) return
+  if (!etd || !insc) { alert("Aucune inscription trouvée pour cet étudiant."); return }
   const fmt = (n: number | null | undefined) =>
     n != null ? new Intl.NumberFormat('fr-FR').format(n) + ' FCFA' : '—'
   const val = (v: any) => v || '—'
@@ -507,14 +520,13 @@ ${insc?.frais_tenue ? `<tr><td class="lbl">Frais de tenue</td><td>${fmt(insc.fra
 <div class="footer-bar" style="margin-top:20px">UP'TECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal | +221 77 841 50 44 / 77 618 45 52</div>
 </div>
 <script>window.onload=()=>{window.print()}<\/script></body></html>`
-  const w = window.open('', '_blank')
-  if (w) { w.document.write(html); w.document.close() }
+  openPrintWindow(html)
 }
 
 function printCertificatDetail() {
   const etd = etudiant.value
   const insc = etd.inscriptions?.[0]
-  if (!etd || !insc) return
+  if (!etd || !insc) { alert("Aucune inscription trouvée pour cet étudiant."); return }
   const val = (v: any) => v || '—'
   const fmtDate = (d: string | null | undefined) => {
     if (!d) return '—'
@@ -593,8 +605,7 @@ ${etd.cni_numero ? `porteur/porteuse de la CNI N° <span class="underline">${etd
 </div></div>
 <div class="footer-bar">UP'TECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal | +221 77 841 50 44 / 77 618 45 52 | uptechformation.com</div>
 <script>window.onload=()=>{window.print()}<\/script></body></html>`
-  const w = window.open('', '_blank')
-  if (w) { w.document.write(html); w.document.close() }
+  openPrintWindow(html)
 }
 
 // --- Upload document ---
