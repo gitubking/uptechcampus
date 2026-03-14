@@ -96,7 +96,7 @@ async function generateCard() {
   if (!canvas) return
   const ctx = canvas.getContext('2d')!
 
-  // Landscape card — proportional to 85.6 × 54 mm
+  // Landscape — 85.6 × 54 mm @ ×10
   const W = 856, H = 540
   canvas.width = W
   canvas.height = H
@@ -105,66 +105,62 @@ async function generateCard() {
   const filiere = etudiant.value.inscriptions?.[0]?.classe?.filiere?.nom ?? ''
   const niveauAcad = etudiant.value.inscriptions?.[0]?.classe?.nom ?? filiere
 
-  // ── 1. Fond blanc ───────────────────────────────────────────────────
+  // ── 1. Fond blanc ────────────────────────────────────────────────────
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, W, H)
 
-  // ── 2. Bande noire verticale gauche ─────────────────────────────────
-  const stripW = 58
+  // ── 2. Bande noire verticale gauche ──────────────────────────────────
+  const stripW = 52
   ctx.fillStyle = '#111111'
   ctx.fillRect(0, 0, stripW, H)
 
-  // Texte vertical dans la bande
   ctx.save()
   ctx.translate(stripW / 2, H / 2)
   ctx.rotate(-Math.PI / 2)
   ctx.fillStyle = '#ffffff'
-  ctx.font = '13px Arial'
+  ctx.font = '12px Arial'
   ctx.textAlign = 'center'
-  ctx.fillText("Institut supérieur de formation aux nouveaux métiers de l'Informatique et de la Communication", 0, 6)
+  ctx.fillText("Institut supérieur de formation aux nouveaux métiers de l'Informatique et de la Communication", 0, 5)
   ctx.restore()
 
-  // ── 3. Zone haute (photo + titre) ───────────────────────────────────
-  const topH = 290
-  const contentX = stripW + 18
+  // ── 3. Zone haute ────────────────────────────────────────────────────
+  const contentX = stripW + 16
+  const topH = 275
 
-  // Photo
-  const photoX = contentX, photoY = 22, photoW = 178, photoH = 230
-  ctx.strokeStyle = '#555555'
+  // --- Photo ---
+  const photoX = contentX, photoY = 20, photoW = 170, photoH = 228
+  ctx.strokeStyle = '#444444'
   ctx.lineWidth = 1.5
   ctx.strokeRect(photoX, photoY, photoW, photoH)
-  ctx.fillStyle = '#f2f2f2'
-  ctx.fillRect(photoX + 1, photoY + 1, photoW - 2, photoH - 2)
 
   if (etudiant.value.photo_path?.startsWith('data:')) {
     await drawImage(ctx, etudiant.value.photo_path, photoX + 1, photoY + 1, photoW - 2, photoH - 2)
   } else {
-    ctx.fillStyle = '#e8e8e8'
+    ctx.fillStyle = '#e0e0e0'
     ctx.fillRect(photoX + 1, photoY + 1, photoW - 2, photoH - 2)
     ctx.fillStyle = '#999999'
-    ctx.font = 'bold 64px Arial'
+    ctx.font = 'bold 56px Arial'
     ctx.textAlign = 'center'
     ctx.fillText(
       `${etudiant.value.prenom[0]}${etudiant.value.nom[0]}`.toUpperCase(),
-      photoX + photoW / 2, photoY + photoH / 2 + 24
+      photoX + photoW / 2, photoY + photoH / 2 + 20
     )
     ctx.textAlign = 'left'
   }
 
-  // Titre CARTE D'ETUDIANT
-  const titleX = photoX + photoW + 28
+  // --- Titre + Année (tous les deux en NOIR gras) ---
+  const titleX = photoX + photoW + 24
   ctx.fillStyle = '#111111'
-  ctx.font = 'bold 42px Arial'
-  ctx.fillText("CARTE D'ETUDIANT", titleX, photoY + 58)
-
-  // Année en rouge
-  ctx.fillStyle = '#E30613'
   ctx.font = 'bold 38px Arial'
-  ctx.fillText(annee, titleX, photoY + 112)
+  ctx.fillText("CARTE D'ETUDIANT", titleX, photoY + 56)
 
-  // ── 4. Bande diagonale rouge/noir ───────────────────────────────────
+  ctx.fillStyle = '#111111'
+  ctx.font = 'bold 34px Arial'
+  ctx.fillText(annee, titleX, photoY + 106)
+
+  // ── 4. Bande diagonale rouge/noir ────────────────────────────────────
   const stripeY = topH
-  const stripeH = 38
+  const stripeH = 34
   const stripeStartX = stripW
   const stripeWidth = W - stripW
 
@@ -173,9 +169,8 @@ async function generateCard() {
   ctx.rect(stripeStartX, stripeY, stripeWidth, stripeH)
   ctx.clip()
 
-  const sw = 24 // largeur d'une bande
+  const sw = 22
   for (let i = -stripeH * 2; i < stripeWidth + stripeH * 2; i += sw * 2) {
-    // bande rouge
     ctx.fillStyle = '#E30613'
     ctx.beginPath()
     ctx.moveTo(stripeStartX + i, stripeY)
@@ -184,7 +179,6 @@ async function generateCard() {
     ctx.lineTo(stripeStartX + i + stripeH, stripeY + stripeH)
     ctx.closePath()
     ctx.fill()
-    // bande noire
     ctx.fillStyle = '#111111'
     ctx.beginPath()
     ctx.moveTo(stripeStartX + i + sw, stripeY)
@@ -196,60 +190,83 @@ async function generateCard() {
   }
   ctx.restore()
 
-  // ── 5. Zone basse ───────────────────────────────────────────────────
-  const botY = stripeY + stripeH + 16
+  // ── 5. Zone basse ────────────────────────────────────────────────────
+  const botY = stripeY + stripeH + 12
 
-  // Logo UPTECH (droite)
-  const logoX = W - 185, logoY = botY
-  // Cercle rouge divisé en 4
-  const cr = 38, cx = logoX + cr, cy = logoY + cr
+  // --- Logo UPTECH (bas droite) — demi-disque rouge + texte ---
+  const logoAreaX = W - 230
+  const logoY = botY + 2
+  const discR = 34
+  const discCx = logoAreaX + discR + 4
+  const discCy = logoY + discR
+
+  // Demi-disque rouge (sommet en haut, plat en bas)
   ctx.fillStyle = '#E30613'
   ctx.beginPath()
-  ctx.arc(cx, cy, cr, 0, Math.PI * 2)
+  ctx.arc(discCx, discCy, discR, Math.PI, 0, false) // arc supérieur
+  ctx.closePath()
   ctx.fill()
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(cx - cr, cy - 4, cr * 2, 8)
-  ctx.fillRect(cx - 4, cy - cr, 8, cr * 2)
-  // Demi-cercle blanc bas-gauche
+  // Base plate
+  ctx.fillStyle = '#E30613'
+  ctx.fillRect(discCx - discR, discCy - 1, discR * 2, 4)
+
+  // Demi-cercle blanc intérieur (effet évidé)
   ctx.fillStyle = '#ffffff'
   ctx.beginPath()
-  ctx.arc(cx, cy, cr * 0.55, Math.PI / 2, Math.PI)
-  ctx.lineTo(cx, cy)
+  ctx.arc(discCx, discCy, discR * 0.55, Math.PI, 0, false)
   ctx.closePath()
   ctx.fill()
 
-  // Texte "UP'TECH"
+  // "UP'TECH" à droite du disque
   ctx.fillStyle = '#111111'
-  ctx.font = 'bold 32px Arial'
-  ctx.fillText("UP'TECH", logoX + cr * 2 + 12, logoY + 28)
-  ctx.font = '13px Arial'
-  ctx.fillStyle = '#555555'
-  ctx.fillText('Formation', logoX + cr * 2 + 12, logoY + 48)
+  ctx.font = 'bold 26px Arial'
+  ctx.fillText("UP'TECH", discCx + discR + 8, discCy - 10)
+  ctx.font = '11px Arial'
+  ctx.fillStyle = '#666666'
+  ctx.fillText('Formation professionnelle', discCx + discR + 8, discCy + 10)
 
-  // Infos étudiant (droite, sous logo)
-  const infoX = logoX - 20, infoY = logoY + cr * 2 + 18
-  ctx.fillStyle = '#111111'
-  ctx.font = '14px Arial'
-  const lineH = 22
-  ctx.fillText(`Prénom(s) : ${etudiant.value.prenom}`, infoX, infoY)
-  ctx.fillText(`Nom : ${etudiant.value.nom.toUpperCase()}`, infoX, infoY + lineH)
-  ctx.fillText(`Niveau académique : ${niveauAcad || '—'}`, infoX, infoY + lineH * 2)
-  ctx.font = 'bold 14px Arial'
-  ctx.fillStyle = '#E30613'
-  ctx.fillText(`Matricule : ${etudiant.value.numero_etudiant}`, infoX, infoY + lineH * 3)
+  // Infos étudiant (sous logo, bas droite)
+  const infoX = logoAreaX
+  const infoY = logoY + discR * 2 + 14
+  const lineH = 21
 
-  // Coordonnées (gauche bas)
-  const addrX = contentX, addrY = botY + 14
-  ctx.fillStyle = '#333333'
-  ctx.font = '13px Arial'
-  const bullet = '• '
-  ctx.fillText(bullet + "Sicap Amitié 1, Villa N° 3031", addrX, addrY)
-  ctx.fillText(bullet + "33 821 34 25 / 77 841 50 44", addrX, addrY + 22)
-  ctx.fillText(bullet + "uptechformation@gmail.com", addrX, addrY + 44)
-  ctx.fillStyle = '#E30613'
-  ctx.fillText(bullet + "www.uptechformation.com", addrX, addrY + 66)
+  const fields: Array<{ label: string; value: string; bold?: boolean; red?: boolean }> = [
+    { label: 'Prénom(s)', value: etudiant.value.prenom },
+    { label: 'Nom', value: etudiant.value.nom.toUpperCase() },
+    { label: 'Niveau acad.', value: niveauAcad || '—' },
+    { label: 'Matricule', value: etudiant.value.numero_etudiant, bold: true, red: true },
+  ]
+  fields.forEach((f, i) => {
+    ctx.font = '11px Arial'
+    ctx.fillStyle = '#777777'
+    ctx.fillText(f.label + ' :', infoX, infoY + i * lineH)
+    ctx.font = f.bold ? 'bold 12.5px Arial' : '12.5px Arial'
+    ctx.fillStyle = f.red ? '#E30613' : '#111111'
+    ctx.fillText(f.value, infoX + 90, infoY + i * lineH)
+  })
 
-  // Bordure arrondie simulée (fine ligne gris)
+  // --- Coordonnées (bas gauche) ---
+  const addrX = contentX
+  const addrY = botY + 16
+  const contacts: Array<{ text: string; red?: boolean }> = [
+    { text: 'Sicap Amitie 1, Villa N 3031' },
+    { text: '33 821 34 25 / 77 841 50 44' },
+    { text: 'uptechformation@gmail.com' },
+    { text: 'www.uptechformation.com', red: true },
+  ]
+  contacts.forEach((c, i) => {
+    ctx.font = '12.5px Arial'
+    ctx.fillStyle = c.red ? '#E30613' : '#333333'
+    // petit bullet rouge
+    ctx.fillStyle = '#E30613'
+    ctx.beginPath()
+    ctx.arc(addrX + 4, addrY + i * 24 - 4, 3.5, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = c.red ? '#E30613' : '#333333'
+    ctx.fillText(c.text, addrX + 14, addrY + i * 24)
+  })
+
+  // ── 6. Bordure arrondie ──────────────────────────────────────────────
   ctx.strokeStyle = '#cccccc'
   ctx.lineWidth = 2
   roundRect(ctx, 1, 1, W - 2, H - 2, 18)
