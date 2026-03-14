@@ -395,6 +395,208 @@ function printCard() {
   win.onload = () => { win.print() }
 }
 
+// --- Fiche & Certificat d'inscription ---
+function printFicheDetail() {
+  const etd = etudiant.value
+  const insc = etd.inscriptions?.[0]
+  if (!etd || !insc) return
+  const fmt = (n: number | null | undefined) =>
+    n != null ? new Intl.NumberFormat('fr-FR').format(n) + ' FCFA' : '—'
+  const val = (v: any) => v || '—'
+  const fmtDate = (d: string | null | undefined) => {
+    if (!d) return '—'
+    try { return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) } catch { return d }
+  }
+  const filiere = insc?.classe?.filiere?.nom ?? '—'
+  const niveau = insc?.niveau_entree?.nom ?? '—'
+  const bourse = insc?.niveau_bourse?.nom ? `${insc.niveau_bourse.nom} (${insc.niveau_bourse.pourcentage}%)` : 'Aucune'
+  const annee = insc?.annee_academique?.libelle ?? '—'
+  const sLabel = statutLabel[insc?.statut] ?? insc?.statut ?? '—'
+  const logoUrl = `${window.location.origin}/icons/icon-192.png`
+  const dots = '◦ '.repeat(80)
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/>
+<title>Fiche d'inscription — ${etd.prenom} ${etd.nom}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:6mm 15mm}
+@page{size:A4 portrait;margin:0}@media print{body{padding:6mm 15mm}}
+.hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:4px;gap:0}
+.hdr img{width:113px;height:113px;object-fit:contain;display:block;margin-bottom:-18px}
+.hdr-info{text-align:center;line-height:1.4}
+.hdr-info .tagline{font-size:10px;font-weight:700;color:#111;margin-bottom:1px}
+.hdr-info .meta{font-size:9px;color:#333;line-height:1.4;margin-bottom:1px}
+.hdr-info .agree{font-size:8.5px;color:#333;font-weight:700;text-decoration:underline}
+.dots{font-size:8px;color:#E30613;letter-spacing:1px;overflow:hidden;white-space:nowrap;margin:8px 0 16px;opacity:.7}
+.fiche-title{text-align:center;margin-bottom:18px}
+.fiche-title h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:2px;border:2px solid #111;display:inline-block;padding:6px 24px}
+.fiche-title .meta-row{font-size:10px;color:#555;margin-top:6px;display:flex;justify-content:center;gap:24px}
+.fiche-title .badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:10px;font-weight:700;background:#dcfce7;color:#166534;border:1px solid #bbf7d0}
+.sec{margin-bottom:14px}
+.sec-title{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#fff;background:#E30613;padding:4px 10px;margin-bottom:0}
+table{width:100%;border-collapse:collapse}
+td{padding:5px 9px;border:1px solid #ccc;vertical-align:middle;font-size:11px}
+td.lbl{font-weight:700;color:#444;width:32%;background:#f5f5f5;white-space:nowrap}
+td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowrap}
+.fin-tbl td:last-child{text-align:right;font-weight:600}
+.sign-row{display:flex;gap:16px;margin-top:24px}
+.sign-box{flex:1;border:1px solid #ccc;padding:12px 14px;min-height:90px}
+.sign-box h4{font-size:9.5px;font-weight:700;text-transform:uppercase;color:#555;margin-bottom:50px;border-bottom:1px dashed #ddd;padding-bottom:6px}
+.sign-box .sign-line{border-top:1px solid #bbb;padding-top:4px;font-size:9px;color:#aaa;text-align:center}
+.mention{margin-top:16px;font-size:8.5px;color:#777;text-align:center;font-style:italic}
+.footer-bar{margin-top:10px;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
+.page2{page-break-before:always;padding-top:10mm}
+.ri-hdr{text-align:center;margin-bottom:16px}
+.ri-hdr h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:2px;border:2px solid #E30613;display:inline-block;padding:6px 28px;color:#E30613}
+.ri-art{margin-bottom:10px}
+.ri-art-title{font-size:10px;font-weight:700;text-transform:uppercase;color:#fff;background:#111;padding:3px 10px;margin-bottom:5px;display:block}
+.ri-art ul{margin:0;padding-left:18px;list-style:disc}
+.ri-art ul li{font-size:10px;color:#222;line-height:1.6;margin-bottom:1px}
+.ri-sign{margin-top:28px;border-top:2px solid #E30613;padding-top:16px}
+.ri-sign-title{font-size:10px;font-weight:700;text-transform:uppercase;color:#E30613;margin-bottom:12px;text-align:center;letter-spacing:1px}
+.ri-sign-text{font-size:9.5px;color:#333;text-align:center;margin-bottom:20px;font-style:italic}
+.ri-sign-boxes{display:flex;gap:20px;margin-top:8px}
+.ri-sign-box{flex:1;border:1px solid #ccc;padding:12px 14px}
+.ri-sign-box h4{font-size:9px;font-weight:700;text-transform:uppercase;color:#555;margin-bottom:50px;border-bottom:1px dashed #ddd;padding-bottom:5px}
+.ri-sign-box .sign-line{border-top:1px solid #bbb;padding-top:4px;font-size:9px;color:#aaa;text-align:center}
+</style></head><body>
+<div class="hdr"><img src="${logoUrl}" alt="UP'TECH"/>
+<div class="hdr-info">
+<div class="tagline">Institut Supérieur de Formation aux Nouveaux Métiers de l'Informatique et de la Communication</div>
+<div class="meta">NINEA 006118310 _ BP 50281 RP DAKAR</div>
+<div class="agree">Agréé par l'État : N°RepSEN/Ensup-priv/AP/387-2021_N°14191/MFPAA/SG/DFPT</div>
+</div></div>
+<div class="dots">${dots}</div>
+<div class="fiche-title"><h2>Fiche d'Inscription</h2>
+<div class="meta-row"><span>Année académique : <strong>${annee}</strong></span>${etd.numero_etudiant ? `<span>N° ${etd.numero_etudiant}</span>` : ''}<span class="badge">${sLabel}</span><span>Imprimé le : <strong>${new Date().toLocaleDateString('fr-FR')}</strong></span></div></div>
+<div class="sec"><div class="sec-title">Identité de l'étudiant(e)</div><table>
+<tr><td class="lbl">Prénom</td><td>${val(etd.prenom)}</td><td class="lbl2">Nom</td><td>${val(etd.nom)}</td></tr>
+<tr><td class="lbl">Date de naissance</td><td>${fmtDate(etd.date_naissance)}</td><td class="lbl2">Lieu de naissance</td><td>${val(etd.lieu_naissance)}</td></tr>
+<tr><td class="lbl">Email</td><td>${val(etd.email)}</td><td class="lbl2">Téléphone</td><td>${val(etd.telephone)}</td></tr>
+<tr><td class="lbl">Adresse</td><td colspan="3">${val(etd.adresse)}</td></tr>
+<tr><td class="lbl">N° CNI / Passeport</td><td colspan="3">${val(etd.cni_numero)}</td></tr>
+<tr><td class="lbl">Parent / Tuteur</td><td>${val(etd.nom_parent)}</td><td class="lbl2">Tél. parent</td><td>${val(etd.telephone_parent)}</td></tr>
+</table></div>
+<div class="sec"><div class="sec-title">Paramètres d'inscription</div><table>
+<tr><td class="lbl">Filière</td><td>${filiere}</td><td class="lbl2">Niveau d'entrée</td><td>${niveau}</td></tr>
+<tr><td class="lbl">Année académique</td><td>${annee}</td><td class="lbl2">Bourse</td><td>${bourse}</td></tr>
+<tr><td class="lbl">Classe affectée</td><td colspan="3">${insc?.classe?.nom ?? 'Pool (à affecter)'}</td></tr>
+</table></div>
+<div class="sec"><div class="sec-title">Conditions financières</div><table class="fin-tbl">
+<tr><td class="lbl" style="width:40%">Frais d'inscription</td><td>${fmt(insc?.frais_inscription)}</td></tr>
+<tr><td class="lbl">Mensualité</td><td>${fmt(insc?.mensualite)}</td></tr>
+${insc?.frais_tenue ? `<tr><td class="lbl">Frais de tenue</td><td>${fmt(insc.frais_tenue)}</td></tr>` : ''}
+</table></div>
+<div class="sign-row">
+<div class="sign-box"><h4>Signature de l'étudiant(e)</h4><div class="sign-line">Lu et approuvé — Signature</div></div>
+<div class="sign-box"><h4>Cachet et signature de la Direction</h4><div class="sign-line">Tampon + Signature</div></div>
+</div>
+<div class="mention">En signant cette fiche, l'étudiant(e) reconnaît avoir pris connaissance du règlement intérieur et s'engage à respecter ses obligations académiques et financières.</div>
+<div class="footer-bar">Amitié 1, Villa n°3031 — Dakar, Sénégal | +221 77 841 50 44 / 77 618 45 52 | uptechformation.com</div>
+<div class="page2">
+<div class="ri-hdr"><h2>Règlement Intérieur</h2><p>UP'TECH — Institut Supérieur de Formation aux Nouveaux Métiers de l'Informatique et de la Communication</p></div>
+<div class="ri-art"><span class="ri-art-title">Article 1 — Assiduité et ponctualité</span><ul><li>La présence aux cours, travaux pratiques et examens est <strong>obligatoire</strong>.</li><li>Tout retard ou absence doit être justifié dans les 48 heures auprès du secrétariat.</li><li>Au-delà de 30 % d'absences non justifiées, l'étudiant(e) peut être exclu(e) des examens.</li><li>Les retards répétés sont sanctionnés et signalés au responsable pédagogique.</li></ul></div>
+<div class="ri-art"><span class="ri-art-title">Article 2 — Tenue et comportement</span><ul><li>Une tenue correcte et décente est exigée au sein de l'établissement.</li><li>Le respect mutuel entre étudiants, enseignants et personnel administratif est impératif.</li><li>Tout comportement irrespectueux, violent ou discriminatoire entraîne des sanctions disciplinaires.</li><li>L'usage du téléphone portable est interdit en salle de cours, sauf autorisation expresse.</li></ul></div>
+<div class="ri-art"><span class="ri-art-title">Article 3 — Obligations financières</span><ul><li>Les frais d'inscription sont dus avant le début de l'année académique.</li><li>Les mensualités sont payables au plus tard le <strong>5 de chaque mois</strong>.</li><li>Tout retard de paiement peut entraîner la suspension temporaire de l'accès aux cours et examens.</li><li>Aucun remboursement des frais d'inscription n'est accordé après validation du dossier.</li></ul></div>
+<div class="ri-art"><span class="ri-art-title">Article 4 — Utilisation du matériel et des locaux</span><ul><li>Le matériel informatique mis à disposition doit être utilisé à des fins exclusivement pédagogiques.</li><li>Tout dommage causé au matériel engage la responsabilité financière de l'étudiant(e).</li><li>Il est interdit de manger, de fumer et de consommer de l'alcool dans les locaux.</li><li>Les locaux doivent être laissés propres après chaque utilisation.</li></ul></div>
+<div class="ri-art"><span class="ri-art-title">Article 5 — Examens et évaluation</span><ul><li>Toute fraude lors des examens entraîne l'annulation de l'épreuve et des sanctions disciplinaires.</li><li>Le plagiat dans les travaux rendus est strictement interdit et sanctionné.</li><li>Les résultats sont définitifs après validation par le jury pédagogique.</li><li>Les réclamations doivent être formulées par écrit dans un délai de 5 jours ouvrables.</li></ul></div>
+<div class="ri-art"><span class="ri-art-title">Article 6 — Sanctions disciplinaires</span><ul><li>Les manquements au présent règlement sont sanctionnés selon leur gravité : avertissement, blâme, suspension ou exclusion définitive.</li><li>Tout recours doit être adressé par écrit à la Direction dans un délai de 5 jours.</li></ul></div>
+<div class="ri-sign"><div class="ri-sign-title">Engagement de l'étudiant(e)</div>
+<div class="ri-sign-text">Je soussigné(e) <strong>${val(etd.prenom)} ${val(etd.nom)}</strong>, inscrit(e) en <strong>${filiere}</strong> pour l'année académique <strong>${annee}</strong>,<br>déclare avoir lu et compris le règlement intérieur de l'établissement UP'TECH et m'engage à le respecter.<br>Fait à Dakar, le ___________________________</div>
+<div class="ri-sign-boxes"><div class="ri-sign-box"><h4>Signature de l'étudiant(e)</h4><div class="sign-line">Signature précédée de la mention « Lu et approuvé »</div></div>
+<div class="ri-sign-box"><h4>Cachet et signature de la Direction</h4><div class="sign-line">Tampon + Signature</div></div></div></div>
+<div class="footer-bar" style="margin-top:20px">UP'TECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal | +221 77 841 50 44 / 77 618 45 52</div>
+</div>
+<script>window.onload=()=>{window.print()}<\/script></body></html>`
+  const w = window.open('', '_blank', 'width=820,height=1100')
+  if (w) { w.document.write(html); w.document.close() }
+}
+
+function printCertificatDetail() {
+  const etd = etudiant.value
+  const insc = etd.inscriptions?.[0]
+  if (!etd || !insc) return
+  const val = (v: any) => v || '—'
+  const fmtDate = (d: string | null | undefined) => {
+    if (!d) return '—'
+    try { return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) } catch { return d }
+  }
+  const filiere = insc?.classe?.filiere?.nom ?? '—'
+  const niveau = insc?.niveau_entree?.nom ?? '—'
+  const annee = insc?.annee_academique?.libelle ?? '—'
+  const logoUrl = `${window.location.origin}/icons/icon-192.png`
+  const refNum = `UPTECH/${new Date().getFullYear()}/${String(etd.id ?? Math.floor(Math.random()*9000+1000)).padStart(4,'0')}`
+  const dateJour = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+  const dots = '◦ '.repeat(80)
+  const sLabel = statutLabel[insc?.statut] ?? insc?.statut ?? '—'
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/>
+<title>Certificat d'inscription — ${etd.prenom} ${etd.nom}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padding:6mm 15mm}
+@page{size:A4 portrait;margin:0}@media print{body{padding:6mm 15mm}}
+.hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:4px;gap:0}
+.hdr img{width:113px;height:113px;object-fit:contain;display:block;margin-bottom:-18px}
+.hdr-info{text-align:center;line-height:1.4}
+.hdr-info .tagline{font-size:10px;font-weight:700;color:#111;margin-bottom:1px}
+.hdr-info .meta{font-size:9px;color:#333;line-height:1.4;margin-bottom:1px}
+.hdr-info .agree{font-size:8.5px;color:#333;font-weight:700;text-decoration:underline}
+.dots{font-size:8px;color:#E30613;letter-spacing:1px;overflow:hidden;white-space:nowrap;margin:8px 0 14px;opacity:.7}
+.ref-row{display:flex;justify-content:space-between;font-size:9.5px;color:#555;margin-bottom:28px}
+.cert-title{text-align:center;margin-bottom:32px}
+.cert-title h2{font-size:18px;font-weight:900;text-transform:uppercase;letter-spacing:3px;color:#111;border-bottom:3px solid #E30613;display:inline-block;padding-bottom:6px}
+.cert-title p{font-size:10px;color:#888;margin-top:6px;letter-spacing:1px;text-transform:uppercase}
+.cert-body{font-size:12px;line-height:2;color:#111;text-align:justify;margin:0 10mm 28px}
+.cert-body .highlight{font-weight:700;font-size:13px}
+.cert-body .underline{text-decoration:underline;font-weight:600}
+.cert-card{border:1px solid #ccc;border-left:4px solid #E30613;padding:12px 16px;margin:0 10mm 28px;background:#fafafa}
+.cert-card table{width:100%;border-collapse:collapse}
+.cert-card td{padding:4px 8px;font-size:11px;vertical-align:middle}
+.cert-card td:first-child{font-weight:700;color:#555;width:38%;white-space:nowrap}
+.cert-usage{font-size:10px;color:#555;font-style:italic;text-align:center;margin:0 10mm 32px;padding:8px;border:1px dashed #ccc}
+.cert-sign{display:flex;justify-content:flex-end;margin:0 10mm}
+.cert-sign-box{text-align:center;min-width:200px}
+.cert-sign-box .sign-place{font-size:10px;color:#555;margin-bottom:4px}
+.cert-sign-box .sign-name{font-size:10px;font-weight:700;color:#111;margin-bottom:2px}
+.cert-sign-box .sign-title{font-size:9px;color:#888}
+.cert-sign-box .sign-zone{height:60px;border-bottom:1px solid #bbb;margin:8px 0 4px}
+.footer-bar{margin-top:20px;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
+</style></head><body>
+<div class="hdr"><img src="${logoUrl}" alt="UP'TECH"/>
+<div class="hdr-info">
+<div class="tagline">Institut Supérieur de Formation aux Nouveaux Métiers de l'Informatique et de la Communication</div>
+<div class="meta">NINEA 006118310 _ BP 50281 RP DAKAR</div>
+<div class="agree">Agréé par l'État : N°RepSEN/Ensup-priv/AP/387-2021_N°14191/MFPAA/SG/DFPT</div>
+</div></div>
+<div class="dots">${dots}</div>
+<div class="ref-row"><span>Réf. : <strong>${refNum}</strong></span><span>Dakar, le <strong>${dateJour}</strong></span></div>
+<div class="cert-title"><h2>Certificat d'Inscription</h2><p>Année académique ${annee}</p></div>
+<div class="cert-body">
+Le Directeur Général de l'Institut Supérieur de Formation UP'TECH certifie que :<br><br>
+<span class="highlight">${etd.prenom?.toUpperCase()} ${etd.nom?.toUpperCase()}</span>
+${etd.date_naissance ? `, né(e) le <span class="underline">${fmtDate(etd.date_naissance)}</span> à <span class="underline">${val(etd.lieu_naissance)}</span>,` : ''}
+${etd.cni_numero ? `porteur/porteuse de la CNI N° <span class="underline">${etd.cni_numero}</span>,` : ''}
+<br><br>est régulièrement inscrit(e) dans notre établissement pour l'année académique <span class="underline">${annee}</span>, dans la filière ci-dessous :
+</div>
+<div class="cert-card"><table>
+<tr><td>Numéro étudiant</td><td>${etd.numero_etudiant ?? '—'}</td></tr>
+<tr><td>Filière</td><td>${filiere}</td></tr>
+<tr><td>Niveau d'entrée</td><td>${niveau}</td></tr>
+<tr><td>Classe</td><td>${insc?.classe?.nom ?? 'Pool (à affecter)'}</td></tr>
+<tr><td>Statut</td><td>${sLabel}</td></tr>
+</table></div>
+<div class="cert-usage">Ce certificat est délivré à l'intéressé(e) pour servir et valoir ce que de droit, notamment pour les démarches administratives, bancaires et auprès des autorités compétentes.</div>
+<div class="cert-sign"><div class="cert-sign-box">
+<div class="sign-place">Dakar, le ${dateJour}</div>
+<div class="sign-zone"></div>
+<div class="sign-name">Le Directeur Général</div>
+<div class="sign-title">UP'TECH Formation</div>
+</div></div>
+<div class="footer-bar">UP'TECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal | +221 77 841 50 44 / 77 618 45 52 | uptechformation.com</div>
+<script>window.onload=()=>{window.print()}<\/script></body></html>`
+  const w = window.open('', '_blank', 'width=820,height=1100')
+  if (w) { w.document.write(html); w.document.close() }
+}
+
 // --- Upload document ---
 const docInput = ref<HTMLInputElement | null>(null)
 const docType = ref('cni')
@@ -518,6 +720,14 @@ function formatFileSize(bytes: number) {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2" />
                 </svg>
                 Carte étudiant
+              </button>
+              <button @click="printFicheDetail()"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-700 transition">
+                🖨️ Fiche d'inscription
+              </button>
+              <button @click="printCertificatDetail()"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-700 transition">
+                📄 Certificat
               </button>
             </div>
           </div>
