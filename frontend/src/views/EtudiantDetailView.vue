@@ -507,7 +507,7 @@ ${insc?.frais_tenue ? `<tr><td class="lbl">Frais de tenue</td><td>${fmt(insc.fra
 <div class="footer-bar" style="margin-top:20px">UP'TECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal | +221 77 841 50 44 / 77 618 45 52</div>
 </div>
 <script>window.onload=()=>{window.print()}<\/script></body></html>`
-  const w = window.open('', '_blank', 'width=820,height=1100')
+  const w = window.open('', '_blank')
   if (w) { w.document.write(html); w.document.close() }
 }
 
@@ -593,7 +593,7 @@ ${etd.cni_numero ? `porteur/porteuse de la CNI N° <span class="underline">${etd
 </div></div>
 <div class="footer-bar">UP'TECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal | +221 77 841 50 44 / 77 618 45 52 | uptechformation.com</div>
 <script>window.onload=()=>{window.print()}<\/script></body></html>`
-  const w = window.open('', '_blank', 'width=820,height=1100')
+  const w = window.open('', '_blank')
   if (w) { w.document.write(html); w.document.close() }
 }
 
