@@ -443,13 +443,13 @@ function printFiche(etd: any, insc: any, anneeLabel?: string) {
 <title>Fiche d'inscription — ${etd.prenom} ${etd.nom}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:20mm 15mm}
+body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:6mm 15mm}
 @page{size:A4 portrait;margin:0}
-@media print{body{padding:20mm 15mm}}
+@media print{body{padding:6mm 15mm}}
 
 /* ── En-tête ── */
-.hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:6px;gap:6px}
-.hdr img{width:90px;height:90px;object-fit:contain}
+.hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:4px;gap:2px}
+.hdr img{width:113px;height:113px;object-fit:contain}
 .hdr-info{text-align:center}
 .hdr-info h1{font-size:28px;font-weight:900;color:#E30613;letter-spacing:3px;margin-bottom:2px}
 .hdr-info .tagline{font-size:10px;font-weight:700;color:#111;margin-bottom:3px}
