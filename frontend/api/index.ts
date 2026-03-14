@@ -541,9 +541,30 @@ app.get('/etudiants', requireAuth, async (c) => {
 })
 
 app.get('/etudiants/:id', requireAuth, async (c) => {
-  const { rows } = await pool.query('SELECT * FROM etudiants WHERE id=$1', [c.req.param('id')])
+  const id = c.req.param('id')
+  const { rows } = await pool.query('SELECT * FROM etudiants WHERE id=$1', [id])
   if (!rows[0]) return c.json({ message: 'Étudiant introuvable.' }, 404)
-  return c.json(rows[0])
+  const [inscrRows, docRows] = await Promise.all([
+    pool.query(`
+      SELECT i.*,
+        CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom,
+          'filiere', CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom) ELSE NULL END
+        ) ELSE NULL END as classe,
+        CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique,
+        CASE WHEN ne.id IS NOT NULL THEN jsonb_build_object('id',ne.id,'nom',ne.nom) ELSE NULL END as niveau_entree,
+        CASE WHEN nb.id IS NOT NULL THEN jsonb_build_object('id',nb.id,'nom',nb.nom,'pourcentage',nb.pourcentage) ELSE NULL END as niveau_bourse
+      FROM inscriptions i
+      LEFT JOIN classes c ON i.classe_id = c.id
+      LEFT JOIN filieres f ON c.filiere_id = f.id
+      LEFT JOIN annees_academiques aa ON i.annee_academique_id = aa.id
+      LEFT JOIN niveaux_entree ne ON i.niveau_entree_id = ne.id
+      LEFT JOIN niveaux_bourse nb ON i.niveau_bourse_id = nb.id
+      WHERE i.etudiant_id = $1
+      ORDER BY i.created_at DESC
+    `, [id]),
+    pool.query('SELECT * FROM documents_etudiant WHERE etudiant_id=$1 ORDER BY created_at DESC', [id])
+  ])
+  return c.json({ ...rows[0], inscriptions: inscrRows.rows, documents: docRows.rows })
 })
 
 app.post('/etudiants', requireAuth, role('secretariat', 'dg'), async (c) => {
