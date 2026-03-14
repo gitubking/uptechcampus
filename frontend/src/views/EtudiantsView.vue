@@ -448,9 +448,9 @@ body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;pa
 @media print{body{padding:20mm 15mm}}
 
 /* ── En-tête ── */
-.hdr{display:flex;align-items:center;gap:16px;margin-bottom:6px}
-.hdr img{width:90px;height:90px;object-fit:contain;flex-shrink:0}
-.hdr-info{flex:1;text-align:center}
+.hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:6px;gap:6px}
+.hdr img{width:90px;height:90px;object-fit:contain}
+.hdr-info{text-align:center}
 .hdr-info h1{font-size:28px;font-weight:900;color:#E30613;letter-spacing:3px;margin-bottom:2px}
 .hdr-info .tagline{font-size:10px;font-weight:700;color:#111;margin-bottom:3px}
 .hdr-info .meta{font-size:9px;color:#333;line-height:1.6}
