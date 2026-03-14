@@ -19,6 +19,8 @@ interface InscriptionActive {
   mensualite: number
   frais_tenue: number
   contrat_path: string | null
+  annee_academique_id: number | null
+  annee_academique: { id: number; libelle: string } | null
   filiere: { id: number; nom: string; code: string } | null
   niveau_entree: { id: number; nom: string } | null
   niveau_bourse: { id: number; nom: string; pourcentage: number } | null
