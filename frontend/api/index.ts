@@ -295,19 +295,25 @@ app.delete('/matieres/:id', requireAuth, role('dg'), async (c) => {
 
 // ─── NIVEAUX ENTREE ───────────────────────────────────────────────────────────
 app.get('/niveaux-entree', requireAuth, async (c) => {
-  const { rows } = await pool.query('SELECT * FROM niveaux_entree ORDER BY nom')
+  const { rows } = await pool.query('SELECT * FROM niveaux_entree ORDER BY ordre, nom')
   return c.json(rows)
 })
 
 app.post('/niveaux-entree', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
-  const { rows } = await pool.query('INSERT INTO niveaux_entree (nom,description) VALUES ($1,$2) RETURNING *', [b.nom, b.description || null])
+  const { rows } = await pool.query(
+    'INSERT INTO niveaux_entree (nom,code,est_superieur_bac,ordre,actif) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+    [b.nom, b.code || '', b.est_superieur_bac ?? false, b.ordre ?? 0, b.actif ?? true]
+  )
   return c.json(rows[0], 201)
 })
 
 app.put('/niveaux-entree/:id', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
-  const { rows } = await pool.query('UPDATE niveaux_entree SET nom=$1,description=$2 WHERE id=$3 RETURNING *', [b.nom, b.description || null, c.req.param('id')])
+  const { rows } = await pool.query(
+    'UPDATE niveaux_entree SET nom=$1,code=$2,est_superieur_bac=$3,ordre=$4,actif=$5 WHERE id=$6 RETURNING *',
+    [b.nom, b.code || '', b.est_superieur_bac ?? false, b.ordre ?? 0, b.actif ?? true, c.req.param('id')]
+  )
   return c.json(rows[0])
 })
 
