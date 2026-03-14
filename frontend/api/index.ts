@@ -570,7 +570,18 @@ app.put('/etudiants/:id', requireAuth, role('secretariat', 'dg'), async (c) => {
 })
 
 app.post('/etudiants/:id/photo', requireAuth, role('secretariat', 'dg'), async (c) => {
-  return c.json({ message: 'Upload photo: utilisez Cloudinary et mettez à jour photo_path via PUT /etudiants/:id.' })
+  const body = await c.req.parseBody()
+  const file = body['photo'] as File | undefined
+  if (!file || !file.type.startsWith('image/')) return c.json({ message: 'Fichier image requis.' }, 400)
+  const arrayBuffer = await file.arrayBuffer()
+  const base64 = Buffer.from(arrayBuffer).toString('base64')
+  const dataUrl = `data:${file.type};base64,${base64}`
+  const { rows } = await pool.query(
+    'UPDATE etudiants SET photo_path=$1 WHERE id=$2 RETURNING photo_path',
+    [dataUrl, c.req.param('id')]
+  )
+  if (!rows[0]) return c.json({ message: 'Étudiant introuvable.' }, 404)
+  return c.json({ photo_path: rows[0].photo_path })
 })
 
 // ─── INSCRIPTIONS ─────────────────────────────────────────────────────────────

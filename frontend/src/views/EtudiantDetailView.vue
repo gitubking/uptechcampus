@@ -55,9 +55,241 @@ async function uploadPhoto(e: Event) {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     etudiant.value.photo_path = data.photo_path
+  } catch (err: any) {
+    alert(err?.response?.data?.message || 'Erreur upload photo')
   } finally {
     photoLoading.value = false
   }
+}
+
+// --- Carte étudiant ---
+const showCard = ref(false)
+const cardCanvas = ref<HTMLCanvasElement | null>(null)
+const cardGenerated = ref(false)
+
+async function generateCard() {
+  showCard.value = true
+  cardGenerated.value = false
+  await new Promise(r => setTimeout(r, 80))
+  const canvas = cardCanvas.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')!
+
+  // Landscape card — proportional to 85.6 × 54 mm
+  const W = 856, H = 540
+  canvas.width = W
+  canvas.height = H
+
+  const annee = etudiant.value.inscriptions?.[0]?.annee_academique?.libelle ?? '2025-2026'
+  const filiere = etudiant.value.inscriptions?.[0]?.classe?.filiere?.nom ?? ''
+  const niveauAcad = etudiant.value.inscriptions?.[0]?.classe?.nom ?? filiere
+
+  // ── 1. Fond blanc ───────────────────────────────────────────────────
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, W, H)
+
+  // ── 2. Bande noire verticale gauche ─────────────────────────────────
+  const stripW = 58
+  ctx.fillStyle = '#111111'
+  ctx.fillRect(0, 0, stripW, H)
+
+  // Texte vertical dans la bande
+  ctx.save()
+  ctx.translate(stripW / 2, H / 2)
+  ctx.rotate(-Math.PI / 2)
+  ctx.fillStyle = '#ffffff'
+  ctx.font = '13px Arial'
+  ctx.textAlign = 'center'
+  ctx.fillText("Institut supérieur de formation aux nouveaux métiers de l'Informatique et de la Communication", 0, 6)
+  ctx.restore()
+
+  // ── 3. Zone haute (photo + titre) ───────────────────────────────────
+  const topH = 290
+  const contentX = stripW + 18
+
+  // Photo
+  const photoX = contentX, photoY = 22, photoW = 178, photoH = 230
+  ctx.strokeStyle = '#555555'
+  ctx.lineWidth = 1.5
+  ctx.strokeRect(photoX, photoY, photoW, photoH)
+  ctx.fillStyle = '#f2f2f2'
+  ctx.fillRect(photoX + 1, photoY + 1, photoW - 2, photoH - 2)
+
+  if (etudiant.value.photo_path?.startsWith('data:')) {
+    await drawImage(ctx, etudiant.value.photo_path, photoX + 1, photoY + 1, photoW - 2, photoH - 2)
+  } else {
+    ctx.fillStyle = '#e8e8e8'
+    ctx.fillRect(photoX + 1, photoY + 1, photoW - 2, photoH - 2)
+    ctx.fillStyle = '#999999'
+    ctx.font = 'bold 64px Arial'
+    ctx.textAlign = 'center'
+    ctx.fillText(
+      `${etudiant.value.prenom[0]}${etudiant.value.nom[0]}`.toUpperCase(),
+      photoX + photoW / 2, photoY + photoH / 2 + 24
+    )
+    ctx.textAlign = 'left'
+  }
+
+  // Titre CARTE D'ETUDIANT
+  const titleX = photoX + photoW + 28
+  ctx.fillStyle = '#111111'
+  ctx.font = 'bold 42px Arial'
+  ctx.fillText("CARTE D'ETUDIANT", titleX, photoY + 58)
+
+  // Année en rouge
+  ctx.fillStyle = '#E30613'
+  ctx.font = 'bold 38px Arial'
+  ctx.fillText(annee, titleX, photoY + 112)
+
+  // ── 4. Bande diagonale rouge/noir ───────────────────────────────────
+  const stripeY = topH
+  const stripeH = 38
+  const stripeStartX = stripW
+  const stripeWidth = W - stripW
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(stripeStartX, stripeY, stripeWidth, stripeH)
+  ctx.clip()
+
+  const sw = 24 // largeur d'une bande
+  for (let i = -stripeH * 2; i < stripeWidth + stripeH * 2; i += sw * 2) {
+    // bande rouge
+    ctx.fillStyle = '#E30613'
+    ctx.beginPath()
+    ctx.moveTo(stripeStartX + i, stripeY)
+    ctx.lineTo(stripeStartX + i + sw, stripeY)
+    ctx.lineTo(stripeStartX + i + sw + stripeH, stripeY + stripeH)
+    ctx.lineTo(stripeStartX + i + stripeH, stripeY + stripeH)
+    ctx.closePath()
+    ctx.fill()
+    // bande noire
+    ctx.fillStyle = '#111111'
+    ctx.beginPath()
+    ctx.moveTo(stripeStartX + i + sw, stripeY)
+    ctx.lineTo(stripeStartX + i + sw * 2, stripeY)
+    ctx.lineTo(stripeStartX + i + sw * 2 + stripeH, stripeY + stripeH)
+    ctx.lineTo(stripeStartX + i + sw + stripeH, stripeY + stripeH)
+    ctx.closePath()
+    ctx.fill()
+  }
+  ctx.restore()
+
+  // ── 5. Zone basse ───────────────────────────────────────────────────
+  const botY = stripeY + stripeH + 16
+
+  // Logo UPTECH (droite)
+  const logoX = W - 185, logoY = botY
+  // Cercle rouge divisé en 4
+  const cr = 38, cx = logoX + cr, cy = logoY + cr
+  ctx.fillStyle = '#E30613'
+  ctx.beginPath()
+  ctx.arc(cx, cy, cr, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(cx - cr, cy - 4, cr * 2, 8)
+  ctx.fillRect(cx - 4, cy - cr, 8, cr * 2)
+  // Demi-cercle blanc bas-gauche
+  ctx.fillStyle = '#ffffff'
+  ctx.beginPath()
+  ctx.arc(cx, cy, cr * 0.55, Math.PI / 2, Math.PI)
+  ctx.lineTo(cx, cy)
+  ctx.closePath()
+  ctx.fill()
+
+  // Texte "UP'TECH"
+  ctx.fillStyle = '#111111'
+  ctx.font = 'bold 32px Arial'
+  ctx.fillText("UP'TECH", logoX + cr * 2 + 12, logoY + 28)
+  ctx.font = '13px Arial'
+  ctx.fillStyle = '#555555'
+  ctx.fillText('Formation', logoX + cr * 2 + 12, logoY + 48)
+
+  // Infos étudiant (droite, sous logo)
+  const infoX = logoX - 20, infoY = logoY + cr * 2 + 18
+  ctx.fillStyle = '#111111'
+  ctx.font = '14px Arial'
+  const lineH = 22
+  ctx.fillText(`Prénom(s) : ${etudiant.value.prenom}`, infoX, infoY)
+  ctx.fillText(`Nom : ${etudiant.value.nom.toUpperCase()}`, infoX, infoY + lineH)
+  ctx.fillText(`Niveau académique : ${niveauAcad || '—'}`, infoX, infoY + lineH * 2)
+  ctx.font = 'bold 14px Arial'
+  ctx.fillStyle = '#E30613'
+  ctx.fillText(`Matricule : ${etudiant.value.numero_etudiant}`, infoX, infoY + lineH * 3)
+
+  // Coordonnées (gauche bas)
+  const addrX = contentX, addrY = botY + 14
+  ctx.fillStyle = '#333333'
+  ctx.font = '13px Arial'
+  const bullet = '• '
+  ctx.fillText(bullet + "Sicap Amitié 1, Villa N° 3031", addrX, addrY)
+  ctx.fillText(bullet + "33 821 34 25 / 77 841 50 44", addrX, addrY + 22)
+  ctx.fillText(bullet + "uptechformation@gmail.com", addrX, addrY + 44)
+  ctx.fillStyle = '#E30613'
+  ctx.fillText(bullet + "www.uptechformation.com", addrX, addrY + 66)
+
+  // Bordure arrondie simulée (fine ligne gris)
+  ctx.strokeStyle = '#cccccc'
+  ctx.lineWidth = 2
+  roundRect(ctx, 1, 1, W - 2, H - 2, 18)
+  ctx.stroke()
+
+  cardGenerated.value = true
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + w - r, y)
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r)
+  ctx.lineTo(x + w, y + h - r)
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
+  ctx.lineTo(x + r, y + h)
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r)
+  ctx.lineTo(x, y + r)
+  ctx.quadraticCurveTo(x, y, x + r, y)
+  ctx.closePath()
+}
+
+function drawImage(ctx: CanvasRenderingContext2D, src: string, x: number, y: number, w: number, h: number): Promise<void> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      const ratio = Math.max(w / img.width, h / img.height)
+      const sw = img.width * ratio, sh = img.height * ratio
+      ctx.drawImage(img, x + (w - sw) / 2, y + (h - sh) / 2, sw, sh)
+      resolve()
+    }
+    img.onerror = () => resolve()
+    img.src = src
+  })
+}
+
+function downloadCard() {
+  const canvas = cardCanvas.value
+  if (!canvas) return
+  const link = document.createElement('a')
+  link.download = `carte-${etudiant.value.numero_etudiant}.png`
+  link.href = canvas.toDataURL('image/png')
+  link.click()
+}
+
+function printCard() {
+  const canvas = cardCanvas.value
+  if (!canvas) return
+  const dataUrl = canvas.toDataURL('image/png')
+  const win = window.open('', '_blank')!
+  win.document.write(`
+    <html><head><title>Carte étudiant</title>
+    <style>
+      body { margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #f5f5f5; }
+      img { max-width: 640px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+      @media print { body { background: white; } img { box-shadow: none; } }
+    </style></head>
+    <body><img src="${dataUrl}" /></body></html>
+  `)
+  win.document.close()
+  win.onload = () => { win.print() }
 }
 
 // --- Upload document ---
@@ -139,7 +371,7 @@ function formatFileSize(bytes: number) {
         <div class="relative flex-shrink-0">
           <div class="w-20 h-20 rounded-xl overflow-hidden bg-red-100 flex items-center justify-center">
             <img v-if="etudiant.photo_path"
-              :src="`http://localhost:8000/storage/${etudiant.photo_path}`"
+              :src="etudiant.photo_path"
               class="w-full h-full object-cover" />
             <span v-else class="text-2xl font-bold text-red-700 uppercase">
               {{ etudiant.prenom[0] }}{{ etudiant.nom[0] }}
@@ -147,10 +379,15 @@ function formatFileSize(bytes: number) {
           </div>
           <button v-if="canWrite" @click="photoInput?.click()"
             :disabled="photoLoading"
+            title="Changer la photo"
             class="absolute -bottom-1.5 -right-1.5 w-6 h-6 bg-white border border-gray-200 rounded-full flex items-center justify-center shadow-sm hover:bg-gray-50 transition">
-            <svg class="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg v-if="!photoLoading" class="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <svg v-else class="w-3 h-3 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
             </svg>
           </button>
           <input ref="photoInput" type="file" accept="image/*" class="hidden" @change="uploadPhoto" />
@@ -158,18 +395,28 @@ function formatFileSize(bytes: number) {
 
         <!-- Infos principales -->
         <div class="flex-1 min-w-0">
-          <div class="flex items-start justify-between gap-4">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
             <div>
               <h1 class="text-xl font-bold text-gray-900">{{ etudiant.prenom }} {{ etudiant.nom }}</h1>
               <p class="text-sm text-gray-500 font-mono mt-0.5">{{ etudiant.numero_etudiant }}</p>
             </div>
-            <span
-              v-if="etudiant.inscriptions?.[0]"
-              class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium flex-shrink-0"
-              :class="statutClass[etudiant.inscriptions[0].statut] ?? 'bg-gray-100 text-gray-600'"
-            >
-              {{ statutLabel[etudiant.inscriptions[0].statut] ?? etudiant.inscriptions[0].statut }}
-            </span>
+            <div class="flex items-center gap-2 flex-wrap">
+              <span
+                v-if="etudiant.inscriptions?.[0]"
+                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium flex-shrink-0"
+                :class="statutClass[etudiant.inscriptions[0].statut] ?? 'bg-gray-100 text-gray-600'"
+              >
+                {{ statutLabel[etudiant.inscriptions[0].statut] ?? etudiant.inscriptions[0].statut }}
+              </span>
+              <!-- Bouton Carte étudiant -->
+              <button @click="generateCard"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-700 transition">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2" />
+                </svg>
+                Carte étudiant
+              </button>
+            </div>
           </div>
           <div class="mt-3 flex flex-wrap gap-4 text-sm text-gray-600">
             <span class="flex items-center gap-1.5">
@@ -250,23 +497,10 @@ function formatFileSize(bytes: number) {
                   Parcours : {{ insc.parcours.nom }}
                 </p>
               </div>
-              <div class="flex items-center gap-2 flex-shrink-0">
-                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
-                  :class="statutClass[insc.statut] ?? 'bg-gray-100 text-gray-600'">
-                  {{ statutLabel[insc.statut] ?? insc.statut }}
-                </span>
-                <a
-                  v-if="['en_examen', 'inscrit_actif', 'diplome'].includes(insc.statut)"
-                  :href="`http://localhost:8000/api/inscriptions/${insc.id}/contrat-pdf`"
-                  target="_blank"
-                  class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 transition"
-                >
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Contrat PDF
-                </a>
-              </div>
+              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
+                :class="statutClass[insc.statut] ?? 'bg-gray-100 text-gray-600'">
+                {{ statutLabel[insc.statut] ?? insc.statut }}
+              </span>
             </div>
             <div class="mt-3 flex gap-4 text-xs text-gray-500">
               <span>Date : {{ formatDate(insc.created_at) }}</span>
@@ -278,7 +512,6 @@ function formatFileSize(bytes: number) {
 
       <!-- Onglet : Documents -->
       <div v-else-if="activeTab === 'documents'">
-        <!-- Upload -->
         <div v-if="canWrite" class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
           <h3 class="text-sm font-medium text-gray-700 mb-3">Ajouter un document</h3>
           <div class="flex items-center gap-3">
@@ -296,8 +529,6 @@ function formatFileSize(bytes: number) {
             <input ref="docInput" type="file" class="hidden" @change="uploadDocument" />
           </div>
         </div>
-
-        <!-- Liste documents -->
         <div v-if="!etudiant.documents?.length" class="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
           Aucun document enregistré
         </div>
@@ -313,19 +544,16 @@ function formatFileSize(bytes: number) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="doc in etudiant.documents" :key="doc.id"
-                class="border-b border-gray-100 last:border-0">
+              <tr v-for="doc in etudiant.documents" :key="doc.id" class="border-b border-gray-100 last:border-0">
                 <td class="px-5 py-3">
-                  <a :href="`http://localhost:8000/storage/${doc.fichier_path}`" target="_blank"
-                    class="text-red-600 hover:underline flex items-center gap-2"
-                    @click.stop>
-                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <span class="text-gray-700 flex items-center gap-2">
+                    <svg class="w-4 h-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                     </svg>
                     {{ doc.nom_fichier }}
-                  </a>
+                  </span>
                 </td>
-                <td class="px-5 py-3 text-gray-600 capitalize">{{ doc.type_document.replace('_', ' ') }}</td>
+                <td class="px-5 py-3 text-gray-600 capitalize">{{ doc.type_document?.replace('_', ' ') }}</td>
                 <td class="px-5 py-3 text-gray-500">{{ formatFileSize(doc.taille_fichier) }}</td>
                 <td class="px-5 py-3 text-gray-500">{{ formatDate(doc.created_at) }}</td>
                 <td class="px-5 py-3">
@@ -344,4 +572,64 @@ function formatFileSize(bytes: number) {
 
     </template>
   </div>
+
+  <!-- Modal Carte étudiant -->
+  <Teleport to="body">
+    <div v-if="showCard" class="card-overlay" @click.self="showCard = false">
+      <div class="card-modal">
+        <div class="card-modal-header">
+          <div>
+            <h2 class="card-modal-title">Carte d'étudiant</h2>
+            <p class="card-modal-sub">Aperçu — 85.6 × 54 mm (format carte bancaire)</p>
+          </div>
+          <button @click="showCard = false" class="card-close">✕</button>
+        </div>
+        <div class="card-modal-body">
+          <canvas ref="cardCanvas" class="card-canvas" />
+          <p v-if="!cardGenerated" class="card-loading">Génération en cours…</p>
+        </div>
+        <div v-if="cardGenerated" class="card-modal-footer">
+          <button @click="printCard" class="uc-btn-outline">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+            </svg>
+            Imprimer
+          </button>
+          <button @click="downloadCard" class="uc-btn-primary">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Télécharger PNG
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
+
+<style scoped>
+.card-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.card-modal {
+  background: #fff; border-radius: 10px; width: 100%; max-width: 700px;
+  display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.card-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 22px; border-bottom: 1px solid #f0f0f0;
+}
+.card-modal-title { font-size: 15px; font-weight: 700; color: #111; margin: 0; }
+.card-modal-sub { font-size: 11px; color: #aaa; margin: 3px 0 0; }
+.card-close { background: none; border: none; cursor: pointer; color: #aaa; font-size: 20px; line-height: 1; }
+.card-modal-body { padding: 20px 22px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.card-canvas { width: 100%; max-width: 640px; height: auto; border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+.card-loading { font-size: 13px; color: #aaa; }
+.card-modal-footer {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  padding: 14px 22px; border-top: 1px solid #f0f0f0; background: #fafafa;
+}
+</style>
