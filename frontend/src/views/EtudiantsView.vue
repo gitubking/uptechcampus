@@ -680,6 +680,149 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
   if (w) { w.document.write(html); w.document.close() }
 }
 
+// ── Certificat d'inscription ──────────────────────────────────────────
+function printCertificat(etd: any, insc: any, anneeLabel?: string) {
+  const val = (v: any) => v || '—'
+  const fmtDate = (d: string | null | undefined) => {
+    if (!d) return '—'
+    try { return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) }
+    catch { return d }
+  }
+  const filiere = insc?.filiere?.nom ?? '—'
+  const niveau = insc?.niveau_entree?.nom ?? '—'
+  const annee = anneeLabel ?? insc?.annee_academique?.libelle ?? '—'
+  const logoUrl = `${window.location.origin}/icons/icon-192.png`
+  const refNum = `UPTECH/${new Date().getFullYear()}/${String(etd.id ?? Math.floor(Math.random()*9000+1000)).padStart(4,'0')}`
+  const dateJour = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+  const dots = '◦ '.repeat(80)
+  const civilite = (etd.genre === 'F' || etd.civilite === 'Mme') ? 'Madame' : 'Monsieur'
+
+  const html = `<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8"/>
+<title>Certificat d'inscription — ${etd.prenom} ${etd.nom}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padding:6mm 15mm}
+@page{size:A4 portrait;margin:0}
+@media print{body{padding:6mm 15mm}}
+
+/* ── En-tête ── */
+.hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:4px;gap:0}
+.hdr img{width:113px;height:113px;object-fit:contain;display:block;margin-bottom:-18px}
+.hdr-info{text-align:center;line-height:1.4}
+.hdr-info .tagline{font-size:10px;font-weight:700;color:#111;margin-bottom:1px}
+.hdr-info .meta{font-size:9px;color:#333;line-height:1.4;margin-bottom:1px}
+.hdr-info .agree{font-size:8.5px;color:#333;font-weight:700;text-decoration:underline}
+.dots{font-size:8px;color:#E30613;letter-spacing:1px;overflow:hidden;white-space:nowrap;margin:8px 0 14px;opacity:.7}
+
+/* ── Référence ── */
+.ref-row{display:flex;justify-content:space-between;font-size:9.5px;color:#555;margin-bottom:28px}
+.ref-row span strong{color:#111}
+
+/* ── Titre ── */
+.cert-title{text-align:center;margin-bottom:32px}
+.cert-title h2{font-size:18px;font-weight:900;text-transform:uppercase;letter-spacing:3px;color:#111;border-bottom:3px solid #E30613;display:inline-block;padding-bottom:6px}
+.cert-title p{font-size:10px;color:#888;margin-top:6px;letter-spacing:1px;text-transform:uppercase}
+
+/* ── Corps ── */
+.cert-body{font-size:12px;line-height:2;color:#111;text-align:justify;margin:0 10mm 28px}
+.cert-body .highlight{font-weight:700;color:#111;font-size:13px}
+.cert-body .underline{text-decoration:underline;font-weight:600}
+
+/* ── Cadre info ── */
+.cert-card{border:1px solid #ccc;border-left:4px solid #E30613;padding:12px 16px;margin:0 10mm 28px;background:#fafafa}
+.cert-card table{width:100%;border-collapse:collapse}
+.cert-card td{padding:4px 8px;font-size:11px;vertical-align:middle}
+.cert-card td:first-child{font-weight:700;color:#555;width:38%;white-space:nowrap}
+
+/* ── Usage ── */
+.cert-usage{font-size:10px;color:#555;font-style:italic;text-align:center;margin:0 10mm 32px;padding:8px;border:1px dashed #ccc}
+
+/* ── Signature ── */
+.cert-sign{display:flex;justify-content:flex-end;margin:0 10mm}
+.cert-sign-box{text-align:center;min-width:200px}
+.cert-sign-box .sign-place{font-size:10px;color:#555;margin-bottom:4px}
+.cert-sign-box .sign-name{font-size:10px;font-weight:700;color:#111;margin-bottom:2px}
+.cert-sign-box .sign-title{font-size:9px;color:#888}
+.cert-sign-box .sign-zone{height:60px;border-bottom:1px solid #bbb;margin:8px 0 4px}
+
+/* ── Pied de page ── */
+.footer-bar{margin-top:20px;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
+</style>
+</head><body>
+
+<!-- En-tête -->
+<div class="hdr">
+  <img src="${logoUrl}" alt="UP'TECH"/>
+  <div class="hdr-info">
+    <div class="tagline">Institut Supérieur de Formation aux Nouveaux Métiers de l'Informatique et de la Communication</div>
+    <div class="meta">NINEA 006118310 &nbsp;_&nbsp; BP 50281 RP DAKAR</div>
+    <div class="agree">Agréé par l'État&nbsp;: N°RepSEN/Ensup-priv/AP/387-2021_N°14191/MFPAA/SG/DFPT</div>
+  </div>
+</div>
+<div class="dots">${dots}</div>
+
+<!-- Référence & date -->
+<div class="ref-row">
+  <span>Réf. : <strong>${refNum}</strong></span>
+  <span>Dakar, le <strong>${dateJour}</strong></span>
+</div>
+
+<!-- Titre -->
+<div class="cert-title">
+  <h2>Certificat d'Inscription</h2>
+  <p>Année académique ${annee}</p>
+</div>
+
+<!-- Corps du certificat -->
+<div class="cert-body">
+  Le Directeur Général de l'Institut Supérieur de Formation UP'TECH certifie que&nbsp;:
+  <br><br>
+  <span class="highlight">${civilite} ${etd.prenom?.toUpperCase()} ${etd.nom?.toUpperCase()}</span>
+  ${etd.date_naissance ? `, né(e) le <span class="underline">${fmtDate(etd.date_naissance)}</span> à <span class="underline">${val(etd.lieu_naissance)}</span>,` : ''}
+  ${etd.cni_numero ? `porteur/porteuse de la CNI N° <span class="underline">${etd.cni_numero}</span>,` : ''}
+  <br><br>
+  est régulièrement inscrit(e) dans notre établissement pour l'année académique
+  <span class="underline">${annee}</span>, dans la filière ci-dessous&nbsp;:
+</div>
+
+<!-- Cadre informations -->
+<div class="cert-card">
+  <table>
+    <tr><td>Numéro étudiant</td><td>${etd.numero_etudiant ?? '—'}</td></tr>
+    <tr><td>Filière</td><td>${filiere}</td></tr>
+    <tr><td>Niveau d'entrée</td><td>${niveau}</td></tr>
+    <tr><td>Classe</td><td>${insc?.classe?.nom ?? 'Pool (à affecter)'}</td></tr>
+    <tr><td>Statut</td><td>${(statutLabel as Record<string,string>)[insc?.statut] ?? insc?.statut ?? '—'}</td></tr>
+  </table>
+</div>
+
+<!-- Mention d'usage -->
+<div class="cert-usage">
+  Ce certificat est délivré à l'intéressé(e) pour servir et valoir ce que de droit,
+  notamment pour les démarches administratives, bancaires et auprès des autorités compétentes.
+</div>
+
+<!-- Signature direction -->
+<div class="cert-sign">
+  <div class="cert-sign-box">
+    <div class="sign-place">Dakar, le ${dateJour}</div>
+    <div class="sign-zone"></div>
+    <div class="sign-name">Le Directeur Général</div>
+    <div class="sign-title">UP'TECH Formation</div>
+  </div>
+</div>
+
+<div class="footer-bar">UP'TECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal &nbsp;|&nbsp; +221 77 841 50 44 / 77 618 45 52 &nbsp;|&nbsp; uptechformation.com</div>
+
+<script>window.onload=()=>{window.print()}<\/script>
+</body></html>`
+
+  const w = window.open('', '_blank', 'width=820,height=1100')
+  if (w) { w.document.write(html); w.document.close() }
+}
+
 const avatarColors = ['#E30613','#3b82f6','#7c3aed','#f97316','#0891b2','#be185d','#15803d','#92400e','#1d4ed8']
 function avatarColor(prenom: string, nom: string): string {
   const idx = ((prenom.charCodeAt(0) ?? 0) + (nom.charCodeAt(0) ?? 0)) % avatarColors.length
@@ -1125,10 +1268,13 @@ onMounted(() => {
                     </div>
                   </div>
 
-                  <!-- Fiche d'inscription -->
-                  <div style="margin-bottom:14px;">
+                  <!-- Documents imprimables -->
+                  <div style="margin-bottom:14px;display:flex;flex-direction:column;gap:6px;">
                     <button @click="printFiche(currentEtudiant, currentInscription)" class="action-btn action-btn-ghost" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;">
                       🖨️ Fiche d'inscription
+                    </button>
+                    <button @click="printCertificat(currentEtudiant, currentInscription)" class="action-btn action-btn-ghost" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;">
+                      📄 Certificat d'inscription
                     </button>
                   </div>
 
