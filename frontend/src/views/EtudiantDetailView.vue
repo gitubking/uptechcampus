@@ -131,11 +131,11 @@ async function generateCard() {
 
   // "CARTE D'ETUDIANT" — gras noir
   ctx.fillStyle = '#111111'
-  ctx.font = 'bold 30px Arial'
+  ctx.font = 'bold 24px Arial'
   ctx.fillText("CARTE D'ETUDIANT", pad, 45)
 
   // Année — gras noir (même style)
-  ctx.font = 'bold 28px Arial'
+  ctx.font = 'bold 24px Arial'
   ctx.fillText(annee, pad, 83)
 
   // Photo
