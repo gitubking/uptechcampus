@@ -203,6 +203,7 @@ const inscriptionEditForm = ref({
   filiere_id: null as number | null,
   niveau_entree_id: null as number | null,
   niveau_bourse_id: null as number | null,
+  annee_academique_id: null as number | null,
   frais_tenue: 0,
 })
 const filteredFilieresForEdit = computed(() =>
@@ -383,6 +384,7 @@ function openEditInscription() {
     filiere_id: insc.filiere?.id ?? null,
     niveau_entree_id: insc.niveau_entree?.id ?? null,
     niveau_bourse_id: insc.niveau_bourse?.id ?? null,
+    annee_academique_id: insc.annee_academique?.id ?? insc.annee_academique_id ?? null,
     frais_tenue: insc.frais_tenue ?? 0,
   }
   editingInscription.value = true
