@@ -182,22 +182,23 @@ async function generateCard() {
   // ── 5. Colonne DROITE : logo + infos étudiant + coordonnées ──────────
   const rightX = stripeX + stripeW + 14
 
-  // Logo UPTECH
-  const logoSize = 58
-  drawUptechLogo(ctx, rightX, pad, logoSize)
+  // Logo UPTECH — image réelle si disponible, sinon version dessinée
+  const logoH = 62
+  const logoLoaded = await loadLogoImage(ctx, rightX, pad, logoH)
+  if (!logoLoaded) {
+    // Fallback : logo dessiné + texte
+    const logoSize = 58
+    drawUptechLogo(ctx, rightX, pad, logoSize)
+    ctx.fillStyle = '#111111'
+    ctx.font = 'bold 34px Arial'
+    const uptechW2 = ctx.measureText("UP'TECH").width
+    ctx.fillText("UP'TECH", rightX + logoSize + 10, pad + logoSize * 0.68)
+    ctx.fillStyle = '#E30613'
+    ctx.fillRect(rightX, pad + logoSize + 6, logoSize + 12 + uptechW2, 4)
+  }
 
-  // "UP'TECH" à droite du logo
-  ctx.fillStyle = '#111111'
-  ctx.font = 'bold 34px Arial'
-  const uptechW = ctx.measureText("UP'TECH").width
-  ctx.fillText("UP'TECH", rightX + logoSize + 10, pad + logoSize * 0.68)
-
-  // Ligne rouge sous logo + texte
-  ctx.fillStyle = '#E30613'
-  ctx.fillRect(rightX, pad + logoSize + 6, logoSize + 12 + uptechW, 4)
-
-  // Infos étudiant
-  let iy = pad + logoSize + 26
+  // Infos étudiant (démarrent sous le logo, quelle que soit la méthode)
+  let iy = pad + logoH + 18
   const ilh = 23
   const ifields = [
     { label: 'Prénom (s) : ', value: etudiant.value.prenom },
@@ -245,6 +246,22 @@ async function generateCard() {
   ctx.stroke()
 
   cardGenerated.value = true
+}
+
+// Charge le logo UPTECH depuis /uptech-logo.png (fichier dans public/)
+// Retourne true si chargé avec succès, false sinon (fallback dessiné)
+function loadLogoImage(ctx: CanvasRenderingContext2D, x: number, y: number, height: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      const ratio = height / img.height
+      const w = img.width * ratio
+      ctx.drawImage(img, x, y, w, height)
+      resolve(true)
+    }
+    img.onerror = () => resolve(false)
+    img.src = '/uptech-logo.svg'
+  })
 }
 
 // Logo UPTECH : carré arrondi rouge + cercle divisé en 4 quadrants (TL=rouge, TR=noir, BR=rouge, BL=noir+arc blanc)
