@@ -449,7 +449,7 @@ body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;pa
 
 /* ── En-tête ── */
 .hdr{display:flex;align-items:center;gap:16px;margin-bottom:6px}
-.hdr img{width:72px;height:72px;object-fit:contain;flex-shrink:0}
+.hdr img{width:90px;height:90px;object-fit:contain;flex-shrink:0}
 .hdr-info{flex:1;text-align:center}
 .hdr-info h1{font-size:28px;font-weight:900;color:#E30613;letter-spacing:3px;margin-bottom:2px}
 .hdr-info .tagline{font-size:10px;font-weight:700;color:#111;margin-bottom:3px}
@@ -492,7 +492,6 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 <div class="hdr">
   <img src="${logoUrl}" alt="UP'TECH"/>
   <div class="hdr-info">
-    <h1>UP'TECH</h1>
     <div class="tagline">Institut Supérieur de Formation aux Nouveaux Métiers de l'Informatique et de la Communication</div>
     <div class="meta">NINEA 006118310 &nbsp;_&nbsp; BP 50281 RP DAKAR</div>
     <div class="agree">Agréé par l'État&nbsp;: N°RepSEN/Ensup-priv/AP/387-2021_N°14191/MFPAA/SG/DFPT</div>
