@@ -12,12 +12,15 @@ function buildPoolConfig() {
   try {
     const u = new URL(rawUrl)
     u.searchParams.delete('sslmode')
+    // pgbouncer=true → transaction mode (required for serverless / Vercel)
+    u.searchParams.set('pgbouncer', 'true')
     return { connectionString: u.toString(), ssl: { rejectUnauthorized: false } }
   } catch {
     return { connectionString: rawUrl, ssl: { rejectUnauthorized: false } }
   }
 }
-const pool = new Pool({ ...buildPoolConfig(), max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 })
+// max:2 — limite stricte pour serverless (chaque fonction = nouvelle instance)
+const pool = new Pool({ ...buildPoolConfig(), max: 2, idleTimeoutMillis: 10000, connectionTimeoutMillis: 8000 })
 
 const JWT_SECRET = process.env.JWT_SECRET || 'uptech-dev-secret-2026'
 
