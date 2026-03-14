@@ -485,6 +485,23 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 /* ── Pied de page ── */
 .mention{margin-top:16px;font-size:8.5px;color:#777;text-align:center;font-style:italic}
 .footer-bar{margin-top:10px;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
+
+/* ── Page 2 : Règlement intérieur ── */
+.page2{page-break-before:always;padding-top:10mm}
+.ri-hdr{text-align:center;margin-bottom:16px}
+.ri-hdr h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:2px;border:2px solid #E30613;display:inline-block;padding:6px 28px;color:#E30613}
+.ri-hdr p{font-size:9.5px;color:#555;margin-top:5px}
+.ri-art{margin-bottom:10px}
+.ri-art-title{font-size:10px;font-weight:700;text-transform:uppercase;color:#fff;background:#111;padding:3px 10px;margin-bottom:5px;display:block}
+.ri-art ul{margin:0;padding-left:18px;list-style:disc}
+.ri-art ul li{font-size:10px;color:#222;line-height:1.6;margin-bottom:1px}
+.ri-sign{margin-top:28px;border-top:2px solid #E30613;padding-top:16px}
+.ri-sign-title{font-size:10px;font-weight:700;text-transform:uppercase;color:#E30613;margin-bottom:12px;text-align:center;letter-spacing:1px}
+.ri-sign-text{font-size:9.5px;color:#333;text-align:center;margin-bottom:20px;font-style:italic}
+.ri-sign-boxes{display:flex;gap:20px;margin-top:8px}
+.ri-sign-box{flex:1;border:1px solid #ccc;padding:12px 14px}
+.ri-sign-box h4{font-size:9px;font-weight:700;text-transform:uppercase;color:#555;margin-bottom:50px;border-bottom:1px dashed #ddd;padding-bottom:5px}
+.ri-sign-box .sign-line{border-top:1px solid #bbb;padding-top:4px;font-size:9px;color:#aaa;text-align:center}
 </style>
 </head><body>
 
@@ -557,6 +574,104 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 
 <div class="mention">En signant cette fiche, l'étudiant(e) reconnaît avoir pris connaissance du règlement intérieur de l'établissement et s'engage à respecter ses obligations académiques et financières.</div>
 <div class="footer-bar">Amitié 1, Villa n°3031 — Dakar, Sénégal &nbsp;|&nbsp; +221 77 841 50 44 / 77 618 45 52 &nbsp;|&nbsp; uptechformation.com</div>
+
+<!-- ═══════════════════════════════════════════════
+     PAGE 2 — RÈGLEMENT INTÉRIEUR
+     ═══════════════════════════════════════════════ -->
+<div class="page2">
+
+  <!-- En-tête page 2 -->
+  <div class="ri-hdr">
+    <h2>Règlement Intérieur</h2>
+    <p>UP'TECH — Institut Supérieur de Formation aux Nouveaux Métiers de l'Informatique et de la Communication</p>
+  </div>
+
+  <!-- Art. 1 -->
+  <div class="ri-art">
+    <span class="ri-art-title">Article 1 — Assiduité et ponctualité</span>
+    <ul>
+      <li>La présence aux cours, travaux pratiques et examens est <strong>obligatoire</strong>.</li>
+      <li>Tout retard ou absence doit être justifié dans les 48 heures auprès du secrétariat.</li>
+      <li>Au-delà de 30 % d'absences non justifiées, l'étudiant(e) peut être exclu(e) des examens.</li>
+      <li>Les retards répétés sont sanctionnés et signalés au responsable pédagogique.</li>
+    </ul>
+  </div>
+
+  <!-- Art. 2 -->
+  <div class="ri-art">
+    <span class="ri-art-title">Article 2 — Tenue et comportement</span>
+    <ul>
+      <li>Une tenue correcte et décente est exigée au sein de l'établissement.</li>
+      <li>Le respect mutuel entre étudiants, enseignants et personnel administratif est impératif.</li>
+      <li>Tout comportement irrespectueux, violent ou discriminatoire entraîne des sanctions disciplinaires.</li>
+      <li>L'usage du téléphone portable est interdit en salle de cours, sauf autorisation expresse.</li>
+    </ul>
+  </div>
+
+  <!-- Art. 3 -->
+  <div class="ri-art">
+    <span class="ri-art-title">Article 3 — Obligations financières</span>
+    <ul>
+      <li>Les frais d'inscription sont dus avant le début de l'année académique.</li>
+      <li>Les mensualités sont payables au plus tard le <strong>5 de chaque mois</strong>.</li>
+      <li>Tout retard de paiement peut entraîner la suspension temporaire de l'accès aux cours et examens.</li>
+      <li>Aucun remboursement des frais d'inscription n'est accordé après validation du dossier.</li>
+    </ul>
+  </div>
+
+  <!-- Art. 4 -->
+  <div class="ri-art">
+    <span class="ri-art-title">Article 4 — Utilisation du matériel et des locaux</span>
+    <ul>
+      <li>Le matériel informatique mis à disposition doit être utilisé à des fins exclusivement pédagogiques.</li>
+      <li>Tout dommage causé au matériel engage la responsabilité financière de l'étudiant(e).</li>
+      <li>Il est interdit de manger, de fumer et de consommer de l'alcool dans les locaux.</li>
+      <li>Les locaux doivent être laissés propres après chaque utilisation.</li>
+    </ul>
+  </div>
+
+  <!-- Art. 5 -->
+  <div class="ri-art">
+    <span class="ri-art-title">Article 5 — Examens et évaluation</span>
+    <ul>
+      <li>Toute fraude lors des examens entraîne l'annulation de l'épreuve et des sanctions disciplinaires.</li>
+      <li>Le plagiat dans les travaux rendus est strictement interdit et sanctionné.</li>
+      <li>Les résultats sont définitifs après validation par le jury pédagogique.</li>
+      <li>Les réclamations doivent être formulées par écrit dans un délai de 5 jours ouvrables.</li>
+    </ul>
+  </div>
+
+  <!-- Art. 6 -->
+  <div class="ri-art">
+    <span class="ri-art-title">Article 6 — Sanctions disciplinaires</span>
+    <ul>
+      <li>Les manquements au présent règlement sont sanctionnés selon leur gravité : avertissement, blâme, suspension ou exclusion définitive.</li>
+      <li>Tout recours doit être adressé par écrit à la Direction dans un délai de 5 jours.</li>
+    </ul>
+  </div>
+
+  <!-- Signature engagement -->
+  <div class="ri-sign">
+    <div class="ri-sign-title">Engagement de l'étudiant(e)</div>
+    <div class="ri-sign-text">
+      Je soussigné(e) <strong>${val(etd.prenom)} ${val(etd.nom)}</strong>, inscrit(e) en <strong>${filiere}</strong> pour l'année académique <strong>${annee}</strong>,<br>
+      déclare avoir lu et compris le règlement intérieur de l'établissement UP'TECH et m'engage à le respecter.<br>
+      Fait à Dakar, le ___________________________
+    </div>
+    <div class="ri-sign-boxes">
+      <div class="ri-sign-box">
+        <h4>Signature de l'étudiant(e)</h4>
+        <div class="sign-line">Signature précédée de la mention « Lu et approuvé »</div>
+      </div>
+      <div class="ri-sign-box">
+        <h4>Cachet et signature de la Direction</h4>
+        <div class="sign-line">Tampon + Signature</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar" style="margin-top:20px">UP'TECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal &nbsp;|&nbsp; +221 77 841 50 44 / 77 618 45 52</div>
+</div>
 
 <script>window.onload=()=>{window.print()}<\/script>
 </body></html>`
