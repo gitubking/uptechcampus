@@ -19,8 +19,8 @@ function buildPoolConfig() {
     return { connectionString: rawUrl, ssl: { rejectUnauthorized: false } }
   }
 }
-// max:2 — limite stricte pour serverless (chaque fonction = nouvelle instance)
-const pool = new Pool({ ...buildPoolConfig(), max: 2, idleTimeoutMillis: 10000, connectionTimeoutMillis: 8000 })
+// max:1 — session mode pgbouncer: 1 connection per serverless instance
+const pool = new Pool({ ...buildPoolConfig(), max: 1, idleTimeoutMillis: 5000, connectionTimeoutMillis: 8000 })
 
 const JWT_SECRET = process.env.JWT_SECRET || 'uptech-dev-secret-2026'
 
