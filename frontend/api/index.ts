@@ -456,16 +456,15 @@ app.delete('/annees-academiques/:id', requireAuth, role('dg'), async (c) => {
 app.get('/classes', requireAuth, async (c) => {
   const { rows } = await pool.query(`
     SELECT c.*,
-      jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id,'type_formation_nom',tf.nom,'type_has_niveau',COALESCE(tf.has_niveau,false)) as filiere,
-      jsonb_build_object('id',aa.id,'libelle',aa.libelle) as annee_academique,
+      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id) ELSE NULL END as filiere,
+      CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique,
       COALESCE(json_agg(DISTINCT jsonb_build_object('id',p.id,'nom',p.nom)) FILTER (WHERE p.id IS NOT NULL),'[]') as parcours
     FROM classes c
     LEFT JOIN filieres f ON c.filiere_id = f.id
-    LEFT JOIN types_formation tf ON f.type_formation_id = tf.id
     LEFT JOIN annees_academiques aa ON c.annee_academique_id = aa.id
     LEFT JOIN classes_parcours cp ON c.id = cp.classe_id
     LEFT JOIN parcours p ON cp.parcours_id = p.id
-    GROUP BY c.id,f.id,f.nom,f.code,f.type_formation_id,tf.nom,aa.id,aa.libelle ORDER BY c.nom
+    GROUP BY c.id,f.id,f.nom,f.code,f.type_formation_id,aa.id,aa.libelle ORDER BY c.nom
   `)
   return c.json(rows)
 })
