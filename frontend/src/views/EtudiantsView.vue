@@ -419,14 +419,19 @@ async function submitEditInscription() {
       classe_id: cur.classe?.id ?? cur.classe_id ?? null,
       parcours_id: cur.parcours?.id ?? cur.parcours_id ?? null,
     })
+    // Update local state from form objects (PUT returns raw row without joins)
+    const editAnnee = annees.value.find(a => a.id === inscriptionEditForm.value.annee_academique_id)
+    const editNiveau = niveauxEntree.value.find(n => n.id === inscriptionEditForm.value.niveau_entree_id)
     currentInscription.value = {
       ...currentInscription.value,
-      filiere: data.filiere,
-      niveau_entree: data.niveau_entree,
-      niveau_bourse: data.niveau_bourse,
-      frais_inscription: data.frais_inscription,
-      mensualite: data.mensualite,
-    }
+      filiere: editFiliere ? { id: editFiliere.id, nom: editFiliere.nom, code: editFiliere.code } : null,
+      niveau_entree: editNiveau ? { id: editNiveau.id, nom: editNiveau.nom } : null,
+      niveau_bourse: editBourse ? { id: editBourse.id, nom: editBourse.nom, pourcentage: editBourse.pourcentage } : null,
+      annee_academique: editAnnee ? { id: editAnnee.id, libelle: editAnnee.libelle } : (currentInscription.value as any).annee_academique,
+      frais_inscription: newFraisInsc,
+      mensualite: newMensualite,
+      frais_tenue: inscriptionEditForm.value.frais_tenue,
+    } as any
     editingInscription.value = false
     fetchEtudiants()
   } catch (err: any) {
