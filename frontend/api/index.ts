@@ -528,7 +528,7 @@ app.get('/etudiants', requireAuth, async (c) => {
       LEFT JOIN classes cl ON ins.classe_id = cl.id
       LEFT JOIN niveaux_entree ne ON ins.niveau_entree_id = ne.id
       LEFT JOIN niveaux_bourse nb ON ins.niveau_bourse_id = nb.id
-      WHERE ins.etudiant_id = e.id AND ins.statut = 'inscrit_actif'
+      WHERE ins.etudiant_id = e.id
       ORDER BY ins.created_at DESC LIMIT 1
       ) as inscription_active
     FROM etudiants e
