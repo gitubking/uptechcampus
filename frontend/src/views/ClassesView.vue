@@ -28,6 +28,7 @@ interface UE {
 interface Classe {
   id: number
   nom: string
+  niveau?: number
   est_tronc_commun: boolean
   filiere?: Filiere
   annee_academique?: AnneeAcademique
@@ -65,10 +66,17 @@ const selectedType = ref<number | null>(null)
 
 const form = ref({
   nom: '',
+  niveau: 1 as number,
   filiere_id: null as number | null,
   annee_academique_id: null as number | null,
   parcours_ids: [] as number[],
 })
+
+function niveauLabel(n?: number): string {
+  if (!n) return '—'
+  if (n === 1) return '1ère année'
+  return `${n}ème année`
+}
 
 // ── Gestion étudiants d'une classe ───────────────────────────────────
 const showStudents = ref(false)
@@ -149,6 +157,7 @@ function openCreate() {
   selectedType.value = null
   form.value = {
     nom: '',
+    niveau: 1,
     filiere_id: null,
     annee_academique_id: anneeActive?.id ?? annees.value[0]?.id ?? null,
     parcours_ids: [],
@@ -163,6 +172,7 @@ function openEdit(c: Classe) {
   selectedType.value = filiereType
   form.value = {
     nom: c.nom,
+    niveau: c.niveau ?? 1,
     filiere_id: c.filiere?.id ?? null,
     annee_academique_id: c.annee_academique?.id ?? null,
     parcours_ids: c.parcours?.map(p => p.id) ?? [],
@@ -434,7 +444,8 @@ onMounted(load)
       :cols="[
         { key: 'classe',   label: 'Classe' },
         { key: 'filiere',  label: 'Filière' },
-        { key: 'annee',    label: 'Année' },
+        { key: 'niveau',   label: 'Année d\'étude' },
+        { key: 'annee',    label: 'Année acad.' },
         { key: 'parcours', label: 'Parcours' },
         { key: 'actions',  label: 'Actions', align: 'right' },
       ]"
@@ -454,6 +465,9 @@ onMounted(load)
             <span style="font-size:11px;color:#aaa;font-family:monospace;">{{ (c as any).filiere.code }}</span>
           </div>
           <span v-else style="color:#ccc;">—</span>
+        </td>
+        <td>
+          <span style="font-size:13px;font-weight:600;color:#1a56db;">{{ niveauLabel((c as any).niveau) }}</span>
         </td>
         <td>
           <span style="font-size:13px;color:#555;">{{ (c as any).annee_academique?.libelle ?? '—' }}</span>
@@ -691,6 +705,15 @@ onMounted(load)
       <form @submit.prevent="save" style="display:flex;flex-direction:column;gap:14px;">
         <UcFormGroup label="Nom de la classe" :required="true">
           <input v-model="form.nom" required placeholder="ex: BTS SIO 1 — 2025/2026" class="cl-input" style="width:100%;box-sizing:border-box;" />
+        </UcFormGroup>
+        <UcFormGroup label="Année d'étude" :required="true">
+          <select v-model.number="form.niveau" class="cl-input" style="width:100%;box-sizing:border-box;">
+            <option :value="1">1ère année</option>
+            <option :value="2">2ème année</option>
+            <option :value="3">3ème année</option>
+            <option :value="4">4ème année</option>
+            <option :value="5">5ème année</option>
+          </select>
         </UcFormGroup>
         <UcFormGroup label="Type de formation">
           <select v-model="selectedType" @change="onTypeChange" class="cl-input" style="width:100%;box-sizing:border-box;">

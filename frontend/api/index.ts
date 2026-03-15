@@ -22,6 +22,9 @@ function buildPoolConfig() {
 // max:1 — session mode pgbouncer: 1 connection per serverless instance
 const pool = new Pool({ ...buildPoolConfig(), max: 1, idleTimeoutMillis: 5000, connectionTimeoutMillis: 8000 })
 
+// ─── Migrations automatiques (idempotentes) ───────────────────────────────────
+pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS niveau INT DEFAULT 1`).catch(() => {})
+
 const JWT_SECRET = process.env.JWT_SECRET || 'uptech-dev-secret-2026'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -467,8 +470,8 @@ app.get('/classes', requireAuth, async (c) => {
 app.post('/classes', requireAuth, role('dg', 'coordinateur'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'INSERT INTO classes (nom,filiere_id,annee_academique_id,created_by) VALUES ($1,$2,$3,$4) RETURNING *',
-    [b.nom, b.filiere_id, b.annee_academique_id, u(c).id]
+    'INSERT INTO classes (nom,filiere_id,annee_academique_id,niveau,created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+    [b.nom, b.filiere_id, b.annee_academique_id, b.niveau ?? 1, u(c).id]
   )
   const classe = rows[0]
   if (Array.isArray(b.parcours_ids)) {
@@ -481,8 +484,8 @@ app.post('/classes', requireAuth, role('dg', 'coordinateur'), async (c) => {
 app.put('/classes/:id', requireAuth, role('dg', 'coordinateur'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'UPDATE classes SET nom=$1,filiere_id=$2,annee_academique_id=$3 WHERE id=$4 RETURNING *',
-    [b.nom, b.filiere_id, b.annee_academique_id, c.req.param('id')]
+    'UPDATE classes SET nom=$1,filiere_id=$2,annee_academique_id=$3,niveau=$4 WHERE id=$5 RETURNING *',
+    [b.nom, b.filiere_id, b.annee_academique_id, b.niveau ?? 1, c.req.param('id')]
   )
   await pool.query('DELETE FROM classes_parcours WHERE classe_id=$1', [c.req.param('id')])
   if (Array.isArray(b.parcours_ids)) {

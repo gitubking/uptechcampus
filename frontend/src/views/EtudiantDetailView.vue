@@ -107,8 +107,11 @@ async function generateCard() {
   ctx.scale(PW / W, PH / H)       // tout le dessin utilise toujours 856×540
 
   const annee = etudiant.value.inscriptions?.[0]?.annee_academique?.libelle ?? '2025-2026'
-  const filiere = etudiant.value.inscriptions?.[0]?.classe?.filiere?.nom ?? ''
-  const niveauAcad = etudiant.value.inscriptions?.[0]?.classe?.nom ?? filiere
+  const filiere = etudiant.value.inscriptions?.[0]?.filiere?.nom ?? etudiant.value.inscriptions?.[0]?.classe?.filiere?.nom ?? ''
+  const classeNiveau = etudiant.value.inscriptions?.[0]?.classe?.niveau
+  const niveauAcad = classeNiveau
+    ? (classeNiveau === 1 ? '1ère année' : `${classeNiveau}ème année`)
+    : (etudiant.value.inscriptions?.[0]?.classe?.nom ?? filiere)
 
   // ── 1. Fond blanc ────────────────────────────────────────────────────
   ctx.fillStyle = '#ffffff'
@@ -425,6 +428,8 @@ function printFicheDetail() {
   const bourse = insc?.niveau_bourse?.nom ? `${insc.niveau_bourse.nom} (${insc.niveau_bourse.pourcentage}%)` : 'Aucune'
   const annee = insc?.annee_academique?.libelle ?? '—'
   const sLabel = statutLabel[insc?.statut] ?? insc?.statut ?? '—'
+  const nv = (insc?.classe as any)?.niveau
+  const niveauEtude = nv ? (nv === 1 ? '1ère année' : `${nv}ème année`) : null
   const logoUrl = `${window.location.origin}/icons/icon-192.png`
   const dots = '◦ '.repeat(80)
   const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/>
@@ -492,7 +497,7 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 <div class="sec"><div class="sec-title">Paramètres d'inscription</div><table>
 <tr><td class="lbl">Filière</td><td>${filiere}</td><td class="lbl2">Niveau d'entrée</td><td>${niveau}</td></tr>
 <tr><td class="lbl">Année académique</td><td>${annee}</td><td class="lbl2">Bourse</td><td>${bourse}</td></tr>
-<tr><td class="lbl">Classe affectée</td><td colspan="3">${insc?.classe?.nom ?? 'Pool (à affecter)'}</td></tr>
+${niveauEtude ? `<tr><td class="lbl">Année d'étude</td><td><strong>${niveauEtude}</strong></td><td class="lbl2">Classe affectée</td><td>${insc?.classe?.nom ?? 'Pool (à affecter)'}</td></tr>` : `<tr><td class="lbl">Classe affectée</td><td colspan="3">${insc?.classe?.nom ?? 'Pool (à affecter)'}</td></tr>`}
 </table></div>
 <div class="sec"><div class="sec-title">Conditions financières</div><table class="fin-tbl">
 <tr><td class="lbl" style="width:40%">Frais d'inscription</td><td>${fmt(insc?.frais_inscription)}</td></tr>
@@ -535,6 +540,8 @@ function printCertificatDetail() {
   const filiere = insc?.filiere?.nom ?? insc?.classe?.filiere?.nom ?? '—'
   const niveau = insc?.niveau_entree?.nom ?? '—'
   const annee = insc?.annee_academique?.libelle ?? '—'
+  const nvc = (insc?.classe as any)?.niveau
+  const niveauEtude = nvc ? (nvc === 1 ? '1ère année' : `${nvc}ème année`) : null
   const logoUrl = `${window.location.origin}/icons/icon-192.png`
   const refNum = `UPTECH/${new Date().getFullYear()}/${String(etd.id ?? Math.floor(Math.random()*9000+1000)).padStart(4,'0')}`
   const dateJour = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
@@ -593,6 +600,7 @@ ${etd.cni_numero ? `porteur/porteuse de la CNI N° <span class="underline">${etd
 <tr><td>Numéro étudiant</td><td>${etd.numero_etudiant ?? '—'}</td></tr>
 <tr><td>Filière</td><td>${filiere}</td></tr>
 <tr><td>Niveau d'entrée</td><td>${niveau}</td></tr>
+${niveauEtude ? `<tr><td>Année d'étude</td><td><strong>${niveauEtude}</strong></td></tr>` : ''}
 <tr><td>Classe</td><td>${insc?.classe?.nom ?? 'Pool (à affecter)'}</td></tr>
 <tr><td>Statut</td><td>${sLabel}</td></tr>
 </table></div>
