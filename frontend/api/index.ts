@@ -24,6 +24,7 @@ const pool = new Pool({ ...buildPoolConfig(), max: 1, idleTimeoutMillis: 5000, c
 
 // ─── Migrations automatiques (idempotentes) ───────────────────────────────────
 pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS niveau INT DEFAULT 1`).catch(() => {})
+pool.query(`ALTER TABLE types_formation ADD COLUMN IF NOT EXISTS has_niveau BOOLEAN DEFAULT FALSE`).catch(() => {})
 
 const JWT_SECRET = process.env.JWT_SECRET || 'uptech-dev-secret-2026'
 
@@ -374,8 +375,8 @@ app.get('/types-formation', requireAuth, async (c) => {
 app.post('/types-formation', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'INSERT INTO types_formation (nom,code,description) VALUES ($1,$2,$3) RETURNING *',
-    [b.nom, b.code || null, b.description || null]
+    'INSERT INTO types_formation (nom,code,description,has_niveau) VALUES ($1,$2,$3,$4) RETURNING *',
+    [b.nom, b.code || null, b.description || null, b.has_niveau ?? false]
   )
   return c.json(rows[0], 201)
 })
@@ -383,8 +384,8 @@ app.post('/types-formation', requireAuth, role('dg'), async (c) => {
 app.put('/types-formation/:id', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'UPDATE types_formation SET nom=$1,code=$2,description=$3 WHERE id=$4 RETURNING *',
-    [b.nom, b.code || null, b.description || null, c.req.param('id')]
+    'UPDATE types_formation SET nom=$1,code=$2,description=$3,has_niveau=$4 WHERE id=$5 RETURNING *',
+    [b.nom, b.code || null, b.description || null, b.has_niveau ?? false, c.req.param('id')]
   )
   return c.json(rows[0])
 })
@@ -454,7 +455,7 @@ app.delete('/annees-academiques/:id', requireAuth, role('dg'), async (c) => {
 app.get('/classes', requireAuth, async (c) => {
   const { rows } = await pool.query(`
     SELECT c.*,
-      jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id,'type_formation_nom',tf.nom) as filiere,
+      jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id,'type_formation_nom',tf.nom,'type_has_niveau',COALESCE(tf.has_niveau,false)) as filiere,
       jsonb_build_object('id',aa.id,'libelle',aa.libelle) as annee_academique,
       COALESCE(json_agg(DISTINCT jsonb_build_object('id',p.id,'nom',p.nom)) FILTER (WHERE p.id IS NOT NULL),'[]') as parcours
     FROM classes c
@@ -551,9 +552,9 @@ app.get('/etudiants/:id', requireAuth, async (c) => {
   const [inscrRows, docRows] = await Promise.all([
     pool.query(`
       SELECT i.*,
-        CASE WHEN fi.id IS NOT NULL THEN jsonb_build_object('id',fi.id,'nom',fi.nom,'code',fi.code,'type_formation_id',fi.type_formation_id,'type_formation_nom',tfi.nom) ELSE NULL END as filiere,
+        CASE WHEN fi.id IS NOT NULL THEN jsonb_build_object('id',fi.id,'nom',fi.nom,'code',fi.code,'type_formation_id',fi.type_formation_id,'type_formation_nom',tfi.nom,'type_has_niveau',COALESCE(tfi.has_niveau,false)) ELSE NULL END as filiere,
         CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom,'niveau',c.niveau,
-          'filiere', CASE WHEN fc.id IS NOT NULL THEN jsonb_build_object('id',fc.id,'nom',fc.nom,'type_formation_id',fc.type_formation_id,'type_formation_nom',tfc.nom) ELSE NULL END
+          'filiere', CASE WHEN fc.id IS NOT NULL THEN jsonb_build_object('id',fc.id,'nom',fc.nom,'type_formation_id',fc.type_formation_id,'type_formation_nom',tfc.nom,'type_has_niveau',COALESCE(tfc.has_niveau,false)) ELSE NULL END
         ) ELSE NULL END as classe,
         CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique,
         CASE WHEN ne.id IS NOT NULL THEN jsonb_build_object('id',ne.id,'nom',ne.nom) ELSE NULL END as niveau_entree,

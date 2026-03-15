@@ -16,6 +16,7 @@ interface TypeFormation {
   nom: string
   code: string
   actif: boolean
+  has_niveau: boolean
   filieres: { id: number }[]
 }
 
@@ -77,7 +78,7 @@ const showModalType = ref(false)
 const editingType = ref<TypeFormation | null>(null)
 const savingType = ref(false)
 const deletingTypeId = ref<number | null>(null)
-const formType = ref({ nom: '', code: '', actif: true })
+const formType = ref({ nom: '', code: '', actif: true, has_niveau: false })
 
 async function loadTypesFormation() {
   loadingTypes.value = true
@@ -91,13 +92,13 @@ async function loadTypesFormation() {
 
 function openNewType() {
   editingType.value = null
-  formType.value = { nom: '', code: '', actif: true }
+  formType.value = { nom: '', code: '', actif: true, has_niveau: false }
   showModalType.value = true
 }
 
 function openEditType(t: TypeFormation) {
   editingType.value = t
-  formType.value = { nom: t.nom, code: t.code, actif: t.actif }
+  formType.value = { nom: t.nom, code: t.code, actif: t.actif, has_niveau: t.has_niveau ?? false }
   showModalType.value = true
 }
 
@@ -588,6 +589,7 @@ onMounted(() => {
                 <tr>
                   <th>Nom</th>
                   <th>Code</th>
+                  <th style="text-align:center">Années d'étude</th>
                   <th style="text-align:center">Filières</th>
                   <th style="text-align:center">Statut</th>
                   <th v-if="isDG" style="text-align:right">Actions</th>
@@ -597,6 +599,10 @@ onMounted(() => {
                 <tr v-for="t in typesFormation" :key="t.id">
                   <td class="pm-td-bold">{{ t.nom }}</td>
                   <td><span class="pm-badge-code">{{ t.code }}</span></td>
+                  <td style="text-align:center">
+                    <span v-if="t.has_niveau" style="font-size:11px;background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:10px;font-weight:600;">✓ Oui</span>
+                    <span v-else style="font-size:11px;color:#aaa;">—</span>
+                  </td>
                   <td style="text-align:center"><span class="pm-count-badge">{{ t.filieres?.length ?? 0 }}</span></td>
                   <td style="text-align:center">
                     <span class="pm-badge-statut" :class="t.actif ? 'pm-statut-actif' : 'pm-statut-inactif'">
@@ -642,6 +648,12 @@ onMounted(() => {
                       <span class="pm-toggle-knob" :class="formType.actif ? 'pm-toggle-knob--on' : ''" />
                     </button>
                     <span class="pm-toggle-label">{{ formType.actif ? 'Actif' : 'Inactif' }}</span>
+                  </div>
+                  <div class="pm-toggle-row" style="margin-top:8px;">
+                    <button @click="formType.has_niveau = !formType.has_niveau" class="pm-toggle" :class="formType.has_niveau ? 'pm-toggle--on' : ''">
+                      <span class="pm-toggle-knob" :class="formType.has_niveau ? 'pm-toggle-knob--on' : ''" />
+                    </button>
+                    <span class="pm-toggle-label">{{ formType.has_niveau ? 'A des années d\'étude (1ère, 2ème…)' : 'Pas d\'année d\'étude' }}</span>
                   </div>
                 </div>
                 <div class="pm-modal-footer">

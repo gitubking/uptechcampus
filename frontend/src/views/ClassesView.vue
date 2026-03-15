@@ -145,15 +145,15 @@ const filteredFilieresForPool = computed(() =>
     : filieres.value
 )
 
-// Vrai seulement pour le type "Académique" (BTS, Licence, Master…)
+// Vrai seulement pour les types ayant "has_niveau = true"
 const isAcademique = computed(() => {
   if (!selectedType.value) return false
   const t = typesFormation.value.find(t => t.id === selectedType.value)
-  return t?.nom?.toLowerCase().includes('acad') ?? false
+  return (t as any)?.has_niveau ?? false
 })
-// IDs des types académiques (pour le tableau)
+// IDs des types avec années d'étude (pour le tableau)
 const academicTypeIds = computed(() =>
-  typesFormation.value.filter(t => t.nom?.toLowerCase().includes('acad')).map(t => t.id)
+  typesFormation.value.filter((t: any) => t.has_niveau).map(t => t.id)
 )
 
 // ── Fonctions formulaire classe ───────────────────────────────────────
