@@ -151,10 +151,12 @@ const isAcademique = computed(() => {
   const t = typesFormation.value.find(t => t.id === selectedType.value)
   return t?.has_niveau ?? false
 })
-// IDs des types avec années d'étude (pour le tableau)
-const academicTypeIds = computed(() =>
-  typesFormation.value.filter(t => t.has_niveau).map(t => t.id)
-)
+// IDs des filières appartenant à un type "has_niveau = true"
+// On croise filieres (chargées) + typesFormation — plus fiable que passer par la jointure SQL
+const academicFiliereIds = computed(() => {
+  const acadTypeIds = new Set(typesFormation.value.filter(t => t.has_niveau).map(t => t.id))
+  return new Set(filieres.value.filter(f => f.type_formation_id != null && acadTypeIds.has(f.type_formation_id!)).map(f => f.id))
+})
 
 // ── Fonctions formulaire classe ───────────────────────────────────────
 function onTypeChange() {
@@ -479,7 +481,7 @@ onMounted(load)
           <span v-else style="color:#ccc;">—</span>
         </td>
         <td>
-          <span v-if="academicTypeIds.includes((c as any).filiere?.type_formation_id)" style="font-size:13px;font-weight:600;color:#1a56db;">
+          <span v-if="academicFiliereIds.has((c as any).filiere_id)" style="font-size:13px;font-weight:600;color:#1a56db;">
             {{ niveauLabel((c as any).niveau) }}
           </span>
           <span v-else style="font-size:11px;color:#aaa;font-style:italic;">—</span>
