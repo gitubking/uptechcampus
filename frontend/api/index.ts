@@ -25,6 +25,7 @@ const pool = new Pool({ ...buildPoolConfig(), max: 1, idleTimeoutMillis: 5000, c
 // ─── Migrations automatiques (idempotentes) ───────────────────────────────────
 pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS niveau INT DEFAULT 1`).catch(() => {})
 pool.query(`ALTER TABLE types_formation ADD COLUMN IF NOT EXISTS has_niveau BOOLEAN DEFAULT FALSE`).catch(() => {})
+pool.query(`ALTER TABLE types_formation ADD COLUMN IF NOT EXISTS description TEXT`).catch(() => {})
 
 const JWT_SECRET = process.env.JWT_SECRET || 'uptech-dev-secret-2026'
 
