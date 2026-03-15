@@ -8,7 +8,7 @@ const auth = useAuthStore()
 const canWrite = ['dg', 'coordinateur'].includes(auth.user?.role ?? '')
 
 // ── Interfaces ───────────────────────────────────────────────────────
-interface TypeFormation { id: number; nom: string; code: string }
+interface TypeFormation { id: number; nom: string; code: string; has_niveau?: boolean }
 interface MatiereSimple { id: number; nom: string; code: string }
 interface Filiere { id: number; nom: string; code: string; type_formation_id: number | null; matieres?: MatiereSimple[] }
 interface AnneeAcademique { id: number; libelle: string; actif: boolean }
@@ -149,11 +149,11 @@ const filteredFilieresForPool = computed(() =>
 const isAcademique = computed(() => {
   if (!selectedType.value) return false
   const t = typesFormation.value.find(t => t.id === selectedType.value)
-  return (t as any)?.has_niveau ?? false
+  return t?.has_niveau ?? false
 })
 // IDs des types avec années d'étude (pour le tableau)
 const academicTypeIds = computed(() =>
-  typesFormation.value.filter((t: any) => t.has_niveau).map(t => t.id)
+  typesFormation.value.filter(t => t.has_niveau).map(t => t.id)
 )
 
 // ── Fonctions formulaire classe ───────────────────────────────────────

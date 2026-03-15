@@ -106,7 +106,7 @@ async function saveType() {
   if (!formType.value.nom.trim() || !formType.value.code.trim()) return
   savingType.value = true
   try {
-    const payload = { nom: formType.value.nom, code: formType.value.code, actif: formType.value.actif }
+    const payload = { nom: formType.value.nom, code: formType.value.code, actif: formType.value.actif, has_niveau: formType.value.has_niveau }
     if (editingType.value) {
       const { data } = await api.put(`/types-formation/${editingType.value.id}`, payload)
       const idx = typesFormation.value.findIndex(t => t.id === editingType.value!.id)

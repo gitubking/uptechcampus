@@ -385,8 +385,8 @@ app.post('/types-formation', requireAuth, role('dg'), async (c) => {
 app.put('/types-formation/:id', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'UPDATE types_formation SET nom=$1,code=$2,description=$3,has_niveau=$4 WHERE id=$5 RETURNING *',
-    [b.nom, b.code || null, b.description || null, b.has_niveau ?? false, c.req.param('id')]
+    'UPDATE types_formation SET nom=$1,code=$2,description=$3,has_niveau=$4,actif=$5 WHERE id=$6 RETURNING *',
+    [b.nom, b.code || null, b.description || null, b.has_niveau ?? false, b.actif ?? true, c.req.param('id')]
   )
   return c.json(rows[0])
 })
