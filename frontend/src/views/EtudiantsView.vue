@@ -251,6 +251,7 @@ async function openGererInscription(etudiant: Etudiant) {
   currentEtudiant.value = etudiant
   currentInscription.value = null
   showPanel.value = true
+  await loadRefs()
   // Charger l'inscription complète
   try {
     const { data } = await api.get('/inscriptions', { params: { etudiant_id: etudiant.id, per_page: 1 } })
@@ -398,7 +399,15 @@ async function submitEditInscription() {
   savingInscription.value = true
   panelError.value = ''
   try {
-    const { data } = await api.put(`/inscriptions/${currentInscription.value.id}`, inscriptionEditForm.value)
+    const cur = currentInscription.value as any
+    const { data } = await api.put(`/inscriptions/${cur.id}`, {
+      ...inscriptionEditForm.value,
+      statut: cur.statut,
+      frais_inscription: cur.frais_inscription,
+      mensualite: cur.mensualite,
+      classe_id: cur.classe?.id ?? cur.classe_id ?? null,
+      parcours_id: cur.parcours?.id ?? cur.parcours_id ?? null,
+    })
     currentInscription.value = {
       ...currentInscription.value,
       filiere: data.filiere,
