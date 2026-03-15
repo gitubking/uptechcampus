@@ -616,14 +616,18 @@ app.post('/etudiants/:id/photo', requireAuth, role('secretariat', 'dg'), async (
 
 // ─── INSCRIPTIONS ─────────────────────────────────────────────────────────────
 app.get('/inscriptions', requireAuth, async (c) => {
-  const classeId = c.req.query('classe_id')
-  const statut = c.req.query('statut')
-  const etudiantId = c.req.query('etudiant_id')
+  const classeId    = c.req.query('classe_id')
+  const statut      = c.req.query('statut')
+  const etudiantId  = c.req.query('etudiant_id')
+  const filiereId   = c.req.query('filiere_id')
+  const sansClasse  = c.req.query('sans_classe')   // "1" → uniquement sans classe affectée
   const conditions: string[] = []
   const params: any[] = []
-  if (classeId) { params.push(classeId); conditions.push(`i.classe_id = $${params.length}`) }
-  if (statut) { params.push(statut); conditions.push(`i.statut = $${params.length}`) }
+  if (classeId)   { params.push(classeId);   conditions.push(`i.classe_id = $${params.length}`) }
+  if (statut)     { params.push(statut);     conditions.push(`i.statut = $${params.length}`) }
   if (etudiantId) { params.push(etudiantId); conditions.push(`i.etudiant_id = $${params.length}`) }
+  if (filiereId)  { params.push(filiereId);  conditions.push(`i.filiere_id = $${params.length}`) }
+  if (sansClasse === '1') conditions.push(`i.classe_id IS NULL`)
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const { rows } = await pool.query(`
     SELECT i.*,

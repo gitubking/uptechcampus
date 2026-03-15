@@ -581,25 +581,17 @@ onMounted(load)
 
       <!-- Pool à affecter -->
       <template v-else-if="studentsTab === 'pool'">
-        <UcFormGrid :cols="2" style="margin-bottom:16px;">
-          <UcFormGroup label="Type de formation">
-            <select v-model="poolFilterType" @change="onPoolTypeChange" class="cl-input" style="width:100%;">
-              <option :value="null">— Tous les types —</option>
-              <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }}</option>
-            </select>
-          </UcFormGroup>
-          <UcFormGroup label="Filière" :required="true">
-            <select v-model="poolFilterFiliere" @change="refreshPool" class="cl-input" style="width:100%;">
-              <option :value="null">— Choisir une filière —</option>
-              <option v-for="f in filteredFilieresForPool" :key="f.id" :value="f.id">{{ f.nom }}</option>
-            </select>
-          </UcFormGroup>
-        </UcFormGrid>
-        <div v-if="!poolFilterFiliere" style="text-align:center;padding:32px;color:#aaa;font-size:13px;">
-          Sélectionnez une filière pour voir les étudiants disponibles.
+        <!-- Filière verrouillée sur celle de la classe — pas de sélection libre -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;">
+          <svg width="15" height="15" fill="none" stroke="#0284c7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span style="font-size:12px;color:#0369a1;">
+            Affichage des étudiants inscrits en
+            <strong>{{ classeForStudents?.filiere?.nom ?? '—' }}</strong>
+            sans classe affectée
+          </span>
         </div>
-        <div v-else-if="inscriptionsPool.length === 0" style="text-align:center;padding:32px;color:#aaa;font-size:13px;">
-          Aucun étudiant sans classe dans cette filière.
+        <div v-if="inscriptionsPool.length === 0" style="text-align:center;padding:32px;color:#aaa;font-size:13px;">
+          Aucun étudiant sans classe dans la filière <strong>{{ classeForStudents?.filiere?.nom }}</strong>.
         </div>
         <div v-else>
           <p style="font-size:12px;color:#888;margin-bottom:10px;">
