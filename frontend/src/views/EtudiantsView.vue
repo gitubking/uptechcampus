@@ -280,6 +280,8 @@ async function submitInscrire() {
       niveau_entree_id: inscriptionForm.value.niveau_entree_id,
       niveau_bourse_id: inscriptionForm.value.niveau_bourse_id || null,
       annee_academique_id: inscriptionForm.value.annee_academique_id,
+      frais_inscription: fraisInscriptionPrevu.value ?? 0,
+      mensualite: mensualitePrevu.value ?? 0,
       frais_tenue: inscriptionForm.value.frais_tenue || 0,
       statut: inscriptionForm.value.statut,
     })
@@ -400,11 +402,20 @@ async function submitEditInscription() {
   panelError.value = ''
   try {
     const cur = currentInscription.value as any
+    // Recalculate frais from the selected filière + bourse
+    const editFiliere = filieres.value.find(f => f.id === inscriptionEditForm.value.filiere_id)
+    const editBourse = niveauxBourse.value.find(b => b.id === inscriptionEditForm.value.niveau_bourse_id)
+    let newFraisInsc = editFiliere?.frais_inscription ?? cur.frais_inscription ?? 0
+    let newMensualite = editFiliere?.mensualite ?? cur.mensualite ?? 0
+    if (editBourse) {
+      if ((editBourse as any).applique_inscription) newFraisInsc = newFraisInsc * (1 - editBourse.pourcentage / 100)
+      newMensualite = newMensualite * (1 - editBourse.pourcentage / 100)
+    }
     const { data } = await api.put(`/inscriptions/${cur.id}`, {
       ...inscriptionEditForm.value,
       statut: cur.statut,
-      frais_inscription: cur.frais_inscription,
-      mensualite: cur.mensualite,
+      frais_inscription: newFraisInsc,
+      mensualite: newMensualite,
       classe_id: cur.classe?.id ?? cur.classe_id ?? null,
       parcours_id: cur.parcours?.id ?? cur.parcours_id ?? null,
     })
