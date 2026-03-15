@@ -420,7 +420,7 @@ function printFicheDetail() {
     if (!d) return '—'
     try { return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) } catch { return d }
   }
-  const filiere = insc?.classe?.filiere?.nom ?? '—'
+  const filiere = insc?.filiere?.nom ?? insc?.classe?.filiere?.nom ?? '—'
   const niveau = insc?.niveau_entree?.nom ?? '—'
   const bourse = insc?.niveau_bourse?.nom ? `${insc.niveau_bourse.nom} (${insc.niveau_bourse.pourcentage}%)` : 'Aucune'
   const annee = insc?.annee_academique?.libelle ?? '—'
@@ -532,7 +532,7 @@ function printCertificatDetail() {
     if (!d) return '—'
     try { return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) } catch { return d }
   }
-  const filiere = insc?.classe?.filiere?.nom ?? '—'
+  const filiere = insc?.filiere?.nom ?? insc?.classe?.filiere?.nom ?? '—'
   const niveau = insc?.niveau_entree?.nom ?? '—'
   const annee = insc?.annee_academique?.libelle ?? '—'
   const logoUrl = `${window.location.origin}/icons/icon-192.png`
