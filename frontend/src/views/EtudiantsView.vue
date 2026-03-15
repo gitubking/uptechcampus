@@ -378,14 +378,15 @@ async function onUploadContrat(event: Event) {
 
 function openEditInscription() {
   if (!currentInscription.value) return
-  const insc = currentInscription.value
+  const insc = currentInscription.value as any
   // Trouver le type de formation depuis la filière
-  const f = filieres.value.find(f => f.id === insc.filiere?.id)
+  const filiereId = insc.filiere?.id ?? insc.filiere_id ?? null
+  const f = filieres.value.find(f => f.id === filiereId)
   inscriptionEditType.value = f?.type_formation_id ?? null
   inscriptionEditForm.value = {
-    filiere_id: insc.filiere?.id ?? null,
-    niveau_entree_id: insc.niveau_entree?.id ?? null,
-    niveau_bourse_id: insc.niveau_bourse?.id ?? null,
+    filiere_id: filiereId,
+    niveau_entree_id: insc.niveau_entree?.id ?? insc.niveau_entree_id ?? null,
+    niveau_bourse_id: insc.niveau_bourse?.id ?? insc.niveau_bourse_id ?? null,
     annee_academique_id: insc.annee_academique?.id ?? insc.annee_academique_id ?? null,
     frais_tenue: insc.frais_tenue ?? 0,
   }
@@ -1270,16 +1271,6 @@ onMounted(() => {
                         {{ savingInscription ? 'Enregistrement…' : 'Enregistrer' }}
                       </button>
                     </div>
-                  </div>
-
-                  <!-- Documents imprimables -->
-                  <div style="margin-bottom:14px;display:flex;flex-direction:column;gap:6px;">
-                    <button @click="printFiche(currentEtudiant, currentInscription)" class="action-btn action-btn-ghost" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;">
-                      🖨️ Fiche d'inscription
-                    </button>
-                    <button @click="printCertificat(currentEtudiant, currentInscription)" class="action-btn action-btn-ghost" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;">
-                      📄 Certificat d'inscription
-                    </button>
                   </div>
 
                   <!-- Statut actuel -->

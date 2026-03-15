@@ -622,13 +622,19 @@ app.get('/inscriptions', requireAuth, async (c) => {
     SELECT i.*,
       jsonb_build_object('id',e.id,'nom',e.nom,'prenom',e.prenom,'email',e.email,'numero_etudiant',e.numero_etudiant) as etudiant,
       CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom) ELSE NULL END as classe,
-      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom) ELSE NULL END as filiere,
-      CASE WHEN p.id IS NOT NULL THEN jsonb_build_object('id',p.id,'nom',p.nom) ELSE NULL END as parcours
+      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code) ELSE NULL END as filiere,
+      CASE WHEN p.id IS NOT NULL THEN jsonb_build_object('id',p.id,'nom',p.nom) ELSE NULL END as parcours,
+      CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique,
+      CASE WHEN ne.id IS NOT NULL THEN jsonb_build_object('id',ne.id,'nom',ne.nom) ELSE NULL END as niveau_entree,
+      CASE WHEN nb.id IS NOT NULL THEN jsonb_build_object('id',nb.id,'nom',nb.nom,'pourcentage',nb.pourcentage) ELSE NULL END as niveau_bourse
     FROM inscriptions i
     LEFT JOIN etudiants e ON i.etudiant_id = e.id
     LEFT JOIN classes c ON i.classe_id = c.id
     LEFT JOIN filieres f ON i.filiere_id = f.id
     LEFT JOIN parcours p ON i.parcours_id = p.id
+    LEFT JOIN annees_academiques aa ON i.annee_academique_id = aa.id
+    LEFT JOIN niveaux_entree ne ON i.niveau_entree_id = ne.id
+    LEFT JOIN niveaux_bourse nb ON i.niveau_bourse_id = nb.id
     ${where}
     ORDER BY e.nom,e.prenom
   `, params)
