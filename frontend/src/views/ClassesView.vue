@@ -439,6 +439,19 @@ async function affecterEtudiant(inscriptionId: number) {
   }
 }
 
+async function retirerEtudiant(inscriptionId: number) {
+  if (!confirm('Retirer cet étudiant de la classe ? Il retournera dans le pool de sa filière.')) return
+  affectingId.value = inscriptionId
+  try {
+    await api.put(`/inscriptions/${inscriptionId}/affecter-classe`, { classe_id: null })
+    await refreshStudents()
+  } catch (e: any) {
+    alert(e.response?.data?.message ?? 'Erreur lors du retrait')
+  } finally {
+    affectingId.value = null
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────
 const statutLabel: Record<string, string> = {
   pre_inscrit: 'Pré-inscrit', en_examen: 'En examen', inscrit_actif: 'Inscrit actif',
@@ -560,6 +573,7 @@ onMounted(load)
             { key: 'etudiant', label: 'Étudiant' },
             { key: 'niveau',   label: 'Niveau' },
             { key: 'statut',   label: 'Statut', align: 'center' },
+            { key: 'action',   label: '', align: 'right' },
           ]"
           :data="inscriptionsInClasse"
           empty-text="Aucun étudiant"
@@ -574,6 +588,17 @@ onMounted(load)
               <span class="cl-badge-statut" :class="`cl-statut-${(ins as any).statut}`">
                 {{ statutLabel[(ins as any).statut] ?? (ins as any).statut }}
               </span>
+            </td>
+            <td style="text-align:right;">
+              <button
+                v-if="canWrite"
+                @click="retirerEtudiant((ins as any).id)"
+                :disabled="affectingId === (ins as any).id"
+                title="Retirer de la classe"
+                style="font-size:11px;padding:3px 8px;border:1px solid #fca5a5;background:#fff;color:#dc2626;border-radius:5px;cursor:pointer;white-space:nowrap;"
+              >
+                {{ affectingId === (ins as any).id ? '…' : '↩ Retirer' }}
+              </button>
             </td>
           </template>
         </UcTable>
