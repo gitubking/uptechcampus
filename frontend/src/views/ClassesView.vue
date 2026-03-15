@@ -208,6 +208,17 @@ function toggleParcours(id: number) {
   else form.value.parcours_ids.splice(idx, 1)
 }
 
+// Reconstitue l'objet classe enrichi (filière, année, parcours) depuis les données locales
+// car POST/PUT retournent uniquement la ligne brute SQL (sans jointures)
+function enrichClasse(raw: any) {
+  return {
+    ...raw,
+    filiere: filieres.value.find(f => f.id === raw.filiere_id) ?? null,
+    annee_academique: annees.value.find(a => a.id === raw.annee_academique_id) ?? null,
+    parcours: parcoursList.value.filter(p => form.value.parcours_ids.includes(p.id)),
+  }
+}
+
 // ── API Classe ────────────────────────────────────────────────────────
 async function load() {
   loading.value = true
@@ -235,11 +246,12 @@ async function save() {
   try {
     if (editTarget.value) {
       const { data } = await api.put(`/classes/${editTarget.value.id}`, form.value)
+      const enriched = enrichClasse(data)
       const idx = classes.value.findIndex(c => c.id === data.id)
-      if (idx !== -1) classes.value[idx] = data
+      if (idx !== -1) classes.value[idx] = enriched
     } else {
       const { data } = await api.post('/classes', form.value)
-      classes.value.unshift(data)
+      classes.value.unshift(enrichClasse(data))
     }
     showForm.value = false
   } catch (e: any) {
