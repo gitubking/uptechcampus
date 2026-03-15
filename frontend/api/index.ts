@@ -454,15 +454,16 @@ app.delete('/annees-academiques/:id', requireAuth, role('dg'), async (c) => {
 app.get('/classes', requireAuth, async (c) => {
   const { rows } = await pool.query(`
     SELECT c.*,
-      jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code) as filiere,
+      jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id,'type_formation_nom',tf.nom) as filiere,
       jsonb_build_object('id',aa.id,'libelle',aa.libelle) as annee_academique,
       COALESCE(json_agg(DISTINCT jsonb_build_object('id',p.id,'nom',p.nom)) FILTER (WHERE p.id IS NOT NULL),'[]') as parcours
     FROM classes c
     LEFT JOIN filieres f ON c.filiere_id = f.id
+    LEFT JOIN types_formation tf ON f.type_formation_id = tf.id
     LEFT JOIN annees_academiques aa ON c.annee_academique_id = aa.id
     LEFT JOIN classes_parcours cp ON c.id = cp.classe_id
     LEFT JOIN parcours p ON cp.parcours_id = p.id
-    GROUP BY c.id,f.id,f.nom,f.code,aa.id,aa.libelle ORDER BY c.nom
+    GROUP BY c.id,f.id,f.nom,f.code,f.type_formation_id,tf.nom,aa.id,aa.libelle ORDER BY c.nom
   `)
   return c.json(rows)
 })
@@ -521,8 +522,8 @@ app.get('/etudiants', requireAuth, async (c) => {
         'id', ins.id, 'statut', ins.statut, 'acces_bloque', ins.acces_bloque,
         'frais_inscription', ins.frais_inscription, 'mensualite', ins.mensualite,
         'frais_tenue', ins.frais_tenue, 'contrat_path', ins.contrat_path,
-        'filiere', CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code) ELSE NULL END,
-        'classe', CASE WHEN cl.id IS NOT NULL THEN jsonb_build_object('id',cl.id,'nom',cl.nom) ELSE NULL END,
+        'filiere', CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id) ELSE NULL END,
+        'classe', CASE WHEN cl.id IS NOT NULL THEN jsonb_build_object('id',cl.id,'nom',cl.nom,'niveau',cl.niveau) ELSE NULL END,
         'niveau_entree', CASE WHEN ne.id IS NOT NULL THEN jsonb_build_object('id',ne.id,'nom',ne.nom) ELSE NULL END,
         'niveau_bourse', CASE WHEN nb.id IS NOT NULL THEN jsonb_build_object('id',nb.id,'nom',nb.nom,'pourcentage',nb.pourcentage) ELSE NULL END
       )
@@ -550,17 +551,19 @@ app.get('/etudiants/:id', requireAuth, async (c) => {
   const [inscrRows, docRows] = await Promise.all([
     pool.query(`
       SELECT i.*,
-        CASE WHEN fi.id IS NOT NULL THEN jsonb_build_object('id',fi.id,'nom',fi.nom,'code',fi.code) ELSE NULL END as filiere,
-        CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom,
-          'filiere', CASE WHEN fc.id IS NOT NULL THEN jsonb_build_object('id',fc.id,'nom',fc.nom) ELSE NULL END
+        CASE WHEN fi.id IS NOT NULL THEN jsonb_build_object('id',fi.id,'nom',fi.nom,'code',fi.code,'type_formation_id',fi.type_formation_id,'type_formation_nom',tfi.nom) ELSE NULL END as filiere,
+        CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom,'niveau',c.niveau,
+          'filiere', CASE WHEN fc.id IS NOT NULL THEN jsonb_build_object('id',fc.id,'nom',fc.nom,'type_formation_id',fc.type_formation_id,'type_formation_nom',tfc.nom) ELSE NULL END
         ) ELSE NULL END as classe,
         CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique,
         CASE WHEN ne.id IS NOT NULL THEN jsonb_build_object('id',ne.id,'nom',ne.nom) ELSE NULL END as niveau_entree,
         CASE WHEN nb.id IS NOT NULL THEN jsonb_build_object('id',nb.id,'nom',nb.nom,'pourcentage',nb.pourcentage) ELSE NULL END as niveau_bourse
       FROM inscriptions i
       LEFT JOIN filieres fi ON i.filiere_id = fi.id
+      LEFT JOIN types_formation tfi ON fi.type_formation_id = tfi.id
       LEFT JOIN classes c ON i.classe_id = c.id
       LEFT JOIN filieres fc ON c.filiere_id = fc.id
+      LEFT JOIN types_formation tfc ON fc.type_formation_id = tfc.id
       LEFT JOIN annees_academiques aa ON i.annee_academique_id = aa.id
       LEFT JOIN niveaux_entree ne ON i.niveau_entree_id = ne.id
       LEFT JOIN niveaux_bourse nb ON i.niveau_bourse_id = nb.id
@@ -624,8 +627,8 @@ app.get('/inscriptions', requireAuth, async (c) => {
   const { rows } = await pool.query(`
     SELECT i.*,
       jsonb_build_object('id',e.id,'nom',e.nom,'prenom',e.prenom,'email',e.email,'numero_etudiant',e.numero_etudiant) as etudiant,
-      CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom) ELSE NULL END as classe,
-      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code) ELSE NULL END as filiere,
+      CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom,'niveau',c.niveau) ELSE NULL END as classe,
+      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id) ELSE NULL END as filiere,
       CASE WHEN p.id IS NOT NULL THEN jsonb_build_object('id',p.id,'nom',p.nom) ELSE NULL END as parcours,
       CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique,
       CASE WHEN ne.id IS NOT NULL THEN jsonb_build_object('id',ne.id,'nom',ne.nom) ELSE NULL END as niveau_entree,

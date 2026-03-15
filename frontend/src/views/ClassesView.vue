@@ -145,10 +145,22 @@ const filteredFilieresForPool = computed(() =>
     : filieres.value
 )
 
+// Vrai seulement pour le type "Académique" (BTS, Licence, Master…)
+const isAcademique = computed(() => {
+  if (!selectedType.value) return false
+  const t = typesFormation.value.find(t => t.id === selectedType.value)
+  return t?.nom?.toLowerCase().includes('acad') ?? false
+})
+// IDs des types académiques (pour le tableau)
+const academicTypeIds = computed(() =>
+  typesFormation.value.filter(t => t.nom?.toLowerCase().includes('acad')).map(t => t.id)
+)
+
 // ── Fonctions formulaire classe ───────────────────────────────────────
 function onTypeChange() {
   form.value.filiere_id = null
   form.value.parcours_ids = []
+  if (!isAcademique.value) form.value.niveau = 1
 }
 
 function openCreate() {
@@ -467,7 +479,10 @@ onMounted(load)
           <span v-else style="color:#ccc;">—</span>
         </td>
         <td>
-          <span style="font-size:13px;font-weight:600;color:#1a56db;">{{ niveauLabel((c as any).niveau) }}</span>
+          <span v-if="academicTypeIds.includes((c as any).filiere?.type_formation_id)" style="font-size:13px;font-weight:600;color:#1a56db;">
+            {{ niveauLabel((c as any).niveau) }}
+          </span>
+          <span v-else style="font-size:11px;color:#aaa;font-style:italic;">—</span>
         </td>
         <td>
           <span style="font-size:13px;color:#555;">{{ (c as any).annee_academique?.libelle ?? '—' }}</span>
@@ -706,7 +721,7 @@ onMounted(load)
         <UcFormGroup label="Nom de la classe" :required="true">
           <input v-model="form.nom" required placeholder="ex: BTS SIO 1 — 2025/2026" class="cl-input" style="width:100%;box-sizing:border-box;" />
         </UcFormGroup>
-        <UcFormGroup label="Année d'étude" :required="true">
+        <UcFormGroup v-if="isAcademique" label="Année d'étude" :required="true">
           <select v-model.number="form.niveau" class="cl-input" style="width:100%;box-sizing:border-box;">
             <option :value="1">1ère année</option>
             <option :value="2">2ème année</option>

@@ -109,7 +109,10 @@ async function generateCard() {
   const annee = etudiant.value.inscriptions?.[0]?.annee_academique?.libelle ?? '2025-2026'
   const filiere = etudiant.value.inscriptions?.[0]?.filiere?.nom ?? etudiant.value.inscriptions?.[0]?.classe?.filiere?.nom ?? ''
   const classeNiveau = etudiant.value.inscriptions?.[0]?.classe?.niveau
-  const niveauAcad = classeNiveau
+  const typeFormNom0 = (etudiant.value.inscriptions?.[0]?.filiere as any)?.type_formation_nom
+    ?? (etudiant.value.inscriptions?.[0]?.classe?.filiere as any)?.type_formation_nom ?? ''
+  const estAcademique0 = typeFormNom0.toLowerCase().includes('acad')
+  const niveauAcad = (estAcademique0 && classeNiveau)
     ? (classeNiveau === 1 ? '1ère année' : `${classeNiveau}ème année`)
     : (etudiant.value.inscriptions?.[0]?.classe?.nom ?? filiere)
 
@@ -429,7 +432,9 @@ function printFicheDetail() {
   const annee = insc?.annee_academique?.libelle ?? '—'
   const sLabel = statutLabel[insc?.statut] ?? insc?.statut ?? '—'
   const nv = (insc?.classe as any)?.niveau
-  const niveauEtude = nv ? (nv === 1 ? '1ère année' : `${nv}ème année`) : null
+  const tfNom = (insc?.filiere as any)?.type_formation_nom ?? (insc?.classe?.filiere as any)?.type_formation_nom ?? ''
+  const niveauEtude = (nv && tfNom.toLowerCase().includes('acad'))
+    ? (nv === 1 ? '1ère année' : `${nv}ème année`) : null
   const logoUrl = `${window.location.origin}/icons/icon-192.png`
   const dots = '◦ '.repeat(80)
   const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/>
@@ -541,7 +546,9 @@ function printCertificatDetail() {
   const niveau = insc?.niveau_entree?.nom ?? '—'
   const annee = insc?.annee_academique?.libelle ?? '—'
   const nvc = (insc?.classe as any)?.niveau
-  const niveauEtude = nvc ? (nvc === 1 ? '1ère année' : `${nvc}ème année`) : null
+  const tfNomC = (insc?.filiere as any)?.type_formation_nom ?? (insc?.classe?.filiere as any)?.type_formation_nom ?? ''
+  const niveauEtude = (nvc && tfNomC.toLowerCase().includes('acad'))
+    ? (nvc === 1 ? '1ère année' : `${nvc}ème année`) : null
   const logoUrl = `${window.location.origin}/icons/icon-192.png`
   const refNum = `UPTECH/${new Date().getFullYear()}/${String(etd.id ?? Math.floor(Math.random()*9000+1000)).padStart(4,'0')}`
   const dateJour = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
