@@ -127,11 +127,17 @@ const matieresForUE = computed((): MatiereSimple[] => {
   return filieres.value.find(f => f.id === fId)?.matieres ?? []
 })
 
-const filteredFilieres = computed(() =>
-  selectedType.value
-    ? filieres.value.filter(f => f.type_formation_id === selectedType.value)
-    : filieres.value
-)
+const filteredFilieres = computed(() => {
+  if (!selectedType.value) return filieres.value
+  const filtered = filieres.value.filter(f => f.type_formation_id === selectedType.value)
+  // En mode édition : toujours inclure la filière actuelle même si hors du filtre
+  const currentId = form.value.filiere_id
+  if (currentId && !filtered.find(f => f.id === currentId)) {
+    const current = filieres.value.find(f => f.id === currentId)
+    if (current) return [current, ...filtered]
+  }
+  return filtered
+})
 
 const filteredParcours = computed(() =>
   selectedType.value
@@ -182,15 +188,16 @@ function openCreate() {
 
 function openEdit(c: Classe) {
   editTarget.value = c
-  const filiereType = c.filiere?.type_formation_id ?? null
-  selectedType.value = filiereType
+  // Remplir le formulaire EN PREMIER (avant de filtrer par type)
   form.value = {
     nom: c.nom,
     niveau: c.niveau ?? 1,
-    filiere_id: c.filiere?.id ?? null,
-    annee_academique_id: c.annee_academique?.id ?? null,
+    filiere_id: (c as any).filiere_id ?? c.filiere?.id ?? null,
+    annee_academique_id: (c as any).annee_academique_id ?? c.annee_academique?.id ?? null,
     parcours_ids: c.parcours?.map(p => p.id) ?? [],
   }
+  // Appliquer le filtre type APRÈS — sans déclencher onTypeChange (pas d'interaction utilisateur)
+  selectedType.value = c.filiere?.type_formation_id ?? null
   error.value = ''
   showForm.value = true
 }
