@@ -9,6 +9,34 @@ import UcTable from '@/components/ui/UcTable.vue'
 const router = useRouter()
 const auth = useAuthStore()
 const canWrite = computed(() => ['dg', 'secretariat'].includes(auth.user?.role ?? ''))
+const canDelete = computed(() => auth.user?.role === 'dg')
+
+// ── Suppression étudiant ──────────────────────────────────────────────
+const deleteTargetEtudiant = ref<Etudiant | null>(null)
+const confirmDeleteName = ref('')
+const deletingEtudiant = ref(false)
+
+function openDeleteEtudiant(etudiant: Etudiant) {
+  deleteTargetEtudiant.value = etudiant
+  confirmDeleteName.value = ''
+  deletingEtudiant.value = false
+}
+
+async function confirmDeleteEtudiant() {
+  if (!deleteTargetEtudiant.value) return
+  const fullName = `${deleteTargetEtudiant.value.prenom} ${deleteTargetEtudiant.value.nom}`
+  if (confirmDeleteName.value.trim().toLowerCase() !== fullName.toLowerCase()) return
+  deletingEtudiant.value = true
+  try {
+    await api.delete(`/etudiants/${deleteTargetEtudiant.value.id}`)
+    deleteTargetEtudiant.value = null
+    await fetchEtudiants()
+  } catch (err: any) {
+    alert(err?.response?.data?.message || 'Erreur lors de la suppression')
+  } finally {
+    deletingEtudiant.value = false
+  }
+}
 
 // ── Interfaces ────────────────────────────────────────────────────────
 interface InscriptionActive {
@@ -207,6 +235,8 @@ const inscriptionEditForm = ref({
   niveau_bourse_id: null as number | null,
   annee_academique_id: null as number | null,
   frais_tenue: 0,
+  mensualite: 0,
+  frais_inscription: 0,
 })
 const filteredFilieresForEdit = computed(() =>
   inscriptionEditType.value
@@ -392,6 +422,8 @@ function openEditInscription() {
     niveau_bourse_id: insc.niveau_bourse?.id ?? insc.niveau_bourse_id ?? null,
     annee_academique_id: insc.annee_academique?.id ?? insc.annee_academique_id ?? null,
     frais_tenue: insc.frais_tenue ?? 0,
+    mensualite: Number(f?.mensualite ?? insc.mensualite ?? 0),
+    frais_inscription: Number(f?.frais_inscription ?? insc.frais_inscription ?? 0),
   }
   editingInscription.value = true
 }
@@ -402,15 +434,12 @@ async function submitEditInscription() {
   panelError.value = ''
   try {
     const cur = currentInscription.value as any
-    // Recalculate frais from the selected filière + bourse
     const editFiliere = filieres.value.find(f => f.id === inscriptionEditForm.value.filiere_id)
     const editBourse = niveauxBourse.value.find(b => b.id === inscriptionEditForm.value.niveau_bourse_id)
-    let newFraisInsc = editFiliere?.frais_inscription ?? cur.frais_inscription ?? 0
-    let newMensualite = editFiliere?.mensualite ?? cur.mensualite ?? 0
-    if (editBourse) {
-      if ((editBourse as any).applique_inscription) newFraisInsc = newFraisInsc * (1 - editBourse.pourcentage / 100)
-      newMensualite = newMensualite * (1 - editBourse.pourcentage / 100)
-    }
+    // On stocke les montants tels que saisis par l'utilisateur (tarifs de base).
+    // La réduction bourse est appliquée uniquement par genererEcheances côté serveur.
+    const newMensualite = Number(inscriptionEditForm.value.mensualite)
+    const newFraisInsc = Number(inscriptionEditForm.value.frais_inscription)
     const { data } = await api.put(`/inscriptions/${cur.id}`, {
       ...inscriptionEditForm.value,
       statut: cur.statut,
@@ -953,6 +982,7 @@ onMounted(() => {
           <div class="row-actions">
             <button v-if="canWrite" @click="openEditEtudiant(etudiant as any)" class="row-btn" title="Modifier">Modifier</button>
             <button v-if="canWrite && (etudiant as any).inscription_active" @click="openGererInscription(etudiant as any)" class="row-btn" title="Gérer inscription">Inscription</button>
+            <button v-if="canDelete" @click="openDeleteEtudiant(etudiant as any)" class="row-btn row-btn--danger" title="Supprimer définitivement">Supprimer</button>
           </div>
         </td>
       </template>
@@ -1284,6 +1314,19 @@ onMounted(() => {
                     </div>
                     <div class="form-row full">
                       <div class="form-group">
+                        <label>Mensualité de base (FCFA) <span class="req">*</span></label>
+                        <input v-model.number="inscriptionEditForm.mensualite" type="number" min="0" step="500" placeholder="Ex: 50000" />
+                        <span style="font-size:10px;color:#888;display:block;margin-top:3px;">La bourse sera appliquée lors de la génération des échéances</span>
+                      </div>
+                    </div>
+                    <div class="form-row full">
+                      <div class="form-group">
+                        <label>Frais d'inscription (FCFA)</label>
+                        <input v-model.number="inscriptionEditForm.frais_inscription" type="number" min="0" step="500" placeholder="Ex: 100000" />
+                      </div>
+                    </div>
+                    <div class="form-row full">
+                      <div class="form-group">
                         <label>Frais de tenue (FCFA)</label>
                         <input v-model.number="inscriptionEditForm.frais_tenue" type="number" min="0" placeholder="0" />
                       </div>
@@ -1374,6 +1417,43 @@ onMounted(() => {
           </div>
         </div>
       </Transition>
+    </Teleport>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         MODAL SUPPRESSION DÉFINITIVE
+         ═══════════════════════════════════════════════════════════ -->
+    <Teleport to="body">
+      <div v-if="deleteTargetEtudiant" class="del-overlay" @click.self="deleteTargetEtudiant = null">
+        <div class="del-modal">
+          <div class="del-icon">⚠️</div>
+          <h2 class="del-title">Supprimer définitivement ?</h2>
+          <p class="del-warning">
+            Cette action est <strong>irréversible</strong>. Toutes les données de
+            <strong>{{ deleteTargetEtudiant.prenom }} {{ deleteTargetEtudiant.nom }}</strong>
+            seront effacées : inscriptions, paiements, notes, présences, documents et compte utilisateur.
+          </p>
+          <p class="del-confirm-label">
+            Tapez <strong>{{ deleteTargetEtudiant.prenom }} {{ deleteTargetEtudiant.nom }}</strong> pour confirmer :
+          </p>
+          <input
+            v-model="confirmDeleteName"
+            type="text"
+            class="del-input"
+            placeholder="Nom complet de l'étudiant"
+            @keyup.enter="confirmDeleteEtudiant"
+          />
+          <div class="del-actions">
+            <button @click="deleteTargetEtudiant = null" class="del-btn-cancel">Annuler</button>
+            <button
+              @click="confirmDeleteEtudiant"
+              :disabled="deletingEtudiant || confirmDeleteName.trim().toLowerCase() !== `${deleteTargetEtudiant.prenom} ${deleteTargetEtudiant.nom}`.toLowerCase()"
+              class="del-btn-confirm"
+            >
+              {{ deletingEtudiant ? 'Suppression…' : 'Supprimer définitivement' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </Teleport>
 
   </div>
@@ -1544,6 +1624,48 @@ onMounted(() => {
   font-family: 'Poppins', sans-serif;
 }
 .row-btn:hover { border-color: #E30613; color: #E30613; }
+.row-btn--danger { border-color: #fecaca; color: #E30613; }
+.row-btn--danger:hover { background: #E30613; color: #fff; border-color: #E30613; }
+
+/* Modal suppression */
+.del-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.del-modal {
+  background: #fff; border-radius: 12px; padding: 32px 28px;
+  max-width: 440px; width: 100%; text-align: center;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.25);
+}
+.del-icon { font-size: 36px; margin-bottom: 12px; }
+.del-title { font-size: 18px; font-weight: 800; color: #111; margin: 0 0 12px; }
+.del-warning {
+  font-size: 13px; color: #555; line-height: 1.6; margin-bottom: 20px;
+  background: #fff5f5; border: 1px solid #fecaca; border-radius: 8px; padding: 12px;
+  text-align: left;
+}
+.del-confirm-label { font-size: 12.5px; color: #666; margin-bottom: 8px; text-align: left; }
+.del-input {
+  width: 100%; border: 1.5px solid #e5e5e5; border-radius: 6px;
+  padding: 9px 12px; font-size: 13px; font-family: 'Poppins', sans-serif;
+  margin-bottom: 20px; outline: none; transition: border-color 0.15s;
+}
+.del-input:focus { border-color: #E30613; }
+.del-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.del-btn-cancel {
+  border: 1px solid #e5e5e5; background: #fff; border-radius: 6px;
+  padding: 9px 18px; font-size: 13px; font-weight: 600; color: #555;
+  cursor: pointer; font-family: 'Poppins', sans-serif;
+}
+.del-btn-cancel:hover { background: #f5f5f5; }
+.del-btn-confirm {
+  background: #E30613; color: #fff; border: none; border-radius: 6px;
+  padding: 9px 18px; font-size: 13px; font-weight: 700; cursor: pointer;
+  font-family: 'Poppins', sans-serif; transition: background 0.15s;
+}
+.del-btn-confirm:hover:not(:disabled) { background: #c00510; }
+.del-btn-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Badges */
 .uc-badge {

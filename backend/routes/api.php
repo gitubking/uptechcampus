@@ -148,6 +148,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/etudiants/{etudiant}', [EtudiantController::class, 'update']);
         Route::post('/etudiants/{etudiant}/photo', [EtudiantController::class, 'uploadPhoto']);
     });
+    Route::middleware('role:dg')->group(function () {
+        Route::delete('/etudiants/{etudiant}', [EtudiantController::class, 'destroy']);
+    });
 
     // Inscriptions
     Route::get('/inscriptions', [InscriptionController::class, 'index']);

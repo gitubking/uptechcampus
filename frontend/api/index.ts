@@ -24,8 +24,21 @@ const pool = new Pool({ ...buildPoolConfig(), max: 1, idleTimeoutMillis: 5000, c
 
 // ─── Migrations automatiques (idempotentes) ───────────────────────────────────
 pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS niveau INT DEFAULT 1`).catch(() => {})
+pool.query(`ALTER TABLE filieres ADD COLUMN IF NOT EXISTS montant_tenue INTEGER DEFAULT 0`).catch(() => {})
+pool.query(`DO $$ BEGIN ALTER TABLE paiements DROP CONSTRAINT IF EXISTS paiements_type_paiement_check; ALTER TABLE paiements ADD CONSTRAINT paiements_type_paiement_check CHECK (type_paiement IN ('frais_inscription','mensualite','tenue','rattrapage','autre')); EXCEPTION WHEN OTHERS THEN NULL; END $$`).catch(() => {})
 pool.query(`ALTER TABLE types_formation ADD COLUMN IF NOT EXISTS has_niveau BOOLEAN DEFAULT FALSE`).catch(() => {})
 pool.query(`ALTER TABLE types_formation ADD COLUMN IF NOT EXISTS description TEXT`).catch(() => {})
+pool.query(`CREATE TABLE IF NOT EXISTS echeances (
+  id SERIAL PRIMARY KEY,
+  inscription_id INT NOT NULL,
+  mois DATE NOT NULL,
+  montant DECIMAL(10,2) NOT NULL DEFAULT 0,
+  type_echeance VARCHAR(20) NOT NULL DEFAULT 'mensualite',
+  statut VARCHAR(20) NOT NULL DEFAULT 'non_paye',
+  paiement_id INT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(inscription_id, mois, type_echeance)
+)`).catch(() => {})
 
 const JWT_SECRET = process.env.JWT_SECRET || 'uptech-dev-secret-2026'
 
@@ -241,8 +254,8 @@ app.get('/filieres', requireAuth, async (c) => {
 app.post('/filieres', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'INSERT INTO filieres (nom,code,description,actif,type_formation_id,frais_inscription,mensualite,duree_mois) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
-    [b.nom, b.code, b.description || null, b.actif ?? true, b.type_formation_id || null, b.frais_inscription || 0, b.mensualite || 0, b.duree_mois || null]
+    'INSERT INTO filieres (nom,code,description,actif,type_formation_id,frais_inscription,mensualite,duree_mois,montant_tenue) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
+    [b.nom, b.code, b.description || null, b.actif ?? true, b.type_formation_id || null, b.frais_inscription || 0, b.mensualite || 0, b.duree_mois || null, b.montant_tenue || 0]
   )
   return c.json(rows[0], 201)
 })
@@ -250,8 +263,8 @@ app.post('/filieres', requireAuth, role('dg'), async (c) => {
 app.put('/filieres/:id', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'UPDATE filieres SET nom=$1,code=$2,description=$3,actif=$4,type_formation_id=$5,frais_inscription=$6,mensualite=$7,duree_mois=$8 WHERE id=$9 RETURNING *',
-    [b.nom, b.code, b.description || null, b.actif ?? true, b.type_formation_id || null, b.frais_inscription || 0, b.mensualite || 0, b.duree_mois || null, c.req.param('id')]
+    'UPDATE filieres SET nom=$1,code=$2,description=$3,actif=$4,type_formation_id=$5,frais_inscription=$6,mensualite=$7,duree_mois=$8,montant_tenue=$9 WHERE id=$10 RETURNING *',
+    [b.nom, b.code, b.description || null, b.actif ?? true, b.type_formation_id || null, b.frais_inscription || 0, b.mensualite || 0, b.duree_mois || null, b.montant_tenue || 0, c.req.param('id')]
   )
   return c.json(rows[0])
 })
@@ -457,7 +470,7 @@ app.get('/classes', requireAuth, async (c) => {
   const { rows } = await pool.query(`
     SELECT c.*,
       CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id) ELSE NULL END as filiere,
-      CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique,
+      CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle,'actif',aa.actif) ELSE NULL END as annee_academique,
       COALESCE(json_agg(DISTINCT jsonb_build_object('id',p.id,'nom',p.nom)) FILTER (WHERE p.id IS NOT NULL),'[]') as parcours
     FROM classes c
     LEFT JOIN filieres f ON c.filiere_id = f.id
@@ -523,7 +536,7 @@ app.get('/etudiants', requireAuth, async (c) => {
         'id', ins.id, 'statut', ins.statut, 'acces_bloque', ins.acces_bloque,
         'frais_inscription', ins.frais_inscription, 'mensualite', ins.mensualite,
         'frais_tenue', ins.frais_tenue, 'contrat_path', ins.contrat_path,
-        'filiere', CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id) ELSE NULL END,
+        'filiere', CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id,'frais_inscription',f.frais_inscription,'mensualite',f.mensualite,'montant_tenue',COALESCE(f.montant_tenue,0)) ELSE NULL END,
         'classe', CASE WHEN cl.id IS NOT NULL THEN jsonb_build_object('id',cl.id,'nom',cl.nom,'niveau',cl.niveau) ELSE NULL END,
         'niveau_entree', CASE WHEN ne.id IS NOT NULL THEN jsonb_build_object('id',ne.id,'nom',ne.nom) ELSE NULL END,
         'niveau_bourse', CASE WHEN nb.id IS NOT NULL THEN jsonb_build_object('id',nb.id,'nom',nb.nom,'pourcentage',nb.pourcentage) ELSE NULL END
@@ -614,6 +627,56 @@ app.post('/etudiants/:id/photo', requireAuth, role('secretariat', 'dg'), async (
   return c.json({ photo_path: rows[0].photo_path })
 })
 
+app.delete('/etudiants/:id', requireAuth, role('dg'), async (c) => {
+  const id = c.req.param('id')
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Vérifier que l'étudiant existe
+    const { rows: etudRows } = await client.query('SELECT id, user_id FROM etudiants WHERE id=$1', [id])
+    if (!etudRows[0]) {
+      await client.query('ROLLBACK')
+      return c.json({ message: 'Étudiant introuvable.' }, 404)
+    }
+    const userId = etudRows[0].user_id
+
+    // Récupérer les IDs d'inscriptions
+    const { rows: inscRows } = await client.query('SELECT id FROM inscriptions WHERE etudiant_id=$1', [id])
+    const inscIds = inscRows.map((r: any) => r.id)
+
+    if (inscIds.length) {
+      await client.query(`DELETE FROM notes WHERE inscription_id = ANY($1::int[])`, [inscIds])
+      await client.query(`DELETE FROM paiements WHERE inscription_id = ANY($1::int[])`, [inscIds])
+      await client.query(`DELETE FROM presences WHERE inscription_id = ANY($1::int[])`, [inscIds])
+      await client.query(`DELETE FROM echeances WHERE inscription_id = ANY($1::int[])`, [inscIds]).catch(() => {})
+      await client.query(`DELETE FROM documents_etudiant WHERE inscription_id = ANY($1::int[])`, [inscIds])
+      await client.query('DELETE FROM inscriptions WHERE etudiant_id=$1', [id])
+    }
+
+    // Documents restants liés directement à l'étudiant
+    await client.query('DELETE FROM documents_etudiant WHERE etudiant_id=$1', [id])
+
+    // Supprimer l'étudiant
+    await client.query('DELETE FROM etudiants WHERE id=$1', [id])
+
+    // Supprimer le compte utilisateur et ses conversations si existants
+    if (userId) {
+      await client.query('DELETE FROM conversation_participants WHERE user_id=$1', [userId]).catch(() => {})
+      await client.query('DELETE FROM messages WHERE sender_id=$1', [userId]).catch(() => {})
+      await client.query('DELETE FROM users WHERE id=$1', [userId])
+    }
+
+    await client.query('COMMIT')
+    return c.json({ message: 'Étudiant supprimé définitivement.' })
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+})
+
 // ─── INSCRIPTIONS ─────────────────────────────────────────────────────────────
 app.get('/inscriptions', requireAuth, async (c) => {
   const classeId    = c.req.query('classe_id')
@@ -633,7 +696,7 @@ app.get('/inscriptions', requireAuth, async (c) => {
     SELECT i.*,
       jsonb_build_object('id',e.id,'nom',e.nom,'prenom',e.prenom,'email',e.email,'numero_etudiant',e.numero_etudiant) as etudiant,
       CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom,'niveau',c.niveau) ELSE NULL END as classe,
-      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id) ELSE NULL END as filiere,
+      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id,'frais_inscription',f.frais_inscription,'mensualite',f.mensualite,'montant_tenue',COALESCE(f.montant_tenue,0)) ELSE NULL END as filiere,
       CASE WHEN p.id IS NOT NULL THEN jsonb_build_object('id',p.id,'nom',p.nom) ELSE NULL END as parcours,
       CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique,
       CASE WHEN ne.id IS NOT NULL THEN jsonb_build_object('id',ne.id,'nom',ne.nom) ELSE NULL END as niveau_entree,
@@ -654,38 +717,88 @@ app.get('/inscriptions', requireAuth, async (c) => {
 
 app.post('/inscriptions', requireAuth, role('secretariat', 'dg'), async (c) => {
   const b = await c.req.json()
+  // Auto-populate tariffs from filière if not explicitly provided
+  let fraisInscription = b.frais_inscription || 0
+  let mensualite = b.mensualite || 0
+  let fraisTenue = b.frais_tenue || 0
+  if (b.filiere_id && (!fraisInscription && !mensualite)) {
+    const { rows: fil } = await pool.query('SELECT frais_inscription,mensualite,montant_tenue FROM filieres WHERE id=$1', [b.filiere_id])
+    if (fil[0]) {
+      fraisInscription = parseFloat(fil[0].frais_inscription) || 0
+      mensualite = parseFloat(fil[0].mensualite) || 0
+      if (!fraisTenue) fraisTenue = parseFloat(fil[0].montant_tenue) || 0
+    }
+  }
   const { rows } = await pool.query(
     `INSERT INTO inscriptions (etudiant_id,filiere_id,classe_id,parcours_id,annee_academique_id,
       niveau_entree_id,niveau_bourse_id,statut,frais_inscription,mensualite,frais_tenue,reduction_type,reduction_valeur,created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
     [b.etudiant_id, b.filiere_id || null, b.classe_id || null, b.parcours_id || null, b.annee_academique_id,
      b.niveau_entree_id || null, b.niveau_bourse_id || null, b.statut || 'pre_inscrit',
-     b.frais_inscription || 0, b.mensualite || 0, b.frais_tenue || 0,
+     fraisInscription, mensualite, fraisTenue,
      b.reduction_type || null, b.reduction_valeur || null, u(c).id]
   )
+  // Générer les échéances immédiatement dès l'inscription
+  genererEcheances(rows[0].id).catch(() => {})
+
+  // Créer automatiquement le compte étudiant si l'étudiant a un email
+  try {
+    const { rows: etud } = await pool.query('SELECT nom,prenom,email FROM etudiants WHERE id=$1', [b.etudiant_id])
+    if (etud[0]?.email) {
+      const { rows: existing } = await pool.query('SELECT id FROM users WHERE email=$1', [etud[0].email])
+      if (!existing.length) {
+        const hashed = await bcrypt.hash('@2026', 10)
+        await pool.query(
+          'INSERT INTO users (nom,prenom,email,password,role,statut,premier_connexion,cgu_acceptees,created_by) VALUES ($1,$2,$3,$4,$5,$6,true,false,$7)',
+          [etud[0].nom, etud[0].prenom, etud[0].email, hashed, 'etudiant', 'actif', u(c).id]
+        )
+      }
+    }
+  } catch { /* silencieux — ne bloque pas l'inscription */ }
   return c.json(rows[0], 201)
 })
 
 app.put('/inscriptions/:id', requireAuth, role('secretariat', 'dg'), async (c) => {
   const b = await c.req.json()
+  // Si la filière a changé, on vide automatiquement la classe (l'étudiant retourne dans le pool de la nouvelle filière)
+  const { rows: cur } = await pool.query('SELECT filiere_id FROM inscriptions WHERE id=$1', [c.req.param('id')])
+  const filiereChanged = cur[0] && String(cur[0].filiere_id) !== String(b.filiere_id || '')
+  const classeId = filiereChanged ? null : (b.classe_id || null)
+  // Auto-populate tariffs from filière when filière changes and tariffs not explicitly provided
+  let fraisInscription = b.frais_inscription || 0
+  let mensualite = b.mensualite || 0
+  if (b.filiere_id && filiereChanged && (!fraisInscription && !mensualite)) {
+    const { rows: fil } = await pool.query('SELECT frais_inscription,mensualite FROM filieres WHERE id=$1', [b.filiere_id])
+    if (fil[0]) {
+      fraisInscription = parseFloat(fil[0].frais_inscription) || 0
+      mensualite = parseFloat(fil[0].mensualite) || 0
+    }
+  }
   const { rows } = await pool.query(
     `UPDATE inscriptions SET filiere_id=$1,classe_id=$2,parcours_id=$3,annee_academique_id=$4,
       niveau_entree_id=$5,niveau_bourse_id=$6,statut=$7,frais_inscription=$8,mensualite=$9,
       frais_tenue=$10,reduction_type=$11,reduction_valeur=$12
      WHERE id=$13 RETURNING *`,
-    [b.filiere_id || null, b.classe_id || null, b.parcours_id || null, b.annee_academique_id,
+    [b.filiere_id || null, classeId, b.parcours_id || null, b.annee_academique_id,
      b.niveau_entree_id || null, b.niveau_bourse_id || null, b.statut || 'pre_inscrit',
-     b.frais_inscription || 0, b.mensualite || 0, b.frais_tenue || 0,
+     fraisInscription, mensualite, b.frais_tenue || 0,
      b.reduction_type || null, b.reduction_valeur || null, c.req.param('id')]
   )
   return c.json(rows[0])
 })
 
 app.post('/inscriptions/:id/valider', requireAuth, role('secretariat', 'dg'), async (c) => {
+  const inscId = parseInt(c.req.param('id'))
   const { rows } = await pool.query(
     "UPDATE inscriptions SET statut='inscrit_actif',date_validation=NOW(),validated_by=$1 WHERE id=$2 RETURNING *",
-    [u(c).id, c.req.param('id')]
+    [u(c).id, inscId]
   )
+  // Supprimer les échéances à 0 FCFA (générées prématurément sans tarifs) puis recréer correctement
+  await pool.query(
+    `DELETE FROM echeances WHERE inscription_id = $1 AND montant = 0`,
+    [inscId]
+  ).catch(() => {})
+  await genererEcheances(inscId).catch(() => {})
   return c.json(rows[0])
 })
 
@@ -701,7 +814,16 @@ app.post('/inscriptions/:id/contrat', requireAuth, role('secretariat', 'dg'), as
 
 app.put('/inscriptions/:id/affecter-classe', requireAuth, role('secretariat', 'dg'), async (c) => {
   const { classe_id } = await c.req.json()
-  const { rows } = await pool.query('UPDATE inscriptions SET classe_id=$1 WHERE id=$2 RETURNING *', [classe_id, c.req.param('id')])
+  // When assigning: also fill filiere_id from the class (in case inscription.filiere_id is null)
+  // When removing (classe_id=null): keep filiere_id intact so student reappears in pool
+  // COALESCE(filiere_id, subquery) : si $1 est null, la sous-requête retourne null → filiere_id inchangé
+  // Si $1 est un id valide, on remplit filiere_id depuis la classe au cas où il serait null
+  const { rows } = await pool.query(
+    `UPDATE inscriptions SET classe_id=$1::int,
+      filiere_id=COALESCE(filiere_id,(SELECT filiere_id FROM classes WHERE id=$1::int))
+     WHERE id=$2 RETURNING *`,
+    [classe_id ?? null, c.req.param('id')]
+  )
   return c.json(rows[0])
 })
 
@@ -875,6 +997,107 @@ app.get('/stats', requireAuth, async (c) => {
   })
 })
 
+// ─── ÉCHEANCES ────────────────────────────────────────────────────────────────
+async function genererEcheances(inscriptionId: number) {
+  const { rows } = await pool.query(`
+    SELECT
+      -- Filière = source de vérité pour les tarifs de base.
+      -- On prend f.mensualite si défini (> 0), sinon fallback sur i.mensualite
+      COALESCE(NULLIF(f.mensualite, 0), i.mensualite, 0)          AS mensualite,
+      COALESCE(NULLIF(f.frais_inscription, 0), i.frais_inscription, 0) AS frais_inscription,
+      COALESCE(NULLIF(f.montant_tenue, 0), i.frais_tenue, 0)      AS frais_tenue,
+      i.niveau_bourse_id,
+      COALESCE(f.duree_mois, 12) as duree_mois,
+      COALESCE(nb.pourcentage, 0) as bourse_pct,
+      COALESCE(nb.applique_inscription, false) as bourse_applique
+    FROM inscriptions i
+    LEFT JOIN filieres f ON i.filiere_id = f.id
+    LEFT JOIN niveaux_bourse nb ON i.niveau_bourse_id = nb.id
+    WHERE i.id = $1
+  `, [inscriptionId])
+  if (!rows[0]) return
+  const insc = rows[0]
+  const mensBase = parseFloat(insc.mensualite) || 0    // tarif filière (source de vérité)
+  const fraisBase = parseFloat(insc.frais_inscription) || 0
+  const tenueBase = parseFloat(insc.frais_tenue) || 0
+  const pct = parseFloat(insc.bourse_pct) || 0
+  const mensEff = Math.round(mensBase * (1 - pct / 100))
+  const fraisEff = insc.bourse_applique ? Math.round(fraisBase * (1 - pct / 100)) : fraisBase
+  const duree = Math.max(1, Math.min(parseInt(insc.duree_mois) || 12, 36))
+  const now = new Date()
+  const moisCourant = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  // Frais inscription
+  if (fraisBase > 0) {
+    await pool.query(
+      `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ($1,$2,$3,'frais_inscription') ON CONFLICT DO NOTHING`,
+      [inscriptionId, moisCourant, fraisEff]
+    ).catch(() => {})
+  }
+  // Tenue
+  if (tenueBase > 0) {
+    await pool.query(
+      `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ($1,$2,$3,'tenue') ON CONFLICT DO NOTHING`,
+      [inscriptionId, moisCourant, tenueBase]
+    ).catch(() => {})
+  }
+  // Mensualités en batch
+  if (mensBase > 0) {
+    const params: any[] = [inscriptionId, mensEff]
+    const vals: string[] = []
+    for (let i = 0; i < duree; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
+      const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+      params.push(m)
+      vals.push(`($1,$${params.length},$2,'mensualite')`)
+    }
+    await pool.query(
+      `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ${vals.join(',')} ON CONFLICT DO NOTHING`,
+      params
+    ).catch(() => {})
+  }
+}
+
+app.get('/echeances', requireAuth, async (c) => {
+  const inscriptionId = c.req.query('inscription_id')
+  const statut = c.req.query('statut')
+  const conditions: string[] = []
+  const params: any[] = []
+  if (inscriptionId) { params.push(inscriptionId); conditions.push(`e.inscription_id = $${params.length}`) }
+  if (statut) { params.push(statut); conditions.push(`e.statut = $${params.length}`) }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const { rows } = await pool.query(`
+    SELECT e.*,
+      jsonb_build_object('id',et.id,'nom',et.nom,'prenom',et.prenom,'numero_etudiant',et.numero_etudiant) as etudiant,
+      jsonb_build_object('id',f.id,'nom',f.nom) as filiere
+    FROM echeances e
+    LEFT JOIN inscriptions i ON e.inscription_id = i.id
+    LEFT JOIN etudiants et ON i.etudiant_id = et.id
+    LEFT JOIN filieres f ON i.filiere_id = f.id
+    ${where}
+    ORDER BY e.mois ASC, et.nom, et.prenom
+  `, params)
+  return c.json(rows)
+})
+
+app.post('/echeances/generer', requireAuth, role('secretariat', 'dg'), async (c) => {
+  const { inscription_id } = await c.req.json()
+  // Supprimer les échéances à 0 FCFA avant de régénérer
+  await pool.query(`DELETE FROM echeances WHERE inscription_id = $1 AND montant = 0`, [inscription_id]).catch(() => {})
+  await genererEcheances(parseInt(inscription_id))
+  return c.json({ success: true })
+})
+
+app.post('/echeances/regenerer', requireAuth, role('secretariat', 'dg'), async (c) => {
+  const { inscription_id } = await c.req.json()
+  // Régénération complète : supprime TOUTES les échéances non payées et recrée
+  await pool.query(
+    `DELETE FROM echeances WHERE inscription_id = $1 AND statut = 'non_paye'`,
+    [inscription_id]
+  ).catch(() => {})
+  await genererEcheances(parseInt(inscription_id))
+  return c.json({ success: true })
+})
+
 // ─── PAIEMENTS ────────────────────────────────────────────────────────────────
 app.get('/paiements', requireAuth, async (c) => {
   const { rows } = await pool.query(`
@@ -894,17 +1117,109 @@ app.get('/paiements/:id', requireAuth, async (c) => {
   return c.json(rows[0])
 })
 
+// Recalcule intégralement toutes les échéances d'une inscription avec cascade des surplus :
+// frais_inscription surplus → mensualité 1 → mensualité 2 → ...
+// mensualité N surplus → mensualité N+1 → ...
+async function recalculerEcheances(inscriptionId: number) {
+  try {
+    // 1. Frais d'inscription
+    const { rows: fiEch } = await pool.query(
+      `SELECT id, montant FROM echeances WHERE inscription_id=$1 AND type_echeance='frais_inscription' LIMIT 1`,
+      [inscriptionId]
+    )
+    const { rows: fiPaid } = await pool.query(
+      `SELECT COALESCE(SUM(montant),0)::float AS total FROM paiements
+       WHERE inscription_id=$1 AND type_paiement='frais_inscription' AND statut='confirme'`,
+      [inscriptionId]
+    )
+    let surplus = 0
+    if (fiEch[0]) {
+      const totalFI = Number(fiPaid[0].total)
+      const montantFI = Number(fiEch[0].montant)
+      const statutFI = totalFI >= montantFI ? 'paye' : totalFI > 0 ? 'partiellement_paye' : 'non_paye'
+      await pool.query(`UPDATE echeances SET statut=$1 WHERE id=$2`, [statutFI, fiEch[0].id])
+      surplus = Math.max(0, totalFI - montantFI)
+    }
+
+    // 2. Tenue
+    const { rows: tenueEchs } = await pool.query(
+      `SELECT id, montant FROM echeances WHERE inscription_id=$1 AND type_echeance='tenue'`,
+      [inscriptionId]
+    )
+    for (const ech of tenueEchs) {
+      const { rows: tenuePaid } = await pool.query(
+        `SELECT COALESCE(SUM(montant),0)::float AS total FROM paiements
+         WHERE inscription_id=$1 AND type_paiement='tenue' AND statut='confirme'`,
+        [inscriptionId]
+      )
+      const totalTenue = Number(tenuePaid[0].total)
+      const montantTenue = Number(ech.montant)
+      const statutTenue = totalTenue >= montantTenue ? 'paye' : totalTenue > 0 ? 'partiellement_paye' : 'non_paye'
+      await pool.query(`UPDATE echeances SET statut=$1 WHERE id=$2`, [statutTenue, ech.id])
+    }
+
+    // 3. Mensualités dans l'ordre chronologique — le surplus se propage de mois en mois
+    const { rows: mensEchs } = await pool.query(
+      `SELECT id, montant, mois FROM echeances
+       WHERE inscription_id=$1 AND type_echeance='mensualite'
+       ORDER BY mois ASC`,
+      [inscriptionId]
+    )
+    for (const ech of mensEchs) {
+      const { rows: paid } = await pool.query(
+        `SELECT COALESCE(SUM(montant),0)::float AS total FROM paiements
+         WHERE inscription_id=$1 AND type_paiement='mensualite'
+           AND DATE_TRUNC('month', mois_concerne)=DATE_TRUNC('month', $2::date)
+           AND statut='confirme'`,
+        [inscriptionId, ech.mois]
+      )
+      const explicitPaid = Number(paid[0].total)
+      const montant = Number(ech.montant)
+      const effectivePaid = explicitPaid + surplus
+      const statut = effectivePaid >= montant ? 'paye' : effectivePaid > 0 ? 'partiellement_paye' : 'non_paye'
+      await pool.query(`UPDATE echeances SET statut=$1 WHERE id=$2`, [statut, ech.id])
+      // Surplus restant pour le mois suivant
+      surplus = Math.max(0, effectivePaid - montant)
+    }
+  } catch { /* silencieux */ }
+}
+
 app.post('/paiements', requireAuth, role('secretariat', 'dg', 'resp_fin'), async (c) => {
   const b = await c.req.json()
   const seq = await nextSeq('paiements')
   const numero = `PAY-${year()}-${pad(seq)}`
+  const isEspeces = (b.mode_paiement || 'especes') === 'especes'
+  const statut = isEspeces ? 'confirme' : 'en_attente'
+  const confirmedAt = isEspeces ? 'NOW()' : 'NULL'
+  const moisConcerne = b.mois_concerne
+    ? (String(b.mois_concerne).length === 7 ? b.mois_concerne + '-01' : b.mois_concerne)
+    : null
   const { rows } = await pool.query(
-    `INSERT INTO paiements (inscription_id,numero_recu,type_paiement,mois_concerne,montant,mode_paiement,statut,reference,observation,created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,'en_attente',$7,$8,$9) RETURNING *`,
-    [b.inscription_id, numero, b.type_paiement || 'mensualite', b.mois_concerne || null,
-     b.montant, b.mode_paiement || 'especes', b.reference || null, b.observation || null, u(c).id]
+    `INSERT INTO paiements (inscription_id,numero_recu,type_paiement,mois_concerne,montant,mode_paiement,statut,confirmed_at,reference,observation,created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,${confirmedAt},$8,$9,$10) RETURNING *`,
+    [b.inscription_id, numero, b.type_paiement || 'mensualite', moisConcerne,
+     b.montant, b.mode_paiement || 'especes', statut, b.reference || null, b.observation || null, u(c).id]
   )
+  // Si confirmé immédiatement (espèces), vérifier si le cumul couvre l'échéance
+  if (isEspeces && b.inscription_id) {
+    await recalculerEcheances(b.inscription_id)
+  }
   return c.json(rows[0], 201)
+})
+
+app.put('/paiements/:id', requireAuth, role('dg', 'resp_fin'), async (c) => {
+  const b = await c.req.json()
+  const moisConcerne = b.mois_concerne
+    ? (String(b.mois_concerne).length === 7 ? b.mois_concerne + '-01' : b.mois_concerne)
+    : null
+  const { rows } = await pool.query(
+    `UPDATE paiements
+     SET montant=$1, type_paiement=$2, mois_concerne=$3, mode_paiement=$4, reference=$5, observation=$6
+     WHERE id=$7 RETURNING *`,
+    [b.montant, b.type_paiement, moisConcerne, b.mode_paiement, b.reference || null, b.observation || null, c.req.param('id')]
+  )
+  if (rows[0]?.inscription_id) await recalculerEcheances(rows[0].inscription_id)
+  return c.json(rows[0])
 })
 
 app.post('/paiements/:id/confirmer', requireAuth, role('dg', 'resp_fin'), async (c) => {
@@ -912,7 +1227,74 @@ app.post('/paiements/:id/confirmer', requireAuth, role('dg', 'resp_fin'), async 
     "UPDATE paiements SET statut='confirme',confirmed_at=NOW(),confirmed_by=$1 WHERE id=$2 RETURNING *",
     [u(c).id, c.req.param('id')]
   )
+  if (rows[0] && rows[0].inscription_id) {
+    await recalculerEcheances(rows[0].inscription_id)
+  }
   return c.json(rows[0])
+})
+
+// Recalcule les MONTANTS des échéances selon les tarifs actuels des filières, puis recalcule les statuts
+app.post('/echeances/recalculer-tarifs', requireAuth, role('dg'), async (c) => {
+  try {
+    // Récupérer toutes les inscriptions actives avec les tarifs actuels de leur filière
+    const { rows: inscriptions } = await pool.query(`
+      SELECT i.id AS inscription_id,
+             COALESCE(f.frais_inscription, i.frais_inscription, 0) AS frais_inscription,
+             COALESCE(f.mensualite, i.mensualite, 0) AS mensualite,
+             COALESCE(f.montant_tenue, i.frais_tenue, 0) AS montant_tenue
+      FROM inscriptions i
+      LEFT JOIN filieres f ON f.id = i.filiere_id
+      WHERE i.statut NOT IN ('annule','archive')
+    `)
+    let updated = 0
+    for (const insc of inscriptions) {
+      // Mise à jour montant frais_inscription
+      if (Number(insc.frais_inscription) > 0) {
+        await pool.query(
+          `UPDATE echeances SET montant=$1 WHERE inscription_id=$2 AND type_echeance='frais_inscription'`,
+          [insc.frais_inscription, insc.inscription_id]
+        )
+      }
+      // Mise à jour montant mensualités
+      if (Number(insc.mensualite) > 0) {
+        await pool.query(
+          `UPDATE echeances SET montant=$1 WHERE inscription_id=$2 AND type_echeance='mensualite'`,
+          [insc.mensualite, insc.inscription_id]
+        )
+      }
+      // Tenue : mettre à jour si elle existe, sinon la créer
+      if (Number(insc.montant_tenue) > 0) {
+        const moisCourant = new Date().toISOString().substring(0, 7) + '-01'
+        await pool.query(
+          `INSERT INTO echeances (inscription_id,mois,montant,type_echeance)
+           VALUES ($1,$2,$3,'tenue')
+           ON CONFLICT (inscription_id,mois,type_echeance) DO UPDATE SET montant=$3`,
+          [insc.inscription_id, moisCourant, insc.montant_tenue]
+        )
+      }
+      // Recalcul des statuts avec cascade surplus
+      await recalculerEcheances(insc.inscription_id)
+      updated++
+    }
+    return c.json({ message: `Tarifs et statuts recalculés pour ${updated} inscription(s).` })
+  } catch (err: any) {
+    return c.json({ message: err.message }, 500)
+  }
+})
+
+// Recalcule toutes les échéances de toutes les inscriptions (données existantes)
+app.post('/paiements/recalculer-surpluses', requireAuth, role('dg'), async (c) => {
+  try {
+    const { rows: inscIds } = await pool.query(
+      `SELECT DISTINCT inscription_id FROM paiements WHERE statut='confirme'`
+    )
+    for (const row of inscIds) {
+      await recalculerEcheances(row.inscription_id)
+    }
+    return c.json({ message: `Recalcul effectué pour ${inscIds.length} inscription(s).` })
+  } catch (err: any) {
+    return c.json({ message: err.message }, 500)
+  }
 })
 
 app.post('/paiements/:id/rejeter', requireAuth, role('dg', 'resp_fin'), async (c) => {
@@ -1317,7 +1699,189 @@ app.post('/annonces/:id/publier', requireAuth, annonceRoles, async (c) => {
 
 // ─── ESPACE ETUDIANT ──────────────────────────────────────────────────────────
 app.get('/espace-etudiant/dashboard', requireAuth, role('etudiant'), async (c) => {
-  return c.json({ message: 'Dashboard étudiant' })
+  const currentUser = u(c) as any
+
+  // 1. Find student by email
+  const { rows: etudRows } = await pool.query(
+    `SELECT * FROM etudiants WHERE email = $1`,
+    [currentUser.email]
+  )
+  if (!etudRows[0]) return c.json({ message: 'Aucun étudiant lié à ce compte.' }, 404)
+  const etudiant = etudRows[0]
+
+  // 2. Find active inscription (prefer 'inscrit_actif', fallback to latest)
+  const { rows: inscRows } = await pool.query(`
+    SELECT i.*,
+      CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom) ELSE NULL END as classe_obj,
+      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code) ELSE NULL END as filiere_obj,
+      CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_obj
+    FROM inscriptions i
+    LEFT JOIN classes c ON i.classe_id = c.id
+    LEFT JOIN filieres f ON i.filiere_id = f.id
+    LEFT JOIN annees_academiques aa ON i.annee_academique_id = aa.id
+    WHERE i.etudiant_id = $1
+    ORDER BY CASE WHEN i.statut = 'inscrit_actif' THEN 0 ELSE 1 END, i.id DESC
+    LIMIT 1
+  `, [etudiant.id])
+  if (!inscRows[0]) return c.json({ message: 'Aucune inscription trouvée.' }, 404)
+  const insc = inscRows[0]
+
+  // 3. Financial stats
+  const [echeancesRes, paiementsRes, allPaiementsRes] = await Promise.all([
+    pool.query(`SELECT COALESCE(SUM(montant), 0)::float AS total FROM echeances WHERE inscription_id = $1`, [insc.id]),
+    pool.query(`SELECT COALESCE(SUM(montant), 0)::float AS total FROM paiements WHERE inscription_id = $1 AND statut = 'confirme'`, [insc.id]),
+    pool.query(`SELECT * FROM paiements WHERE inscription_id = $1 ORDER BY created_at DESC LIMIT 20`, [insc.id]),
+  ])
+  const frais_totaux = echeancesRes.rows[0].total || 0
+  const total_paye = paiementsRes.rows[0].total || 0
+  const restant_du = Math.max(0, frais_totaux - total_paye)
+
+  // 4. Notes (if classe exists)
+  let notesData: any = { ues: [], moyenne_generale: null, mention: null, rang: null }
+  if (insc.classe_id) {
+    const [uesRes, notesRes] = await Promise.all([
+      pool.query(`SELECT * FROM unites_enseignement WHERE classe_id = $1 ORDER BY ordre, code`, [insc.classe_id]),
+      pool.query(`SELECT * FROM notes WHERE inscription_id = $1 AND session = 'normale'`, [insc.id]),
+    ])
+    const noteMap: Record<number, number> = {}
+    notesRes.rows.forEach((n: any) => { noteMap[n.ue_id] = parseFloat(n.note) })
+
+    let totalPts = 0, totalCoef = 0
+    const ues = uesRes.rows.map((ue: any) => {
+      const note = noteMap[ue.id] ?? null
+      const coef = parseFloat(ue.coefficient) || 1
+      if (note !== null) { totalPts += note * coef; totalCoef += coef }
+      return { ue_id: ue.id, intitule: ue.intitule || ue.code, coefficient: coef, credits: parseInt(ue.credits_ects) || 0, note }
+    })
+
+    const moyenne = totalCoef > 0 ? Math.round(totalPts / totalCoef * 100) / 100 : null
+    let mention: string | null = null
+    if (moyenne !== null) {
+      if (moyenne >= 16) mention = 'Très Bien'
+      else if (moyenne >= 14) mention = 'Bien'
+      else if (moyenne >= 12) mention = 'Assez Bien'
+      else if (moyenne >= 10) mention = 'Passable'
+    }
+
+    // Rang: compare moyennes of all inscriptions in same classe
+    let rang: number | null = null
+    if (moyenne !== null) {
+      const { rows: classInscs } = await pool.query(
+        `SELECT ins.id FROM inscriptions ins WHERE ins.classe_id = $1 AND ins.statut = 'inscrit_actif'`,
+        [insc.classe_id]
+      )
+      const classInscIds = classInscs.map((r: any) => r.id)
+      if (classInscIds.length > 1) {
+        const { rows: allNotes } = await pool.query(
+          `SELECT n.inscription_id, n.note, ue.coefficient FROM notes n JOIN unites_enseignement ue ON n.ue_id = ue.id WHERE n.inscription_id = ANY($1) AND n.session = 'normale'`,
+          [classInscIds]
+        )
+        const moyMap: Record<number, number> = {}
+        for (const id of classInscIds) {
+          const ns = allNotes.filter((n: any) => n.inscription_id === id)
+          let tp = 0, tc = 0
+          for (const n of ns) { tp += parseFloat(n.note) * (parseFloat(n.coefficient) || 1); tc += parseFloat(n.coefficient) || 1 }
+          if (tc > 0) moyMap[id] = tp / tc
+        }
+        const myMoy = moyMap[insc.id]
+        if (myMoy !== undefined) {
+          rang = Object.values(moyMap).filter(m => m > myMoy).length + 1
+        }
+      }
+    }
+
+    notesData = { ues, moyenne_generale: moyenne, mention, rang }
+  }
+
+  // 5. Présences stats
+  const { rows: presRows } = await pool.query(
+    `SELECT statut, COUNT(*)::int as cnt FROM presences WHERE inscription_id = $1 GROUP BY statut`,
+    [insc.id]
+  )
+  let present = 0, retard = 0, absent = 0
+  for (const r of presRows) {
+    if (r.statut === 'present') present = r.cnt
+    else if (r.statut === 'retard') retard = r.cnt
+    else if (r.statut === 'absent') absent = r.cnt
+  }
+  const total = present + retard + absent
+  const presencesData = {
+    present, retard, absent, total,
+    taux_presence: total > 0 ? Math.round(((present + retard) / total) * 100) : 100,
+  }
+
+  // 6. Séances cette semaine for their classe
+  let seancesSemaine: any[] = []
+  if (insc.classe_id) {
+    const now = new Date()
+    const day = now.getDay() === 0 ? 6 : now.getDay() - 1 // 0=Monday
+    const weekStart = new Date(now); weekStart.setDate(now.getDate() - day); weekStart.setHours(0, 0, 0, 0)
+    const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6); weekEnd.setHours(23, 59, 59, 999)
+    const { rows } = await pool.query(`
+      SELECT s.id, s.matiere, s.date_debut, s.date_fin, s.mode, s.salle,
+        CASE WHEN iv.id IS NOT NULL THEN iv.prenom || ' ' || iv.nom ELSE NULL END as intervenant
+      FROM seances s
+      LEFT JOIN intervenants iv ON s.intervenant_id = iv.id
+      WHERE s.classe_id = $1 AND s.statut != 'annule'
+        AND s.date_debut >= $2 AND s.date_debut <= $3
+      ORDER BY s.date_debut ASC
+    `, [insc.classe_id, weekStart.toISOString(), weekEnd.toISOString()])
+    seancesSemaine = rows
+  }
+
+  // 7. Annonces publiées récentes
+  const { rows: annonces } = await pool.query(
+    `SELECT id, titre, type, publie_at FROM annonces WHERE statut = 'publie' ORDER BY publie_at DESC LIMIT 5`
+  )
+
+  // 8. Conversations récentes
+  const { rows: convRows } = await pool.query(`
+    SELECT c.id, c.nom,
+      (SELECT m.contenu FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as dernier_message,
+      (SELECT COUNT(*)::int FROM messages m2
+       LEFT JOIN conversation_participants cp3 ON cp3.conversation_id = m2.conversation_id AND cp3.user_id = $1
+       WHERE m2.conversation_id = c.id
+         AND (cp3.dernier_lu_at IS NULL OR m2.created_at > cp3.dernier_lu_at)
+         AND m2.sender_id != $1) AS nb_non_lus
+    FROM conversations c
+    WHERE EXISTS (SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id = c.id AND cp.user_id = $1)
+    ORDER BY COALESCE(c.updated_at, c.created_at) DESC
+    LIMIT 5
+  `, [currentUser.id])
+
+  // 9. Documents de l'étudiant
+  const { rows: docs } = await pool.query(
+    `SELECT * FROM documents_etudiant WHERE etudiant_id = $1 ORDER BY created_at DESC LIMIT 10`,
+    [etudiant.id]
+  )
+
+  return c.json({
+    etudiant: {
+      id: etudiant.id,
+      nom: etudiant.nom,
+      prenom: etudiant.prenom,
+      email: etudiant.email,
+      numero_etudiant: etudiant.numero_etudiant,
+      photo_url: etudiant.photo_url ?? null,
+    },
+    inscription: {
+      id: insc.id,
+      statut: insc.statut,
+      filiere: insc.filiere_obj?.nom ?? '—',
+      classe: insc.classe_obj?.nom ?? '—',
+      annee_academique: insc.annee_obj?.libelle ?? '—',
+      frais_totaux,
+      total_paye,
+      restant_du,
+    },
+    notes: notesData,
+    presences: presencesData,
+    seances_semaine: seancesSemaine,
+    paiements: allPaiementsRes.rows,
+    annonces,
+    messages: convRows,
+    documents: docs,
+  })
 })
 
 // ─── TARIFS ───────────────────────────────────────────────────────────────────

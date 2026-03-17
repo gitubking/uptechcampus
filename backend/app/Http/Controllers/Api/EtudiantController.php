@@ -107,4 +107,45 @@ class EtudiantController extends Controller
         $etudiant->update(['photo_path' => $path]);
         return response()->json(['photo_path' => $path]);
     }
+
+    public function destroy(Etudiant $etudiant): JsonResponse
+    {
+        DB::transaction(function () use ($etudiant) {
+            // Supprimer toutes les inscriptions et leurs données liées
+            foreach ($etudiant->inscriptions as $inscription) {
+                if ($inscription->contrat_path) {
+                    Storage::disk('public')->delete($inscription->contrat_path);
+                }
+                $inscription->notes()->delete();
+                $inscription->paiements()->delete();
+                $inscription->presences()->delete();
+                $inscription->documents()->delete();
+                $inscription->delete();
+            }
+
+            // Supprimer les documents directement liés à l'étudiant
+            foreach ($etudiant->documents as $doc) {
+                if ($doc->fichier_path) {
+                    Storage::disk('public')->delete($doc->fichier_path);
+                }
+                $doc->delete();
+            }
+
+            // Supprimer la photo
+            if ($etudiant->photo_path) {
+                Storage::disk('public')->delete($etudiant->photo_path);
+            }
+
+            AuditService::log('etudiant_deleted', 'App\\Models\\Etudiant', $etudiant->id, $etudiant->toArray(), null, request());
+
+            // Supprimer le compte utilisateur associé
+            $userId = $etudiant->user_id;
+            $etudiant->delete();
+            if ($userId) {
+                User::destroy($userId);
+            }
+        });
+
+        return response()->json(['message' => 'Étudiant supprimé définitivement.']);
+    }
 }
