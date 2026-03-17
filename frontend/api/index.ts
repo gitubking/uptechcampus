@@ -708,10 +708,18 @@ app.delete('/etudiants/:id', requireAuth, role('dg'), async (c) => {
     // Supprimer l'étudiant
     await client.query('DELETE FROM etudiants WHERE id=$1', [id])
 
-    // Supprimer le compte utilisateur et ses conversations si existants
+    // Supprimer le compte utilisateur et toutes ses données liées
     if (userId) {
-      await client.query('DELETE FROM conversation_participants WHERE user_id=$1', [userId]).catch(() => {})
+      // personal_access_tokens (Sanctum) — pas de FK déclarée mais on nettoie
+      await client.query('DELETE FROM personal_access_tokens WHERE tokenable_id=$1', [userId]).catch(() => {})
+      // Messages envoyés → doivent être supprimés avant les conversations (sender_id RESTRICT)
       await client.query('DELETE FROM messages WHERE sender_id=$1', [userId]).catch(() => {})
+      // Conversations créées par cet utilisateur (created_by RESTRICT)
+      // → le CASCADE supprime automatiquement les messages + participants liés
+      await client.query('DELETE FROM conversations WHERE created_by=$1', [userId]).catch(() => {})
+      // Participation dans d'autres conversations
+      await client.query('DELETE FROM conversation_participants WHERE user_id=$1', [userId]).catch(() => {})
+      // Supprimer le compte
       await client.query('DELETE FROM users WHERE id=$1', [userId])
     }
 
