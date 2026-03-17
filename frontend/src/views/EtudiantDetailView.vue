@@ -13,8 +13,28 @@ const canDelete = computed(() => auth.user?.role === 'dg')
 
 // ── Suppression définitive ────────────────────────────────────────────
 const showDeleteModal = ref(false)
+const deleteStep = ref<1 | 2>(1)
+const deletePreview = ref<any>(null)
+const deletePreviewLoading = ref(false)
 const confirmDeleteName = ref('')
 const deletingEtudiant = ref(false)
+
+async function openDeleteModal() {
+  showDeleteModal.value = true
+  deleteStep.value = 1
+  deletePreview.value = null
+  confirmDeleteName.value = ''
+  deletingEtudiant.value = false
+  deletePreviewLoading.value = true
+  try {
+    const { data } = await api.get(`/etudiants/${etudiant.value.id}/deletion-preview`)
+    deletePreview.value = data
+  } catch {
+    deletePreview.value = null
+  } finally {
+    deletePreviewLoading.value = false
+  }
+}
 
 async function confirmDeleteEtudiant() {
   if (!etudiant.value) return
@@ -926,7 +946,7 @@ function formatFileSize(bytes: number) {
                 class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-700 transition">
                 📄 Certificat
               </button>
-              <button v-if="canDelete" @click="showDeleteModal = true; confirmDeleteName = ''"
+              <button v-if="canDelete" @click="openDeleteModal"
                 class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition"
                 style="background:#fff0f0;color:#E30613;border:1px solid #fecaca;">
                 🗑️ Supprimer
@@ -1165,37 +1185,64 @@ function formatFileSize(bytes: number) {
     </div>
   </Teleport>
 
-  <!-- Modal suppression définitive -->
+  <!-- Modal suppression progressive -->
   <Teleport to="body">
     <div v-if="showDeleteModal" class="del-overlay" @click.self="showDeleteModal = false">
       <div class="del-modal">
-        <div class="del-icon">⚠️</div>
-        <h2 class="del-title">Supprimer définitivement ?</h2>
-        <p class="del-warning">
-          Cette action est <strong>irréversible</strong>. Toutes les données de
-          <strong>{{ etudiant?.prenom }} {{ etudiant?.nom }}</strong>
-          seront effacées : inscriptions, paiements, notes, présences, documents et compte utilisateur.
-        </p>
-        <p class="del-confirm-label">
-          Tapez <strong>{{ etudiant?.prenom }} {{ etudiant?.nom }}</strong> pour confirmer :
-        </p>
-        <input
-          v-model="confirmDeleteName"
-          type="text"
-          class="del-input"
-          placeholder="Nom complet de l'étudiant"
-          @keyup.enter="confirmDeleteEtudiant"
-        />
-        <div class="del-actions">
-          <button @click="showDeleteModal = false" class="del-btn-cancel">Annuler</button>
-          <button
-            @click="confirmDeleteEtudiant"
-            :disabled="deletingEtudiant || confirmDeleteName.trim().toLowerCase() !== `${etudiant?.prenom} ${etudiant?.nom}`.toLowerCase()"
-            class="del-btn-confirm"
-          >
-            {{ deletingEtudiant ? 'Suppression…' : 'Supprimer définitivement' }}
-          </button>
+        <div class="del-header">
+          <div class="del-steps">
+            <span class="del-step" :class="{ 'del-step--active': deleteStep === 1, 'del-step--done': deleteStep > 1 }">
+              {{ deleteStep > 1 ? '✓' : '1' }} Bilan
+            </span>
+            <span class="del-step-sep">→</span>
+            <span class="del-step" :class="{ 'del-step--active': deleteStep === 2 }">2 Confirmation</span>
+          </div>
+          <button @click="showDeleteModal = false" class="del-close">✕</button>
         </div>
+
+        <template v-if="deleteStep === 1">
+          <div class="del-icon">⚠️</div>
+          <h2 class="del-title">Données qui seront supprimées</h2>
+          <p class="del-subtitle">Étudiant : <strong>{{ etudiant?.prenom }} {{ etudiant?.nom }}</strong></p>
+          <div v-if="deletePreviewLoading" class="del-loading">Chargement du bilan…</div>
+          <div v-else-if="deletePreview" class="del-tree">
+            <div class="del-tree-root"><span class="del-tree-icon">👤</span><span class="del-tree-label">Étudiant + photo</span></div>
+            <div v-for="niveau in deletePreview.niveaux" :key="niveau.label" class="del-tree-level">
+              <div class="del-tree-node" :class="{ 'del-tree-node--zero': niveau.count === 0 }">
+                <span class="del-tree-bullet">├─</span>
+                <span class="del-tree-count" :class="niveau.count > 0 ? 'del-count--warn' : 'del-count--zero'">{{ niveau.count }}</span>
+                <span class="del-tree-text">{{ niveau.detail }}</span>
+              </div>
+              <div v-for="enfant in niveau.enfants" :key="enfant.label"
+                class="del-tree-node del-tree-node--child" :class="{ 'del-tree-node--zero': enfant.count === 0 }">
+                <span class="del-tree-bullet del-tree-bullet--child">│&nbsp;&nbsp;└─</span>
+                <span class="del-tree-count" :class="enfant.count > 0 ? 'del-count--warn' : 'del-count--zero'">{{ enfant.count }}</span>
+                <span class="del-tree-text">{{ enfant.detail }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="del-actions">
+            <button @click="showDeleteModal = false" class="del-btn-cancel">Annuler</button>
+            <button @click="deleteStep = 2; confirmDeleteName = ''" class="del-btn-next">Continuer →</button>
+          </div>
+        </template>
+
+        <template v-if="deleteStep === 2">
+          <div class="del-icon">🗑️</div>
+          <h2 class="del-title">Confirmation finale</h2>
+          <p class="del-warning">Cette action est <strong>irréversible</strong>. Toutes les données listées seront définitivement effacées.</p>
+          <p class="del-confirm-label">Tapez <strong>{{ etudiant?.prenom }} {{ etudiant?.nom }}</strong> pour confirmer :</p>
+          <input v-model="confirmDeleteName" type="text" class="del-input"
+            placeholder="Nom complet de l'étudiant" @keyup.enter="confirmDeleteEtudiant" autofocus />
+          <div class="del-actions">
+            <button @click="deleteStep = 1" class="del-btn-cancel">← Retour</button>
+            <button @click="confirmDeleteEtudiant"
+              :disabled="deletingEtudiant || confirmDeleteName.trim().toLowerCase() !== `${etudiant?.prenom} ${etudiant?.nom}`.toLowerCase()"
+              class="del-btn-confirm">
+              {{ deletingEtudiant ? 'Suppression…' : 'Supprimer définitivement' }}
+            </button>
+          </div>
+        </template>
       </div>
     </div>
   </Teleport>
@@ -1227,43 +1274,43 @@ function formatFileSize(bytes: number) {
   padding: 14px 22px; border-top: 1px solid #f0f0f0; background: #fafafa;
 }
 
-/* Modal suppression */
-.del-overlay {
-  position: fixed; inset: 0; z-index: 9999;
-  background: rgba(0,0,0,0.55);
-  display: flex; align-items: center; justify-content: center; padding: 20px;
-}
-.del-modal {
-  background: #fff; border-radius: 12px; padding: 32px 28px;
-  max-width: 440px; width: 100%; text-align: center;
-  box-shadow: 0 24px 64px rgba(0,0,0,0.25);
-}
-.del-icon { font-size: 36px; margin-bottom: 12px; }
-.del-title { font-size: 18px; font-weight: 800; color: #111; margin: 0 0 12px; }
-.del-warning {
-  font-size: 13px; color: #555; line-height: 1.6; margin-bottom: 20px;
-  background: #fff5f5; border: 1px solid #fecaca; border-radius: 8px; padding: 12px;
-  text-align: left;
-}
-.del-confirm-label { font-size: 12.5px; color: #666; margin-bottom: 8px; text-align: left; }
-.del-input {
-  width: 100%; border: 1.5px solid #e5e5e5; border-radius: 6px;
-  padding: 9px 12px; font-size: 13px; font-family: 'Poppins', sans-serif;
-  margin-bottom: 20px; outline: none; transition: border-color 0.15s;
-}
-.del-input:focus { border-color: #E30613; }
-.del-actions { display: flex; gap: 10px; justify-content: flex-end; }
-.del-btn-cancel {
-  border: 1px solid #e5e5e5; background: #fff; border-radius: 6px;
-  padding: 9px 18px; font-size: 13px; font-weight: 600; color: #555;
-  cursor: pointer; font-family: 'Poppins', sans-serif;
-}
-.del-btn-cancel:hover { background: #f5f5f5; }
-.del-btn-confirm {
-  background: #E30613; color: #fff; border: none; border-radius: 6px;
-  padding: 9px 18px; font-size: 13px; font-weight: 700; cursor: pointer;
-  font-family: 'Poppins', sans-serif; transition: background 0.15s;
-}
-.del-btn-confirm:hover:not(:disabled) { background: #c00510; }
-.del-btn-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Modal suppression progressive */
+.del-overlay { position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;padding:20px; }
+.del-modal { background:#fff;border-radius:12px;max-width:480px;width:100%;box-shadow:0 24px 64px rgba(0,0,0,0.25);overflow:hidden; }
+.del-header { display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #f0f0f0;background:#fafafa; }
+.del-steps { display:flex;align-items:center;gap:8px; }
+.del-step { font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;border:1.5px solid #e5e5e5;color:#aaa;background:#fff; }
+.del-step--active { border-color:#E30613;color:#E30613;background:#fff5f5; }
+.del-step--done { border-color:#22c55e;color:#16a34a;background:#f0fdf4; }
+.del-step-sep { font-size:11px;color:#ccc; }
+.del-close { background:none;border:none;cursor:pointer;color:#aaa;font-size:18px;line-height:1;padding:2px 6px; }
+.del-icon { font-size:32px;margin-bottom:10px;padding-top:24px;text-align:center; }
+.del-title { font-size:16px;font-weight:800;color:#111;margin:0 0 6px;padding:0 24px;text-align:center; }
+.del-subtitle { font-size:12.5px;color:#666;margin-bottom:16px;padding:0 24px;text-align:center; }
+.del-loading { font-size:12.5px;color:#aaa;padding:16px 24px;text-align:center; }
+.del-tree { margin:0 24px 16px;text-align:left;background:#fafafa;border:1px solid #f0f0f0;border-radius:8px;padding:12px 14px; }
+.del-tree-root { display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:#111;margin-bottom:6px;font-family:'Poppins',sans-serif; }
+.del-tree-icon { font-size:14px; }
+.del-tree-level { margin-bottom:2px; }
+.del-tree-node { display:flex;align-items:center;gap:6px;padding:3px 0;font-family:'Poppins',sans-serif; }
+.del-tree-node--child { padding-left:4px; }
+.del-tree-node--zero { opacity:0.45; }
+.del-tree-bullet { color:#aaa;font-family:monospace;font-size:11px;flex-shrink:0; }
+.del-tree-bullet--child { font-size:10px; }
+.del-tree-count { min-width:22px;text-align:center;font-size:11px;font-weight:800;border-radius:4px;padding:1px 5px;flex-shrink:0; }
+.del-count--warn { background:#fee2e2;color:#E30613; }
+.del-count--zero { background:#f3f4f6;color:#9ca3af; }
+.del-tree-text { font-size:12px;color:#444; }
+.del-warning { font-size:12.5px;color:#555;line-height:1.6;margin:0 24px 16px;background:#fff5f5;border:1px solid #fecaca;border-radius:8px;padding:12px;text-align:left; }
+.del-confirm-label { font-size:12.5px;color:#666;margin-bottom:8px;text-align:left;padding:0 24px; }
+.del-input { width:calc(100% - 48px);margin:0 24px 16px;display:block;border:1.5px solid #e5e5e5;border-radius:6px;padding:9px 12px;font-size:13px;font-family:'Poppins',sans-serif;outline:none;transition:border-color 0.15s;box-sizing:border-box; }
+.del-input:focus { border-color:#E30613; }
+.del-actions { display:flex;gap:10px;justify-content:flex-end;padding:14px 24px;border-top:1px solid #f0f0f0;background:#fafafa; }
+.del-btn-cancel { border:1px solid #e5e5e5;background:#fff;border-radius:6px;padding:8px 16px;font-size:12.5px;font-weight:600;color:#555;cursor:pointer;font-family:'Poppins',sans-serif; }
+.del-btn-cancel:hover { background:#f5f5f5; }
+.del-btn-next { background:#111;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:'Poppins',sans-serif; }
+.del-btn-next:hover { background:#333; }
+.del-btn-confirm { background:#E30613;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:'Poppins',sans-serif;transition:background 0.15s; }
+.del-btn-confirm:hover:not(:disabled) { background:#c00510; }
+.del-btn-confirm:disabled { opacity:0.4;cursor:not-allowed; }
 </style>

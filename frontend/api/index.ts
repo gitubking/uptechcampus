@@ -627,6 +627,54 @@ app.post('/etudiants/:id/photo', requireAuth, role('secretariat', 'dg'), async (
   return c.json({ photo_path: rows[0].photo_path })
 })
 
+app.get('/etudiants/:id/deletion-preview', requireAuth, role('dg'), async (c) => {
+  const id = c.req.param('id')
+  const { rows: etud } = await pool.query('SELECT id, nom, prenom, email, user_id FROM etudiants WHERE id=$1', [id])
+  if (!etud[0]) return c.json({ message: 'Étudiant introuvable.' }, 404)
+
+  const { rows: inscRows } = await pool.query('SELECT id, statut, filiere_id FROM inscriptions WHERE etudiant_id=$1', [id])
+  const inscIds = inscRows.map((r: any) => r.id)
+
+  const [paiem, notes, presences, echeances, docs, docsEtud] = await Promise.all([
+    inscIds.length
+      ? pool.query(`SELECT COUNT(*)::int as cnt, COALESCE(SUM(montant),0)::float as total FROM paiements WHERE inscription_id = ANY($1::int[])`, [inscIds])
+      : Promise.resolve({ rows: [{ cnt: 0, total: 0 }] }),
+    inscIds.length
+      ? pool.query(`SELECT COUNT(*)::int as cnt FROM notes WHERE inscription_id = ANY($1::int[])`, [inscIds])
+      : Promise.resolve({ rows: [{ cnt: 0 }] }),
+    inscIds.length
+      ? pool.query(`SELECT COUNT(*)::int as cnt FROM presences WHERE inscription_id = ANY($1::int[])`, [inscIds])
+      : Promise.resolve({ rows: [{ cnt: 0 }] }),
+    inscIds.length
+      ? pool.query(`SELECT COUNT(*)::int as cnt FROM echeances WHERE inscription_id = ANY($1::int[])`, [inscIds]).catch(() => ({ rows: [{ cnt: 0 }] }))
+      : Promise.resolve({ rows: [{ cnt: 0 }] }),
+    inscIds.length
+      ? pool.query(`SELECT COUNT(*)::int as cnt FROM documents_etudiant WHERE inscription_id = ANY($1::int[])`, [inscIds])
+      : Promise.resolve({ rows: [{ cnt: 0 }] }),
+    pool.query(`SELECT COUNT(*)::int as cnt FROM documents_etudiant WHERE etudiant_id=$1 AND inscription_id IS NULL`, [id]),
+  ])
+
+  return c.json({
+    etudiant: { id: etud[0].id, nom: etud[0].nom, prenom: etud[0].prenom, email: etud[0].email },
+    niveaux: [
+      {
+        label: 'Inscriptions',
+        count: inscRows.length,
+        detail: `${inscRows.length} inscription(s)`,
+        enfants: [
+          { label: 'Paiements', count: paiem.rows[0].cnt, detail: `${paiem.rows[0].cnt} paiement(s) — ${Number(paiem.rows[0].total).toLocaleString('fr-FR')} FCFA encaissés` },
+          { label: 'Échéanciers', count: echeances.rows[0].cnt, detail: `${echeances.rows[0].cnt} échéance(s) planifiée(s)` },
+          { label: 'Notes', count: notes.rows[0].cnt, detail: `${notes.rows[0].cnt} note(s) de cours` },
+          { label: 'Présences', count: presences.rows[0].cnt, detail: `${presences.rows[0].cnt} enregistrement(s) de présence` },
+          { label: 'Documents liés', count: docs.rows[0].cnt, detail: `${docs.rows[0].cnt} document(s) d'inscription` },
+        ]
+      },
+      { label: 'Documents personnels', count: docsEtud.rows[0].cnt, detail: `${docsEtud.rows[0].cnt} document(s) personnel(s)`, enfants: [] },
+      { label: 'Compte utilisateur', count: etud[0].user_id ? 1 : 0, detail: etud[0].user_id ? '1 compte de connexion actif' : 'Aucun compte de connexion', enfants: [] },
+    ]
+  })
+})
+
 app.delete('/etudiants/:id', requireAuth, role('dg'), async (c) => {
   const id = c.req.param('id')
   const client = await pool.connect()
