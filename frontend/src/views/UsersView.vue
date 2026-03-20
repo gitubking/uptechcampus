@@ -31,8 +31,6 @@ const roleLabels: Record<string, string> = {
   resp_fin: 'Resp. Financier',
   coordinateur: 'Coordinateur',
   secretariat: 'Secrétariat',
-  intervenant: 'Intervenant',
-  etudiant: 'Étudiant',
 }
 
 const roleColors: Record<string, string> = {
@@ -41,8 +39,6 @@ const roleColors: Record<string, string> = {
   resp_fin: 'bg-emerald-100 text-emerald-700',
   coordinateur: 'bg-red-100 text-red-700',
   secretariat: 'bg-yellow-100 text-yellow-700',
-  intervenant: 'bg-orange-100 text-orange-700',
-  etudiant: 'bg-gray-100 text-gray-700',
 }
 
 const statutColors: Record<string, string> = {

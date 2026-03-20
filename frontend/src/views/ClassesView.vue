@@ -9,27 +9,30 @@ const canWrite = ['dg', 'coordinateur'].includes(auth.user?.role ?? '')
 
 // ── Interfaces ───────────────────────────────────────────────────────
 interface TypeFormation { id: number; nom: string; code: string; has_niveau?: boolean }
-interface MatiereSimple { id: number; nom: string; code: string }
+interface MatiereSimple { id: number; nom: string; code: string; pivot?: { coefficient: number; credits: number; ordre: number } }
 interface Filiere { id: number; nom: string; code: string; type_formation_id: number | null; matieres?: MatiereSimple[] }
 interface AnneeAcademique { id: number; libelle: string; actif: boolean }
 interface Parcours { id: number; nom: string; code: string; type_formation_id: number | null }
-interface IntervForUE { id: number; nom: string; prenom: string; filieres?: { filiere_id: number }[] }
+interface EnseignantForUE { id: number; nom: string; prenom: string; filieres?: { filiere_id: number }[] }
 interface UE {
   id: number
   classe_id: number
-  intervenant_id: number | null
+  enseignant_id: number | null
+  matiere_id: number | null
   code: string
   intitule: string
   coefficient: number
   credits_ects: number
   ordre: number
-  intervenant?: { id: number; nom: string; prenom: string }
+  enseignant?: { id: number; nom: string; prenom: string }
 }
 interface Classe {
   id: number
   nom: string
   niveau?: number
   est_tronc_commun: boolean
+  tronc_commun_id?: number | null
+  tronc_commun?: { id: number; nom: string } | null
   filiere?: Filiere
   annee_academique?: AnneeAcademique
   parcours?: Parcours[]
@@ -70,7 +73,14 @@ const form = ref({
   filiere_id: null as number | null,
   annee_academique_id: null as number | null,
   parcours_ids: [] as number[],
+  est_tronc_commun: false,
+  tronc_commun_id: null as number | null,
 })
+
+// Classes qui sont tronc commun (pour le sélecteur de liaison)
+const troncCommunClasses = computed(() =>
+  classes.value.filter(c => c.est_tronc_commun)
+)
 
 function niveauLabel(n?: number): string {
   if (!n) return '—'
@@ -97,9 +107,10 @@ const editingUe = ref<UE | null>(null)
 const savingUe = ref(false)
 const deletingUeId = ref<number | null>(null)
 const ueError = ref('')
-const intervenantsAll = ref<IntervForUE[]>([])
+const enseignantsAll = ref<EnseignantForUE[]>([])
 const ueForm = ref({
-  intervenant_id: null as number | null,
+  enseignant_id: null as number | null,
+  matiere_id: null as number | null,
   intitule: '',
   code: '',
   coefficient: 1 as number,
@@ -112,19 +123,15 @@ const filtered = computed(() =>
   classes.value.filter(c => !filterAnnee.value || c.annee_academique?.id === filterAnnee.value)
 )
 
-// Intervenants filtrés sur la filière de la classe courante
-const intervenantsForUE = computed(() => {
-  const fId = classeForStudents.value?.filiere?.id
-  if (!fId) return intervenantsAll.value
-  const filtered2 = intervenantsAll.value.filter(i => i.filieres?.some(f => f.filiere_id === fId))
-  return filtered2.length > 0 ? filtered2 : intervenantsAll.value
-})
+// Tous les enseignants disponibles (l'affectation d'une matière se fait via l'UE de la classe)
+const enseignantsForUE = computed(() => enseignantsAll.value)
 
 // Matières de la filière de la classe courante
 const matieresForUE = computed((): MatiereSimple[] => {
   const fId = classeForStudents.value?.filiere?.id
   if (!fId) return []
-  return filieres.value.find(f => f.id === fId)?.matieres ?? []
+  const filiere = filieres.value.find(f => Number(f.id) === Number(fId))
+  return filiere?.matieres ?? []
 })
 
 const filteredFilieres = computed(() => {
@@ -181,6 +188,8 @@ function openCreate() {
     filiere_id: null,
     annee_academique_id: anneeActive?.id ?? annees.value[0]?.id ?? null,
     parcours_ids: [],
+    est_tronc_commun: false,
+    tronc_commun_id: null,
   }
   error.value = ''
   showForm.value = true
@@ -188,15 +197,15 @@ function openCreate() {
 
 function openEdit(c: Classe) {
   editTarget.value = c
-  // Remplir le formulaire EN PREMIER (avant de filtrer par type)
   form.value = {
     nom: c.nom,
     niveau: c.niveau ?? 1,
     filiere_id: (c as any).filiere_id ?? c.filiere?.id ?? null,
     annee_academique_id: (c as any).annee_academique_id ?? c.annee_academique?.id ?? null,
     parcours_ids: c.parcours?.map(p => p.id) ?? [],
+    est_tronc_commun: c.est_tronc_commun ?? false,
+    tronc_commun_id: (c as any).tronc_commun_id ?? null,
   }
-  // Appliquer le filtre type APRÈS — sans déclencher onTypeChange (pas d'interaction utilisateur)
   selectedType.value = c.filiere?.type_formation_id ?? null
   error.value = ''
   showForm.value = true
@@ -285,17 +294,17 @@ async function loadUes() {
   }
 }
 
-async function loadIntervenants() {
-  if (intervenantsAll.value.length > 0) return
-  const { data } = await api.get('/intervenants')
-  intervenantsAll.value = Array.isArray(data) ? data : (data.data ?? [])
+async function loadEnseignants() {
+  if (enseignantsAll.value.length > 0) return
+  const { data } = await api.get('/enseignants')
+  enseignantsAll.value = Array.isArray(data) ? data : (data.data ?? [])
 }
 
 function openAddUe() {
   editingUe.value = null
   ueError.value = ''
   ueForm.value = {
-    intervenant_id: null, intitule: '', code: '',
+    enseignant_id: null, matiere_id: null, intitule: '', code: '',
     coefficient: 1, credits_ects: 0, ordre: uesForClasse.value.length,
   }
   showUeForm.value = true
@@ -305,7 +314,8 @@ function openEditUe(ue: UE) {
   editingUe.value = ue
   ueError.value = ''
   ueForm.value = {
-    intervenant_id: ue.intervenant_id,
+    enseignant_id: ue.enseignant_id,
+    matiere_id: ue.matiere_id ?? null,
     intitule: ue.intitule,
     code: ue.code,
     coefficient: ue.coefficient,
@@ -317,7 +327,17 @@ function openEditUe(ue: UE) {
 
 function onUeIntituleChange() {
   const mat = matieresForUE.value.find(m => m.nom === ueForm.value.intitule)
-  if (mat) ueForm.value.code = mat.code
+  if (mat) {
+    ueForm.value.matiere_id = mat.id
+    ueForm.value.code = mat.code
+    // Auto-remplir coefficient et crédits depuis le pivot filière-matière
+    if (mat.pivot) {
+      ueForm.value.coefficient  = mat.pivot.coefficient ?? 1
+      ueForm.value.credits_ects = mat.pivot.credits ?? 0
+    }
+  } else {
+    ueForm.value.matiere_id = null
+  }
 }
 
 async function saveUe() {
@@ -327,7 +347,8 @@ async function saveUe() {
   try {
     const payload = {
       classe_id: classeForStudents.value.id,
-      intervenant_id: ueForm.value.intervenant_id || null,
+      enseignant_id: ueForm.value.enseignant_id || null,
+      matiere_id: ueForm.value.matiere_id || null,
       code: ueForm.value.code,
       intitule: ueForm.value.intitule,
       coefficient: ueForm.value.coefficient,
@@ -364,7 +385,12 @@ async function deleteUe(ue: UE) {
 async function onTabChange(tab: 'dans-classe' | 'pool' | 'enseignants') {
   studentsTab.value = tab
   if (tab === 'enseignants') {
-    await Promise.all([loadUes(), loadIntervenants()])
+    // Recharger les filières pour avoir les matières fraîches (avec pivot)
+    const [, f] = await Promise.all([
+      Promise.all([loadUes(), loadEnseignants()]),
+      api.get('/filieres'),
+    ])
+    filieres.value = f.data
   }
 }
 
@@ -374,7 +400,7 @@ async function openStudents(c: Classe) {
   studentsTab.value = 'dans-classe'
   showUeForm.value = false
   uesForClasse.value = []
-  intervenantsAll.value = []
+  enseignantsAll.value = []
   // Pré-remplir les filtres du pool avec la filière de la classe
   poolFilterType.value = c.filiere?.type_formation_id ?? null
   poolFilterFiliere.value = c.filiere?.id ?? null
@@ -500,9 +526,12 @@ onMounted(load)
     >
       <template #row="{ item: c }">
         <td>
-          <div style="display:flex;align-items:center;gap:8px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <button @click="openStudents(c as any)" class="cl-link-btn">{{ (c as any).nom }}</button>
-            <span v-if="(c as any).est_tronc_commun" class="cl-badge-tronc">Tronc commun</span>
+            <span v-if="(c as any).est_tronc_commun" class="cl-badge-tronc">🏫 Tronc commun</span>
+            <span v-if="(c as any).tronc_commun" style="font-size:10px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:10px;padding:1px 7px;font-weight:600;">
+              🔗 {{ (c as any).tronc_commun.nom }}
+            </span>
           </div>
         </td>
         <td>
@@ -657,22 +686,27 @@ onMounted(load)
             <h3 class="ue-form-title">{{ editingUe ? 'Modifier l\'affectation' : 'Affecter un enseignant' }}</h3>
             <div v-if="ueError" class="cl-error-msg" style="margin-bottom:10px;">{{ ueError }}</div>
             <UcFormGroup label="Enseignant">
-              <select v-model="ueForm.intervenant_id" class="cl-input" style="width:100%;">
+              <select v-model="ueForm.enseignant_id" class="cl-input" style="width:100%;">
                 <option :value="null">— Sans enseignant —</option>
-                <option v-for="i in intervenantsForUE" :key="i.id" :value="i.id">
+                <option v-for="i in enseignantsForUE" :key="i.id" :value="i.id">
                   {{ i.prenom }} {{ i.nom }}
                 </option>
               </select>
             </UcFormGroup>
-            <UcFormGroup label="Matière / Intitulé" :required="true" style="margin-top:10px;">
+            <UcFormGroup label="Matière" :required="true" style="margin-top:10px;">
               <select v-if="matieresForUE.length > 0"
                 v-model="ueForm.intitule" required class="cl-input" style="width:100%;"
                 @change="onUeIntituleChange">
-                <option value="">— Sélectionner une matière —</option>
-                <option v-for="m in matieresForUE" :key="m.id" :value="m.nom">{{ m.nom }}</option>
+                <option value="">— Choisir une matière de la filière —</option>
+                <option v-for="m in matieresForUE" :key="m.id" :value="m.nom">
+                  {{ m.nom }}{{ m.pivot ? ` — Coeff. ${m.pivot.coefficient} | ${m.pivot.credits} crédits` : '' }}
+                </option>
               </select>
               <input v-else v-model="ueForm.intitule" required placeholder="Ex : Algorithmique"
                 class="cl-input" style="width:100%;box-sizing:border-box;" />
+              <div v-if="matieresForUE.length === 0" style="font-size:11px;color:#e67e22;margin-top:4px;">
+                ⚠️ Aucune matière n'est assignée à cette filière. Ajoutez-en d'abord dans les Filières.
+              </div>
             </UcFormGroup>
             <UcFormGrid :cols="3" style="margin-top:10px;">
               <UcFormGroup label="Code" :required="true">
@@ -681,10 +715,15 @@ onMounted(load)
               <UcFormGroup label="Coefficient">
                 <input v-model.number="ueForm.coefficient" type="number" min="0" step="0.5" class="cl-input" style="width:100%;box-sizing:border-box;" />
               </UcFormGroup>
-              <UcFormGroup label="Volume horaire (h)">
+              <UcFormGroup label="Crédits ECTS">
                 <input v-model.number="ueForm.credits_ects" type="number" min="0" class="cl-input" style="width:100%;box-sizing:border-box;" />
               </UcFormGroup>
             </UcFormGrid>
+            <!-- Aide sur les deux systèmes -->
+            <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:8px 12px;font-size:11px;color:#0369a1;margin-top:8px;line-height:1.6;">
+              <strong>Coefficient</strong> → Formations professionnelles (calcul de moyenne pondérée)<br>
+              <strong>Crédits ECTS</strong> → Système LMD (60 crédits = passage, &lt; 42 = redoublement)
+            </div>
             <div style="display:flex;gap:8px;margin-top:14px;">
               <button @click="showUeForm = false" class="cl-btn-cancel" style="flex:1;">Annuler</button>
               <button @click="saveUe" :disabled="savingUe || !ueForm.intitule || !ueForm.code"
@@ -722,8 +761,8 @@ onMounted(load)
                 <span style="font-size:11px;color:#aaa;font-family:monospace;">{{ (ue as any).code }}</span>
               </td>
               <td>
-                <span v-if="(ue as any).intervenant" style="font-size:13px;color:#333;">
-                  {{ (ue as any).intervenant.prenom }} {{ (ue as any).intervenant.nom }}
+                <span v-if="(ue as any).enseignant" style="font-size:13px;color:#333;">
+                  {{ (ue as any).enseignant.prenom }} {{ (ue as any).enseignant.nom }}
                 </span>
                 <span v-else style="font-size:11px;color:#ccc;font-style:italic;">Non assigné</span>
               </td>
@@ -785,9 +824,28 @@ onMounted(load)
             <option v-for="a in annees" :key="a.id" :value="a.id">{{ a.libelle }}</option>
           </select>
         </UcFormGroup>
+        <!-- Tronc commun toggle -->
+        <div style="background:#f8fafc;border:1.5px solid #e5e5e5;border-radius:8px;padding:12px 14px;">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+            <input type="checkbox" v-model="form.est_tronc_commun" @change="() => { if(form.est_tronc_commun) form.tronc_commun_id = null }" style="width:16px;height:16px;accent-color:#E30613;" />
+            <div>
+              <div style="font-size:13px;font-weight:600;color:#1e3a5f;">🏫 Cette classe est un Tronc Commun</div>
+              <div style="font-size:11px;color:#64748b;margin-top:2px;">Ses UEs seront automatiquement partagées avec les classes qui lui sont liées</div>
+            </div>
+          </label>
+        </div>
+
+        <!-- Lier à un tronc commun (uniquement si pas elle-même tronc commun) -->
+        <UcFormGroup v-if="!form.est_tronc_commun" label="Lier à un Tronc Commun">
+          <select v-model="form.tronc_commun_id" class="cl-input" style="width:100%;box-sizing:border-box;">
+            <option :value="null">— Aucun tronc commun —</option>
+            <option v-for="tc in troncCommunClasses" :key="tc.id" :value="tc.id">{{ tc.nom }}</option>
+          </select>
+          <p v-if="troncCommunClasses.length === 0" style="font-size:11px;color:#f59e0b;margin:4px 0 0;">Aucune classe tronc commun créée. Créez d'abord une classe avec l'option ci-dessus.</p>
+        </UcFormGroup>
+
         <div>
           <label class="cl-label" style="margin-bottom:6px;">Parcours associés</label>
-          <p style="font-size:11px;color:#aaa;margin:0 0 8px;">Si plusieurs types sélectionnés → tronc commun détecté automatiquement.</p>
           <div style="max-height:140px;overflow-y:auto;border:1.5px solid #e5e5e5;border-radius:4px;padding:6px;">
             <label v-for="p in filteredParcours" :key="p.id" style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-radius:4px;">
               <input type="checkbox" :value="p.id" :checked="form.parcours_ids.includes(p.id)" @change="toggleParcours(p.id)" />

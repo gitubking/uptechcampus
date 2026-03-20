@@ -470,7 +470,7 @@ function toggleChip(arr: string[], val: string) {
       </UcFormGroup>
       <UcFormGroup label="Destinataires">
         <div class="cm-chips">
-          <button v-for="d in ['tous', 'etudiants', 'intervenants', 'administration']" :key="d"
+          <button v-for="d in ['tous', 'etudiants', 'enseignants', 'administration']" :key="d"
             @click="toggleChip(formAnnonce.destinataires, d)"
             class="cm-chip"
             :class="formAnnonce.destinataires.includes(d) ? 'cm-chip--active' : ''">

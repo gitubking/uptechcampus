@@ -61,7 +61,7 @@ async function submit() {
             <span class="auth-pill">Pédagogie</span>
             <span class="auth-pill">Finances</span>
             <span class="auth-pill">Étudiants</span>
-            <span class="auth-pill">Intervenants</span>
+            <span class="auth-pill">Enseignants</span>
             <span class="auth-pill">Reporting</span>
           </div>
         </div>

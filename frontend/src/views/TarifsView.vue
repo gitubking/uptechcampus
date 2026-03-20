@@ -90,7 +90,7 @@ onMounted(load)
   <div class="p-6 max-w-4xl mx-auto">
     <div class="flex items-center justify-between mb-6">
       <div>
-        <h1 class="text-xl font-bold text-gray-900">Tarifs intervenants</h1>
+        <h1 class="text-xl font-bold text-gray-900">Tarifs enseignants</h1>
         <p class="text-sm text-gray-500 mt-0.5">Taux horaires par type de formation et année académique</p>
       </div>
       <button @click="openCreate"
@@ -103,7 +103,7 @@ onMounted(load)
     </div>
 
     <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5 text-sm text-blue-700">
-      <strong>Règle tronc commun :</strong> Lorsqu'une séance regroupe plusieurs types de formation (tronc commun), le taux horaire le plus élevé parmi les formations présentes est appliqué à l'intervenant.
+      <strong>Règle tronc commun :</strong> Lorsqu'une séance regroupe plusieurs types de formation (tronc commun), le taux horaire le plus élevé parmi les formations présentes est appliqué à l'enseignant.
     </div>
 
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">

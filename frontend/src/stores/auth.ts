@@ -7,7 +7,7 @@ export interface User {
   nom: string
   prenom: string
   email: string
-  role: 'dg' | 'dir_peda' | 'resp_fin' | 'coordinateur' | 'secretariat' | 'intervenant' | 'etudiant'
+  role: 'dg' | 'dir_peda' | 'resp_fin' | 'coordinateur' | 'secretariat' | 'enseignant' | 'etudiant'
   photo_path: string | null
   premier_connexion: boolean
   cgu_acceptees: boolean

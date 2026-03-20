@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import QRCode from 'qrcode'
 
 const route = useRoute()
 const router = useRouter()
@@ -53,9 +54,47 @@ async function confirmDeleteEtudiant() {
 // --- Données ---
 const etudiant = ref<any>(null)
 const loading = ref(true)
-const activeTab = ref<'infos' | 'inscriptions' | 'documents'>('infos')
+const activeTab = ref<'infos' | 'inscriptions' | 'documents' | 'timeline' | 'commentaires'>('infos')
 const echeancesMap = ref<Record<number, any[]>>({})
 const paiementsMap = ref<Record<number, any[]>>({})
+
+// Statistiques clés
+interface EtudiantStats {
+  moyenne: number | null
+  nb_notes: number
+  presences_total: number
+  presences_ok: number
+  taux_presence: number | null
+  docs_total: number
+  docs_recu: number
+  pct_dossier: number
+  total_echeances: number
+  echeances_payees: number
+  pct_paiements: number | null
+}
+const stats = ref<EtudiantStats | null>(null)
+
+function statColor(pct: number | null, inverse = false): string {
+  if (pct === null) return '#9ca3af'
+  const val = inverse ? 100 - pct : pct
+  if (val >= 75) return '#16a34a'
+  if (val >= 50) return '#d97706'
+  return '#dc2626'
+}
+
+// SVG donut: circumference ≈ 100 (r = 15.9155)
+function donutDash(pct: number | null): string {
+  if (pct === null || pct === 0) return '0 100'
+  return `${Math.min(pct, 100)} ${Math.max(0, 100 - Math.min(pct, 100))}`
+}
+
+async function loadStats() {
+  if (!etudiant.value?.id) return
+  try {
+    const { data } = await api.get(`/etudiants/${etudiant.value.id}/stats`)
+    stats.value = data
+  } catch { stats.value = null }
+}
 
 async function fetchEtudiant() {
   loading.value = true
@@ -63,11 +102,12 @@ async function fetchEtudiant() {
     const { data } = await api.get(`/etudiants/${route.params.id}`)
     etudiant.value = data
     const inscriptions: any[] = data.inscriptions ?? []
-    // Charger les échéances pour chaque inscription
+    // Charger les échéances et relances pour chaque inscription
     for (const insc of inscriptions) {
       api.get(`/echeances?inscription_id=${insc.id}`).then(r => {
         echeancesMap.value = { ...echeancesMap.value, [insc.id]: r.data.data ?? r.data }
       }).catch(() => {})
+      loadRelances(insc.id)
     }
     // Charger tous les paiements et filtrer par inscription
     if (inscriptions.length) {
@@ -83,6 +123,8 @@ async function fetchEtudiant() {
     }
   } finally {
     loading.value = false
+    loadChecklist()
+    loadStats()
   }
 }
 
@@ -173,7 +215,41 @@ function fmtMoisEch(d: string) {
   return dt.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })
 }
 
-onMounted(fetchEtudiant)
+function echLabel(ech: any, allEchs: any[]): string {
+  if (ech.type_echeance === 'frais_inscription') return 'Inscription'
+  if (ech.type_echeance === 'tenue') return 'Tenue'
+  if (ech.type_echeance === 'mensualite') {
+    const sorted = [...allEchs]
+      .filter(e => e.type_echeance === 'mensualite')
+      .sort((a, b) => a.mois.localeCompare(b.mois))
+    const idx = sorted.findIndex(e => e.id === ech.id)
+    return `M${idx + 1}`
+  }
+  return ech.type_echeance
+}
+
+// ── Indicateur de risque ──────────────────────────────────────────────
+const risque = ref<any>(null)
+async function loadRisque() {
+  try {
+    const { data } = await api.get('/etudiants/risques')
+    const etudiantId = parseInt(route.params.id as string)
+    risque.value = data.find((r: any) => r.etudiant_id === etudiantId) ?? null
+  } catch { risque.value = null }
+}
+const risqueIcon = computed(() => {
+  if (!risque.value) return null
+  return { red: '🔴', yellow: '🟡', green: '🟢' }[risque.value.risque_global as string] ?? null
+})
+const risqueLabel = computed(() => {
+  if (!risque.value) return null
+  return { red: 'Risque élevé d\'abandon', yellow: 'À surveiller', green: 'Situation OK' }[risque.value.risque_global as string] ?? null
+})
+
+onMounted(() => {
+  fetchEtudiant()
+  loadRisque()
+})
 
 // --- Statuts ---
 const statutLabel: Record<string, string> = {
@@ -229,6 +305,70 @@ function compressImage(file: File, maxSize: number, quality: number): Promise<st
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
+}
+
+// --- Webcam photo ---
+const showWebcamModal = ref(false)
+const webcamVideo = ref<HTMLVideoElement | null>(null)
+const webcamStream = ref<MediaStream | null>(null)
+const webcamCaptured = ref<string | null>(null)
+const webcamLoading = ref(false)
+
+async function openWebcam() {
+  showWebcamModal.value = true
+  webcamCaptured.value = null
+  await nextTick()
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+    })
+    webcamStream.value = stream
+    if (webcamVideo.value) {
+      webcamVideo.value.srcObject = stream
+      webcamVideo.value.play()
+    }
+  } catch {
+    alert('Impossible d\'accéder à la webcam. Vérifiez les permissions du navigateur.')
+    closeWebcam()
+  }
+}
+
+function captureWebcam() {
+  if (!webcamVideo.value) return
+  const video = webcamVideo.value
+  const w = video.videoWidth || 640
+  const h = video.videoHeight || 480
+  const size = Math.min(w, h)
+  const canvas = document.createElement('canvas')
+  canvas.width = 300
+  canvas.height = 300
+  const ctx = canvas.getContext('2d')!
+  // Miroir horizontal (comme le preview) + crop carré centré
+  ctx.translate(300, 0)
+  ctx.scale(-1, 1)
+  ctx.drawImage(video, (w - size) / 2, (h - size) / 2, size, size, 0, 0, 300, 300)
+  webcamCaptured.value = canvas.toDataURL('image/jpeg', 0.85)
+}
+
+function closeWebcam() {
+  webcamStream.value?.getTracks().forEach(t => t.stop())
+  webcamStream.value = null
+  showWebcamModal.value = false
+  webcamCaptured.value = null
+}
+
+async function saveWebcamPhoto() {
+  if (!webcamCaptured.value) return
+  webcamLoading.value = true
+  try {
+    const { data } = await api.post(`/etudiants/${etudiant.value.id}/photo`, { photo_base64: webcamCaptured.value })
+    etudiant.value.photo_path = data.photo_path
+    closeWebcam()
+  } catch (err: any) {
+    alert(err?.response?.data?.message || 'Erreur enregistrement photo')
+  } finally {
+    webcamLoading.value = false
+  }
 }
 
 // --- Carte étudiant ---
@@ -421,7 +561,30 @@ async function generateCard() {
   ctx.lineTo(W - pad, sepY)
   ctx.stroke()
 
-  // ── 6. Bordure arrondie ──────────────────────────────────────────────
+  // ── 6. QR Code de vérification ───────────────────────────────────────
+  try {
+    const verifyUrl = `${window.location.origin}/verify/${etudiant.value.numero_etudiant}`
+    const qrDataUrl = await QRCode.toDataURL(verifyUrl, {
+      width: 120, margin: 1,
+      color: { dark: '#111111', light: '#ffffff' },
+    })
+    const qrSize = 102
+    const qrX = W - pad - qrSize - 6   // aligné à droite
+    const qrY = cY - 4                  // même niveau que les contacts
+    await drawImage(ctx, qrDataUrl, qrX, qrY, qrSize, qrSize)
+    // Cadre léger autour du QR
+    ctx.strokeStyle = '#e5e7eb'
+    ctx.lineWidth = 1
+    ctx.strokeRect(qrX, qrY, qrSize, qrSize)
+    // Label sous le QR
+    ctx.fillStyle = '#999999'
+    ctx.font = '11px Arial'
+    ctx.textAlign = 'center'
+    ctx.fillText('Scanner pour vérifier', qrX + qrSize / 2, qrY + qrSize + 14)
+    ctx.textAlign = 'left'
+  } catch { /* QR code optionnel — silencieux si erreur */ }
+
+  // ── 7. Bordure arrondie ──────────────────────────────────────────────
   ctx.strokeStyle = '#cccccc'
   ctx.lineWidth = 2
   roundRect(ctx, 1, 1, W - 2, H - 2, 18)
@@ -811,43 +974,256 @@ ${niveauEtude ? `<tr><td>Année d'étude</td><td><strong>${niveauEtude}</strong>
   openPrintWindow(html)
 }
 
-// --- Upload document ---
-const docInput = ref<HTMLInputElement | null>(null)
-const docType = ref('cni')
-const docLoading = ref(false)
-const docTypes = [
-  { value: 'cni', label: 'CNI' },
-  { value: 'passeport', label: 'Passeport' },
-  { value: 'photo', label: 'Photo' },
-  { value: 'diplome', label: 'Diplôme' },
-  { value: 'bulletin_naissance', label: 'Bulletin de naissance' },
-  { value: 'contrat_signe', label: 'Contrat signé' },
-  { value: 'autre', label: 'Autre' },
-]
+// --- Checklist documents ---
+interface ChecklistItem {
+  code: string
+  label: string
+  recu: boolean
+  date_reception: string | null
+  toggling?: boolean
+}
+const checklist = ref<ChecklistItem[]>([])
+const checklistLoading = ref(false)
 
-async function uploadDocument(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  docLoading.value = true
+async function loadChecklist() {
+  if (!etudiant.value?.id) return
+  checklistLoading.value = true
   try {
-    const fd = new FormData()
-    fd.append('etudiant_id', String(etudiant.value.id))
-    fd.append('type_document', docType.value)
-    fd.append('fichier', file)
-    const { data } = await api.post('/documents', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-    etudiant.value.documents.push(data)
+    const { data } = await api.get(`/etudiants/${etudiant.value.id}/checklist-documents`)
+    checklist.value = data
+  } catch {
+    // silencieux
   } finally {
-    docLoading.value = false
-    if (docInput.value) docInput.value.value = ''
+    checklistLoading.value = false
   }
 }
 
-async function deleteDocument(docId: number) {
-  if (!confirm('Supprimer ce document ?')) return
-  await api.delete(`/documents/${docId}`)
-  etudiant.value.documents = etudiant.value.documents.filter((d: any) => d.id !== docId)
+async function toggleDoc(item: ChecklistItem) {
+  item.toggling = true
+  try {
+    const { data } = await api.patch(
+      `/etudiants/${etudiant.value.id}/checklist-documents/${item.code}`,
+      { recu: !item.recu }
+    )
+    item.recu = data.recu
+    item.date_reception = data.date_reception
+  } catch {
+    alert('Erreur lors de la mise à jour')
+  } finally {
+    item.toggling = false
+  }
+}
+
+const checklistRecuCount = computed(() => checklist.value.filter(d => d.recu).length)
+
+// ── Commentaires internes ─────────────────────────────────────────────────────
+interface Commentaire {
+  id: number
+  etudiant_id: number
+  auteur_id: number
+  auteur_nom: string
+  auteur_prenom: string
+  auteur_role: string
+  auteur_photo: string | null
+  contenu: string
+  categorie: string
+  created_at: string
+  updated_at: string | null
+}
+
+const commentaires = ref<Commentaire[]>([])
+const commentairesLoading = ref(false)
+const newCommentaire = ref('')
+const newCategorie = ref('general')
+const commentaireSubmitting = ref(false)
+const editingCommentId = ref<number | null>(null)
+const editingContenu = ref('')
+const editingCategorie = ref('general')
+const commentaireDeleting = ref<number | null>(null)
+
+const categorieOptions = [
+  { value: 'general',       label: 'Général',         color: 'bg-gray-100 text-gray-600',     dot: '#6b7280' },
+  { value: 'positif',       label: '✨ Positif',       color: 'bg-green-100 text-green-700',   dot: '#16a34a' },
+  { value: 'pedagogique',   label: '📚 Pédagogique',  color: 'bg-blue-100 text-blue-700',     dot: '#2563eb' },
+  { value: 'financier',     label: '💰 Financier',    color: 'bg-amber-100 text-amber-700',   dot: '#d97706' },
+  { value: 'disciplinaire', label: '⚠️ Disciplinaire',color: 'bg-red-100 text-red-700',       dot: '#dc2626' },
+  { value: 'rh',            label: '👥 Suivi RH',     color: 'bg-purple-100 text-purple-700', dot: '#7c3aed' },
+]
+
+function categorieInfo(value: string) {
+  return categorieOptions.find(c => c.value === value) ?? categorieOptions[0]!
+}
+
+async function loadCommentaires() {
+  if (!etudiant.value?.id) return
+  commentairesLoading.value = true
+  try {
+    const { data } = await api.get(`/etudiants/${etudiant.value.id}/commentaires`)
+    commentaires.value = data
+  } catch { commentaires.value = [] }
+  finally { commentairesLoading.value = false }
+}
+
+async function submitCommentaire() {
+  if (!newCommentaire.value.trim() || commentaireSubmitting.value) return
+  commentaireSubmitting.value = true
+  try {
+    const { data } = await api.post(`/etudiants/${etudiant.value.id}/commentaires`, {
+      contenu: newCommentaire.value.trim(),
+      categorie: newCategorie.value,
+    })
+    commentaires.value.unshift(data)
+    newCommentaire.value = ''
+    newCategorie.value = 'general'
+  } catch (err: any) {
+    alert(err?.response?.data?.message || 'Erreur lors de l\'ajout du commentaire.')
+  } finally {
+    commentaireSubmitting.value = false
+  }
+}
+
+function startEdit(c: Commentaire) {
+  editingCommentId.value = c.id
+  editingContenu.value = c.contenu
+  editingCategorie.value = c.categorie
+}
+
+function cancelEdit() {
+  editingCommentId.value = null
+  editingContenu.value = ''
+}
+
+async function saveEdit(c: Commentaire) {
+  if (!editingContenu.value.trim()) return
+  try {
+    const { data } = await api.put(`/commentaires/${c.id}`, {
+      contenu: editingContenu.value.trim(),
+      categorie: editingCategorie.value,
+    })
+    const idx = commentaires.value.findIndex(x => x.id === c.id)
+    if (idx !== -1) commentaires.value[idx] = data
+    editingCommentId.value = null
+  } catch (err: any) {
+    alert(err?.response?.data?.message || 'Erreur lors de la modification.')
+  }
+}
+
+async function deleteCommentaire(id: number) {
+  if (!confirm('Supprimer ce commentaire ?')) return
+  commentaireDeleting.value = id
+  try {
+    await api.delete(`/commentaires/${id}`)
+    commentaires.value = commentaires.value.filter(c => c.id !== id)
+  } catch (err: any) {
+    alert(err?.response?.data?.message || 'Erreur lors de la suppression.')
+  } finally {
+    commentaireDeleting.value = null
+  }
+}
+
+// ── Timeline ────────────────────────────────────────────────────────────────
+interface TimelineEvent {
+  type: 'inscription' | 'paiement' | 'note' | 'absence' | 'document' | 'relance'
+  event_date: string
+  titre: string
+  meta: Record<string, any>
+}
+
+const timeline = ref<TimelineEvent[]>([])
+const timelineLoading = ref(false)
+
+async function loadTimeline() {
+  if (!etudiant.value?.id) return
+  timelineLoading.value = true
+  try {
+    const { data } = await api.get(`/etudiants/${etudiant.value.id}/timeline`)
+    timeline.value = data
+  } catch {
+    timeline.value = []
+  } finally {
+    timelineLoading.value = false
+  }
+}
+
+const timelineGrouped = computed(() => {
+  const groups: { month: string; events: TimelineEvent[] }[] = []
+  const seen: Record<string, number> = {}
+  for (const event of timeline.value) {
+    if (!event.event_date) continue
+    const d = new Date(event.event_date)
+    const key = d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+    if (seen[key] === undefined) {
+      seen[key] = groups.length
+      groups.push({ month: key, events: [] })
+    }
+    groups[seen[key]]?.events.push(event)
+  }
+  return groups
+})
+
+const tlPaiementLabel: Record<string, string> = {
+  frais_inscription: "Frais d'inscription",
+  mensualite: 'Mensualité',
+  tenue: 'Tenue scolaire',
+  rattrapage: 'Rattrapage',
+  autre: 'Autre paiement',
+}
+
+const tlModeLabel: Record<string, string> = {
+  especes: 'Espèces', wave: 'Wave', orange_money: 'Orange Money',
+  virement: 'Virement', cheque: 'Chèque',
+}
+
+const tlTypeLabel: Record<string, string> = {
+  inscription: 'Inscription', paiement: 'Paiement',
+  note: 'Note', absence: 'Absence', document: 'Document reçu', relance: 'Relance',
+}
+
+// ── Relances paiement ─────────────────────────────────────────────────────────
+const relancesMap = ref<Record<number, any[]>>({}) // clé = inscription_id
+const relanceSending = ref<Record<number, boolean>>({}) // clé = inscription_id
+
+async function loadRelances(inscriptionId: number) {
+  try {
+    const { data } = await api.get(`/relances?inscription_id=${inscriptionId}`)
+    relancesMap.value = { ...relancesMap.value, [inscriptionId]: data }
+  } catch { /* ignore */ }
+}
+
+async function sendManualRelance(inscriptionId: number) {
+  if (relanceSending.value[inscriptionId]) return
+  relanceSending.value = { ...relanceSending.value, [inscriptionId]: true }
+  try {
+    const { data } = await api.post('/relances/manual', { inscription_id: inscriptionId })
+    const msg = data.simulated
+      ? 'Relance simulée (configurez BREVO_API_KEY pour envoi réel).'
+      : 'Relance envoyée avec succès.'
+    alert(msg)
+    await loadRelances(inscriptionId)
+    // Recharger la timeline si active
+    if (activeTab.value === 'timeline') await loadTimeline()
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || 'Erreur lors de l\'envoi de la relance.'
+    const simulated = err?.response?.data?.simulated
+    alert(simulated ? `Simulation — ${msg}` : msg)
+  } finally {
+    relanceSending.value = { ...relanceSending.value, [inscriptionId]: false }
+  }
+}
+
+function switchTab(key: string) {
+  activeTab.value = key as any
+  if (key === 'timeline' && !timeline.value.length && !timelineLoading.value) {
+    loadTimeline()
+  }
+  if (key === 'commentaires' && !commentaires.value.length && !commentairesLoading.value) {
+    loadCommentaires()
+  }
+}
+
+function formatEventDate(d: string) {
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function formatDate(d: string | null) {
@@ -859,6 +1235,382 @@ function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} o`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`
+}
+
+// ── Export Dossier Complet PDF ────────────────────────────────────────────────
+const dossierLoading = ref(false)
+
+async function exportDossierPDF() {
+  if (!etudiant.value) return
+  dossierLoading.value = true
+  try {
+    const etd = etudiant.value
+    const insc = etd.inscriptions?.[0]
+
+    // Fetch notes bulletin
+    let bulletinUes: any[] = []
+    let bulletinNotes: any[] = []
+    if (insc?.id) {
+      try {
+        const r = await api.get(`/notes/bulletin/${insc.id}`)
+        bulletinUes = r.data?.ues ?? []
+        bulletinNotes = r.data?.notes ?? []
+      } catch { /* no notes */ }
+    }
+
+    const logoUrl = `${window.location.origin}/icons/icon-192.png`
+    const now = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+
+    // ── Helpers ──
+    const fmtNum = (n: any) => n != null ? new Intl.NumberFormat('fr-FR').format(Number(n)) : '—'
+    const fmtFcfa = (n: any) => n != null ? fmtNum(n) + ' FCFA' : '—'
+    const fmtDate = (d: any) => {
+      if (!d) return '—'
+      try { return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) } catch { return String(d) }
+    }
+    const fmtDateShort = (d: any) => {
+      if (!d) return '—'
+      try { return new Date(d).toLocaleDateString('fr-FR') } catch { return String(d) }
+    }
+    const fmtMoisLabel = (raw: string) => {
+      if (!raw) return '—'
+      try {
+        const s = raw.length === 7 ? raw + '-01' : raw
+        return new Date(s).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+      } catch { return raw }
+    }
+
+    const tPay: Record<string,string> = {
+      frais_inscription: "Frais d'inscription", mensualite: 'Mensualité',
+      tenue: 'Tenue', rattrapage: 'Rattrapage', autre: 'Autre'
+    }
+    const tMode: Record<string,string> = {
+      especes: 'Espèces', wave: 'Wave', orange_money: 'Orange Money',
+      virement: 'Virement', cheque: 'Chèque'
+    }
+
+    // ── Data ──
+    const filiere = insc?.filiere?.nom ?? insc?.classe?.filiere?.nom ?? '—'
+    const classe = insc?.classe?.nom ?? 'Non affecté'
+    const annee = insc?.annee_academique?.libelle ?? '—'
+    const niveauEntree = insc?.niveau_entree?.nom ?? '—'
+    const bourse = insc?.niveau_bourse ? `${insc.niveau_bourse.nom} (${insc.niveau_bourse.pourcentage}%)` : 'Aucune'
+    const inscStatus = statutLabel[insc?.statut] ?? insc?.statut ?? '—'
+    const hasNiveauFlag = !!((insc?.filiere as any)?.type_has_niveau ?? (insc?.classe?.filiere as any)?.type_has_niveau ?? false)
+    const niveauEtude = (hasNiveauFlag && (insc?.classe as any)?.niveau)
+      ? ((insc?.classe as any).niveau === 1 ? '1ère Année' : `${(insc?.classe as any).niveau}ème Année`)
+      : null
+
+    const paiements: any[] = insc ? (paiementsMap.value[insc.id] ?? []) : []
+    const echeances: any[] = insc ? (echeancesMap.value[insc.id] ?? []) : []
+    const totalPaye = paiements.reduce((s, p) => s + Number(p.montant ?? 0), 0)
+    const overdueCount = echeances.filter(e => e.statut === 'non_paye' && new Date(e.mois) < new Date()).length
+
+    // ── Notes stats ──
+    const normalNotes = bulletinNotes.filter((n: any) => n.session === 'normale')
+    let moyenneCoeff: string | null = null
+    if (bulletinUes.length && normalNotes.length) {
+      let sumW = 0, sumC = 0
+      for (const ue of bulletinUes) {
+        const n = normalNotes.find((x: any) => x.ue_id === ue.id)
+        if (n) { const c = Number(ue.coefficient ?? 1); sumW += Number(n.note) * c; sumC += c }
+      }
+      if (sumC > 0) moyenneCoeff = (sumW / sumC).toFixed(2)
+    }
+
+    // ── Presence ──
+    const taux = risque.value?.taux_presence as number | null | undefined
+    const presCount = risque.value?.presences_count ?? 0
+    const totalSeances = risque.value?.total_seances ?? 0
+
+    // ── Document stats ──
+    const docRecu = checklist.value.filter(d => d.recu).length
+    const docTotal = checklist.value.length
+
+    // ── Note color ──
+    const nc = (n: any) => n != null ? (Number(n) >= 10 ? '#15803d' : '#dc2626') : '#9ca3af'
+
+    // ── HTML rows ──
+    const rowsEch = echeances.map(e => {
+      const paid = e.statut === 'paye'
+      const late = !paid && new Date(e.mois) < new Date()
+      const col = paid ? '#15803d' : late ? '#dc2626' : '#6b7280'
+      const lbl = paid ? '✓ Payé' : late ? '⚠ En retard' : 'À venir'
+      return `<tr><td>${fmtMoisLabel(e.mois)}</td><td>${tPay[e.type_echeance] ?? e.type_echeance}</td><td style="text-align:right">${fmtNum(e.montant)} FCFA</td><td style="color:${col};font-weight:700">${lbl}</td></tr>`
+    }).join('')
+
+    const rowsPay = paiements.map((p: any) => `<tr>
+      <td>${fmtDateShort(p.confirmed_at ?? p.created_at)}</td>
+      <td>${tPay[p.type_paiement] ?? p.type_paiement}</td>
+      <td style="text-align:right;font-weight:700">${fmtNum(p.montant)} FCFA</td>
+      <td>${tMode[p.mode_paiement] ?? p.mode_paiement ?? '—'}</td>
+      <td style="font-family:monospace;font-size:8px">${p.numero_recu ?? '—'}</td></tr>`).join('')
+
+    const rowsNotes = bulletinUes.map((ue: any) => {
+      const nN = bulletinNotes.find((x: any) => x.ue_id === ue.id && x.session === 'normale')?.note
+      const nR = bulletinNotes.find((x: any) => x.ue_id === ue.id && x.session === 'rattrapage')?.note
+      const nF = (nR != null && Number(nR) > Number(nN ?? 0)) ? nR : nN
+      return `<tr>
+        <td style="font-weight:600;font-family:monospace">${ue.code}</td>
+        <td>${ue.nom}</td>
+        <td style="text-align:center">${ue.coefficient ?? 1}</td>
+        <td style="text-align:center;color:${nc(nN)};font-weight:${nN != null ? 700 : 400}">${nN ?? '—'}</td>
+        <td style="text-align:center;color:${nc(nR)};font-weight:${nR != null ? 700 : 400}">${nR ?? '—'}</td>
+        <td style="text-align:center;color:${nc(nF)};font-weight:700;font-size:11px">${nF ?? '—'}</td></tr>`
+    }).join('')
+
+    const rowsDocs = checklist.value.map(d => `<tr>
+      <td>${d.label}</td>
+      <td style="text-align:center;color:${d.recu ? '#15803d' : '#9ca3af'};font-weight:700">${d.recu ? '✓' : '✗'}</td>
+      <td>${d.recu && d.date_reception ? fmtDateShort(d.date_reception) : '—'}</td></tr>`).join('')
+
+    const tauxNum = taux ?? 0
+    const tauxColor = tauxNum >= 75 ? '#16a34a' : tauxNum >= 50 ? '#d97706' : '#dc2626'
+
+    const html = `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"/>
+<title>Dossier — ${etd.prenom} ${etd.nom}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;font-size:9.5px;color:#111;background:#fff}
+@page{size:A4 portrait;margin:12mm 15mm 14mm}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+/* Header */
+.hdr{display:flex;align-items:center;gap:14px;padding-bottom:10px;border-bottom:2.5px solid #E30613;margin-bottom:12px}
+.hdr img{width:58px;height:58px;object-fit:contain;flex-shrink:0}
+.hdr-txt{flex:1}
+.hdr-txt .tg{font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#E30613;margin-bottom:2px}
+.hdr-txt h1{font-size:11px;font-weight:900;color:#111;line-height:1.3;margin-bottom:2px}
+.hdr-txt .mt{font-size:7.5px;color:#555}
+.hdr-right{text-align:right;flex-shrink:0}
+.hdr-right .bt{font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1px;display:block;color:#111}
+.hdr-right .bnum{font-size:9px;color:#888;font-family:monospace;display:block;margin-top:2px}
+.hdr-right .bdate{font-size:7px;color:#aaa;display:block;margin-top:2px}
+/* KPI bar */
+.kpi{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.kpi-box{flex:1;min-width:60px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px;text-align:center}
+.kpi-box .kv{font-size:15px;font-weight:900;display:block;line-height:1}
+.kpi-box .kl{font-size:6.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-top:3px;display:block}
+.green .kv{color:#15803d}.red .kv{color:#dc2626}.amber .kv{color:#d97706}
+/* Section */
+.sec{margin-bottom:12px}
+.st{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#fff;background:#E30613;padding:4px 10px}
+.sb{border:1px solid #e5e7eb;border-top:none;padding:10px 12px}
+/* Identité */
+.id-wrap{display:grid;grid-template-columns:78px 1fr 1fr;gap:12px}
+.id-photo{width:78px;height:94px;border:1px solid #e5e7eb;border-radius:4px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#f3f4f6}
+.id-photo img{width:100%;height:100%;object-fit:cover}
+.id-init{font-size:22px;font-weight:900;color:#E30613;text-transform:uppercase}
+.ir{display:flex;align-items:baseline;gap:5px;margin-bottom:5px}
+.il{font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#9ca3af;min-width:68px;flex-shrink:0}
+.iv{font-size:9px;font-weight:600;color:#111}
+/* Tables */
+table{width:100%;border-collapse:collapse}
+th{background:#f3f4f6;font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:#374151;padding:5px 8px;border:1px solid #e5e7eb;text-align:left}
+td{font-size:8.5px;color:#111;padding:4px 8px;border:1px solid #e5e7eb;vertical-align:middle}
+tr:nth-child(even) td{background:#fafafa}
+tfoot td{background:#f0fdf4!important;color:#15803d;font-weight:900;font-size:10px}
+.pt{font-size:7.5px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 5px}
+/* Presence bar */
+.pb-wrap{display:flex;gap:16px;align-items:center}
+.pb{flex:1;height:13px;background:#e5e7eb;border-radius:10px;overflow:hidden}
+.pb-fill{height:100%;border-radius:10px}
+.pb-tick{display:flex;justify-content:space-between;font-size:6.5px;color:#9ca3af;margin-top:2px}
+.pb-stat{text-align:center;min-width:80px}
+.pb-pct{font-size:22px;font-weight:900;display:block;line-height:1}
+.pb-sub{font-size:7px;color:#6b7280;margin-top:3px;display:block}
+/* Signature */
+.sig{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:20px;padding-top:14px;border-top:1px dashed #ccc}
+.sig-box{text-align:center}
+.sig-line{border-bottom:1px solid #ccc;height:38px;margin-bottom:5px}
+.sig-lbl{font-size:7px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px}
+/* Footer */
+.ft{margin-top:12px;padding-top:8px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between}
+.ft-l,.ft-r{font-size:7px;color:#9ca3af}.ft-r{text-align:right}
+/* Page break */
+.pb-page{break-before:page;page-break-before:always}
+.insc-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+</style></head><body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <img src="${logoUrl}" alt="Logo">
+  <div class="hdr-txt">
+    <div class="tg">Institut de Formation</div>
+    <h1>Institut Supérieur de Formation aux Nouveaux Métiers de l'Informatique et de la Communication</h1>
+    <div class="mt">NINEA : 006118310 — BP 50281 RP DAKAR | Sicap Amitié 1, Villa N° 3031 — Dakar | Tél : 33 821 34 25 / 77 841 50 44</div>
+  </div>
+  <div class="hdr-right">
+    <span class="bt">Dossier Étudiant</span>
+    <span class="bnum">${etd.numero_etudiant}</span>
+    <span class="bdate">Édité le ${now}</span>
+  </div>
+</div>
+
+<!-- KPI RÉSUMÉ -->
+<div class="kpi">
+  <div class="kpi-box ${taux != null ? (tauxNum >= 75 ? 'green' : tauxNum >= 50 ? 'amber' : 'red') : ''}">
+    <span class="kv">${taux != null ? tauxNum + '%' : '—'}</span>
+    <span class="kl">Présence</span>
+  </div>
+  <div class="kpi-box ${totalPaye > 0 ? 'green' : ''}">
+    <span class="kv">${fmtNum(totalPaye)}</span>
+    <span class="kl">FCFA payés</span>
+  </div>
+  ${moyenneCoeff ? `<div class="kpi-box ${Number(moyenneCoeff) >= 10 ? 'green' : 'red'}">
+    <span class="kv">${moyenneCoeff}/20</span><span class="kl">Moyenne</span>
+  </div>` : ''}
+  <div class="kpi-box ${docTotal > 0 ? (docRecu === docTotal ? 'green' : 'amber') : ''}">
+    <span class="kv">${docRecu}/${docTotal}</span>
+    <span class="kl">Dossier</span>
+  </div>
+  <div class="kpi-box ${overdueCount > 0 ? 'red' : 'green'}">
+    <span class="kv">${overdueCount}</span>
+    <span class="kl">Éch. en retard</span>
+  </div>
+</div>
+
+<!-- 1. IDENTITÉ -->
+<div class="sec">
+  <div class="st">1. Identité de l'étudiant</div>
+  <div class="sb">
+    <div class="id-wrap">
+      <div class="id-photo">
+        ${etd.photo_path?.startsWith('data:') ? `<img src="${etd.photo_path}" alt="Photo">` : `<span class="id-init">${(etd.prenom[0]??'')}${(etd.nom[0]??'')}</span>`}
+      </div>
+      <div>
+        <div class="ir"><span class="il">Prénom</span><span class="iv">${etd.prenom}</span></div>
+        <div class="ir"><span class="il">Nom</span><span class="iv">${etd.nom}</span></div>
+        <div class="ir"><span class="il">N° étudiant</span><span class="iv" style="font-family:monospace">${etd.numero_etudiant}</span></div>
+        <div class="ir"><span class="il">Email</span><span class="iv">${etd.email ?? '—'}</span></div>
+        <div class="ir"><span class="il">Téléphone</span><span class="iv">${etd.telephone ?? '—'}</span></div>
+      </div>
+      <div>
+        <div class="ir"><span class="il">Date naissance</span><span class="iv">${fmtDate(etd.date_naissance)}</span></div>
+        <div class="ir"><span class="il">Lieu naissance</span><span class="iv">${etd.lieu_naissance ?? '—'}</span></div>
+        <div class="ir"><span class="il">Adresse</span><span class="iv">${etd.adresse ?? '—'}</span></div>
+        <div class="ir"><span class="il">N° CNI</span><span class="iv" style="font-family:monospace">${etd.cni_numero ?? '—'}</span></div>
+        <div class="ir"><span class="il">Parent / Tuteur</span><span class="iv">${etd.nom_parent ?? '—'}</span></div>
+        ${etd.telephone_parent ? `<div class="ir"><span class="il">Tél. parent</span><span class="iv">${etd.telephone_parent}</span></div>` : ''}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 2. INSCRIPTION -->
+${insc ? `<div class="sec">
+  <div class="st">2. Inscription en cours</div>
+  <div class="sb">
+    <div class="insc-grid">
+      <div>
+        <div class="ir"><span class="il">Filière</span><span class="iv">${filiere}</span></div>
+        <div class="ir"><span class="il">Classe</span><span class="iv">${classe}${niveauEtude ? ' — ' + niveauEtude : ''}</span></div>
+        <div class="ir"><span class="il">Année académique</span><span class="iv">${annee}</span></div>
+      </div>
+      <div>
+        <div class="ir"><span class="il">Statut</span><span class="iv">${inscStatus}</span></div>
+        <div class="ir"><span class="il">Niveau d'entrée</span><span class="iv">${niveauEntree}</span></div>
+        <div class="ir"><span class="il">Bourse</span><span class="iv">${bourse}</span></div>
+      </div>
+      <div>
+        <div class="ir"><span class="il">Mensualité</span><span class="iv">${insc.mensualite ? fmtFcfa(insc.mensualite) : '—'}</span></div>
+        <div class="ir"><span class="il">Frais inscription</span><span class="iv">${insc.frais_inscription ? fmtFcfa(insc.frais_inscription) : '—'}</span></div>
+        <div class="ir"><span class="il">Date inscription</span><span class="iv">${fmtDate(insc.created_at)}</span></div>
+      </div>
+    </div>
+  </div>
+</div>` : ''}
+
+<!-- 3. SITUATION FINANCIÈRE -->
+<div class="sec">
+  <div class="st">3. Situation financière</div>
+  <div class="sb">
+    ${echeances.length ? `<div class="pt">Plan de paiement</div>
+    <table><thead><tr><th>Période</th><th>Type</th><th style="text-align:right">Montant</th><th>Statut</th></tr></thead>
+    <tbody>${rowsEch}</tbody></table>` : ''}
+    ${paiements.length ? `<div class="pt" style="margin-top:${echeances.length ? 12 : 0}px">Historique des paiements confirmés</div>
+    <table><thead><tr><th>Date</th><th>Type</th><th style="text-align:right">Montant</th><th>Mode</th><th>N° Reçu</th></tr></thead>
+    <tbody>${rowsPay}</tbody>
+    <tfoot><tr><td colspan="2" style="text-align:right">TOTAL PAYÉ</td>
+      <td style="text-align:right">${fmtNum(totalPaye)} FCFA</td>
+      <td colspan="2"></td></tr></tfoot></table>` :
+      (!echeances.length ? `<p style="color:#9ca3af;font-size:8.5px;font-style:italic">Aucune donnée financière enregistrée.</p>` : '')}
+  </div>
+</div>
+
+<!-- 4. RELEVÉ DE NOTES -->
+${bulletinUes.length ? `<div class="sec pb-page">
+  <div class="st">4. Relevé de notes</div>
+  <div class="sb">
+    <table><thead><tr>
+      <th style="width:55px">Code</th>
+      <th>Unité d'Enseignement</th>
+      <th style="width:48px;text-align:center">Coeff.</th>
+      <th style="width:58px;text-align:center">Normale</th>
+      <th style="width:58px;text-align:center">Rattrapage</th>
+      <th style="width:58px;text-align:center">Finale</th>
+    </tr></thead>
+    <tbody>${rowsNotes}</tbody>
+    ${moyenneCoeff ? `<tfoot><tr>
+      <td colspan="4" style="text-align:right;background:#f3f4f6!important;color:#374151;font-weight:700">Moyenne générale pondérée</td>
+      <td colspan="2" style="text-align:center;font-size:12px;color:${Number(moyenneCoeff)>=10?'#15803d':'#dc2626'};background:#f3f4f6!important;font-weight:900">${moyenneCoeff} / 20</td>
+    </tr></tfoot>` : ''}
+    </table>
+    <p style="font-size:7px;color:#9ca3af;margin-top:5px">* La note finale retient la meilleure des deux sessions.</p>
+  </div>
+</div>` : ''}
+
+<!-- 5. ASSIDUITÉ -->
+<div class="sec">
+  <div class="st">5. Assiduité (60 derniers jours)</div>
+  <div class="sb">
+    ${taux != null ? `<div class="pb-wrap">
+      <div style="flex:1">
+        <div class="pb"><div class="pb-fill" style="width:${tauxNum}%;background:${tauxColor}"></div></div>
+        <div class="pb-tick"><span>0%</span><span>50%</span><span>75%</span><span>100%</span></div>
+        <p style="font-size:7.5px;color:#6b7280;margin-top:6px">Seuil minimum requis : 75% | Source : feuilles d'émargement numérique</p>
+      </div>
+      <div class="pb-stat">
+        <span class="pb-pct" style="color:${tauxColor}">${tauxNum}%</span>
+        <span class="pb-sub">${presCount} présence(s)<br>${totalSeances} séance(s) au total</span>
+      </div>
+    </div>` : `<p style="color:#9ca3af;font-size:8.5px;font-style:italic">Aucune donnée de présence disponible.</p>`}
+  </div>
+</div>
+
+<!-- 6. DOSSIER DOCUMENTAIRE -->
+${checklist.value.length ? `<div class="sec">
+  <div class="st">6. Dossier documentaire (${docRecu} / ${docTotal} documents reçus)</div>
+  <div class="sb">
+    <table><thead><tr><th>Document requis</th><th style="width:55px;text-align:center">Reçu</th><th style="width:95px">Date réception</th></tr></thead>
+    <tbody>${rowsDocs}</tbody></table>
+  </div>
+</div>` : ''}
+
+<!-- SIGNATURE -->
+<div class="sig">
+  <div class="sig-box">
+    <div class="sig-line"></div>
+    <div class="sig-lbl">Signature du Directeur Général</div>
+  </div>
+  <div class="sig-box">
+    <div class="sig-line"></div>
+    <div class="sig-lbl">Cachet de l'établissement</div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div class="ft">
+  <div class="ft-l">UPTECH CAMPUS — Sicap Amitié 1, Villa N°3031 — Dakar, Sénégal<br>Tél : +221 77 841 50 44 — uptechformation.com | Agréé : N°RepSEN/Ensup-priv/AP/387-2021</div>
+  <div class="ft-r">Document confidentiel — Usage officiel uniquement<br>Généré le ${now} par le système UPTECH Campus</div>
+</div>
+
+</body></html>`
+
+    openPrintAndClose(html)
+  } finally {
+    dossierLoading.value = false
+  }
 }
 </script>
 
@@ -896,9 +1648,10 @@ function formatFileSize(bytes: number) {
               {{ etudiant.prenom[0] }}{{ etudiant.nom[0] }}
             </span>
           </div>
+          <!-- Bouton upload fichier -->
           <button v-if="canWrite" @click="photoInput?.click()"
             :disabled="photoLoading"
-            title="Changer la photo"
+            title="Importer une photo depuis un fichier"
             class="absolute -bottom-1.5 -right-1.5 w-6 h-6 bg-white border border-gray-200 rounded-full flex items-center justify-center shadow-sm hover:bg-gray-50 transition">
             <svg v-if="!photoLoading" class="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -909,6 +1662,15 @@ function formatFileSize(bytes: number) {
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
             </svg>
           </button>
+          <!-- Bouton webcam -->
+          <button v-if="canWrite" @click="openWebcam"
+            :disabled="photoLoading"
+            title="Prendre une photo avec la webcam"
+            class="absolute -bottom-1.5 -left-1.5 w-6 h-6 bg-white border border-gray-200 rounded-full flex items-center justify-center shadow-sm hover:bg-gray-50 transition">
+            <svg class="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.723v6.554a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
+            </svg>
+          </button>
           <input ref="photoInput" type="file" accept="image/*" class="hidden" @change="uploadPhoto" />
         </div>
 
@@ -916,8 +1678,31 @@ function formatFileSize(bytes: number) {
         <div class="flex-1 min-w-0">
           <div class="flex items-start justify-between gap-4 flex-wrap">
             <div>
-              <h1 class="text-xl font-bold text-gray-900">{{ etudiant.prenom }} {{ etudiant.nom }}</h1>
+              <div class="flex items-center gap-2">
+                <h1 class="text-xl font-bold text-gray-900">{{ etudiant.prenom }} {{ etudiant.nom }}</h1>
+                <!-- Feu tricolore risque -->
+                <span v-if="risque" :title="risqueLabel ?? ''"
+                  class="rqd-badge"
+                  :class="`rqd-badge--${risque.risque_global}`">
+                  {{ risqueIcon }} {{ risqueLabel }}
+                </span>
+              </div>
               <p class="text-sm text-gray-500 font-mono mt-0.5">{{ etudiant.numero_etudiant }}</p>
+              <!-- Détail risque si alerte -->
+              <div v-if="risque && risque.risque_global !== 'green'" class="rqd-details">
+                <span v-if="risque.risque_presence !== 'green'" class="rqd-chip" :class="`rqd-chip--${risque.risque_presence}`">
+                  {{ risque.risque_presence === 'red' ? '🔴' : '🟡' }}
+                  Présence {{ risque.taux_presence !== null ? risque.taux_presence + '%' : 'aucune séance' }}
+                </span>
+                <span v-if="risque.risque_paiement !== 'green'" class="rqd-chip" :class="`rqd-chip--${risque.risque_paiement}`">
+                  {{ risque.risque_paiement === 'red' ? '🔴' : '🟡' }}
+                  Paiement retard {{ risque.jours_retard }}j
+                </span>
+                <span v-if="risque.risque_dossier !== 'green'" class="rqd-chip" :class="`rqd-chip--${risque.risque_dossier}`">
+                  {{ risque.risque_dossier === 'red' ? '🔴' : '🟡' }}
+                  Dossier {{ risque.docs_recu }}/{{ risque.total_docs }}
+                </span>
+              </div>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
               <span
@@ -945,6 +1730,23 @@ function formatFileSize(bytes: number) {
               <button @click="printCertificatDetail()"
                 class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-700 transition">
                 📄 Certificat
+              </button>
+              <!-- Export dossier complet PDF -->
+              <button @click="exportDossierPDF"
+                :disabled="dossierLoading"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition"
+                style="background:#1e40af;color:#fff;"
+                :style="dossierLoading ? 'opacity:0.6;cursor:not-allowed' : 'opacity:1'"
+                title="Exporter le dossier complet (identité, paiements, notes, présence, documents)">
+                <svg v-if="!dossierLoading" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                {{ dossierLoading ? 'Génération…' : 'Exporter dossier PDF' }}
               </button>
               <button v-if="canDelete" @click="openDeleteModal"
                 class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition"
@@ -976,14 +1778,109 @@ function formatFileSize(bytes: number) {
         </div>
       </div>
 
+      <!-- ── 4 chiffres clés ──────────────────────────────────────────── -->
+      <div class="stat-strip">
+
+        <!-- Moyenne générale -->
+        <div class="stat-card">
+          <div class="stat-donut-wrap">
+            <svg viewBox="0 0 40 40" class="stat-donut">
+              <circle cx="20" cy="20" r="15.9155" class="stat-donut-bg"/>
+              <circle cx="20" cy="20" r="15.9155" class="stat-donut-arc"
+                :stroke="statColor(stats?.moyenne !== null ? (stats!.moyenne! / 20) * 100 : null)"
+                :stroke-dasharray="donutDash(stats?.moyenne !== null ? Math.round((stats!.moyenne! / 20) * 100) : null)"
+                stroke-dashoffset="25"/>
+            </svg>
+            <span class="stat-donut-val"
+              :style="{ color: statColor(stats?.moyenne !== null ? (stats!.moyenne! / 20) * 100 : null) }">
+              {{ stats?.moyenne !== null && stats?.moyenne !== undefined ? stats.moyenne : '—' }}
+            </span>
+          </div>
+          <div class="stat-label">Moyenne générale</div>
+          <div class="stat-sub">
+            <span v-if="stats?.nb_notes">sur 20 — {{ stats.nb_notes }} note(s)</span>
+            <span v-else class="text-gray-400">Aucune note</span>
+          </div>
+        </div>
+
+        <!-- Taux de présence -->
+        <div class="stat-card">
+          <div class="stat-donut-wrap">
+            <svg viewBox="0 0 40 40" class="stat-donut">
+              <circle cx="20" cy="20" r="15.9155" class="stat-donut-bg"/>
+              <circle cx="20" cy="20" r="15.9155" class="stat-donut-arc"
+                :stroke="statColor(stats?.taux_presence ?? null)"
+                :stroke-dasharray="donutDash(stats?.taux_presence ?? null)"
+                stroke-dashoffset="25"/>
+            </svg>
+            <span class="stat-donut-val"
+              :style="{ color: statColor(stats?.taux_presence ?? null) }">
+              {{ stats?.taux_presence !== null && stats?.taux_presence !== undefined ? stats.taux_presence + '%' : '—' }}
+            </span>
+          </div>
+          <div class="stat-label">Taux de présence</div>
+          <div class="stat-sub">
+            <span v-if="stats?.presences_total">{{ stats.presences_ok }}/{{ stats.presences_total }} séances</span>
+            <span v-else class="text-gray-400">Aucune séance</span>
+          </div>
+        </div>
+
+        <!-- % dossier complété -->
+        <div class="stat-card">
+          <div class="stat-donut-wrap">
+            <svg viewBox="0 0 40 40" class="stat-donut">
+              <circle cx="20" cy="20" r="15.9155" class="stat-donut-bg"/>
+              <circle cx="20" cy="20" r="15.9155" class="stat-donut-arc"
+                :stroke="statColor(stats?.pct_dossier ?? null)"
+                :stroke-dasharray="donutDash(stats?.pct_dossier ?? null)"
+                stroke-dashoffset="25"/>
+            </svg>
+            <span class="stat-donut-val"
+              :style="{ color: statColor(stats?.pct_dossier ?? null) }">
+              {{ stats !== null ? (stats.pct_dossier ?? 0) + '%' : '—' }}
+            </span>
+          </div>
+          <div class="stat-label">Dossier complété</div>
+          <div class="stat-sub">
+            <span v-if="stats?.docs_total">{{ stats.docs_recu }}/{{ stats.docs_total }} documents</span>
+            <span v-else class="text-gray-400">Aucun type configuré</span>
+          </div>
+        </div>
+
+        <!-- % paiements honorés -->
+        <div class="stat-card">
+          <div class="stat-donut-wrap">
+            <svg viewBox="0 0 40 40" class="stat-donut">
+              <circle cx="20" cy="20" r="15.9155" class="stat-donut-bg"/>
+              <circle cx="20" cy="20" r="15.9155" class="stat-donut-arc"
+                :stroke="statColor(stats?.pct_paiements ?? null)"
+                :stroke-dasharray="donutDash(stats?.pct_paiements ?? null)"
+                stroke-dashoffset="25"/>
+            </svg>
+            <span class="stat-donut-val"
+              :style="{ color: statColor(stats?.pct_paiements ?? null) }">
+              {{ stats?.pct_paiements !== null && stats?.pct_paiements !== undefined ? stats.pct_paiements + '%' : '—' }}
+            </span>
+          </div>
+          <div class="stat-label">Paiements honorés</div>
+          <div class="stat-sub">
+            <span v-if="stats?.total_echeances">{{ stats.echeances_payees }}/{{ stats.total_echeances }} échéances</span>
+            <span v-else class="text-gray-400">Aucune échéance</span>
+          </div>
+        </div>
+
+      </div>
+
       <!-- Onglets -->
-      <div class="flex border-b border-gray-200 mb-5">
+      <div class="etd-tab-bar flex border-b border-gray-200 mb-5">
         <button v-for="tab in [
           { key: 'infos', label: 'Informations' },
           { key: 'inscriptions', label: `Inscriptions (${etudiant.inscriptions?.length ?? 0})` },
-          { key: 'documents', label: `Documents (${etudiant.documents?.length ?? 0})` },
+          { key: 'documents', label: `Documents (${checklistRecuCount}/${checklist.length})` },
+          { key: 'timeline', label: '📅 Timeline' },
+          { key: 'commentaires', label: `🗒️ Notes internes${commentaires.length ? ` (${commentaires.length})` : ''}` },
         ]" :key="tab.key"
-          @click="activeTab = tab.key as any"
+          @click="switchTab(tab.key)"
           class="px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition"
           :class="activeTab === tab.key
             ? 'border-red-600 text-red-600'
@@ -1045,19 +1942,74 @@ function formatFileSize(bytes: number) {
             <!-- Plan de paiement (échéances) -->
             <div v-if="echeancesMap[insc.id]?.length" class="mt-4 border-t border-gray-100 pt-3">
               <p class="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Plan de paiement</p>
-              <div class="flex flex-wrap gap-1.5">
+              <div class="flex flex-wrap gap-2">
                 <span v-for="ech in echeancesMap[insc.id]" :key="ech.id"
-                  class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium"
-                  :class="ech.statut === 'paye' ? 'bg-green-50 text-green-700' : new Date(ech.mois) < new Date() ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-500'">
-                  <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
-                  {{ fmtMoisEch(ech.mois) }}
-                  <span class="text-xs opacity-70">{{ Number(ech.montant).toLocaleString('fr-FR') }}</span>
+                  class="inline-flex flex-col items-center px-3 py-2 rounded-lg text-xs border min-w-[80px] text-center gap-0.5"
+                  :class="ech.statut === 'paye'
+                    ? 'bg-green-50 text-green-700 border-green-200'
+                    : ech.statut === 'partiellement_paye'
+                      ? 'bg-orange-50 text-orange-700 border-orange-200'
+                      : new Date(ech.mois) < new Date()
+                        ? 'bg-red-50 text-red-600 border-red-200'
+                        : 'bg-gray-50 text-gray-500 border-gray-200'">
+                  <!-- 0. Type label -->
+                  <span class="font-bold text-[10px] leading-tight uppercase tracking-wide opacity-60">
+                    {{ echLabel(ech, echeancesMap[insc.id] ?? []) }}
+                  </span>
+                  <!-- 1. Date du mois concerné -->
+                  <span class="font-semibold text-[11px] leading-tight">
+                    {{ new Date(ech.mois).toLocaleDateString('fr-FR', { month:'short', year:'numeric' }) }}
+                  </span>
+                  <!-- 2. Statut -->
+                  <span class="font-bold text-[11px] leading-tight">
+                    <template v-if="ech.statut === 'paye'">✓ Payé</template>
+                    <template v-else-if="ech.statut === 'partiellement_paye'">◑ Partiel</template>
+                    <template v-else-if="new Date(ech.mois) < new Date()">✗ En retard</template>
+                    <template v-else>◦ À venir</template>
+                  </span>
+                  <!-- 3. Montant versé / prévu -->
+                  <span class="text-[10px] leading-tight opacity-75">
+                    <template v-if="ech.statut === 'paye'">{{ Number(ech.montant).toLocaleString('fr-FR') }} / {{ Number(ech.montant).toLocaleString('fr-FR') }}</template>
+                    <template v-else-if="ech.statut === 'partiellement_paye'">— / {{ Number(ech.montant).toLocaleString('fr-FR') }}</template>
+                    <template v-else>0 / {{ Number(ech.montant).toLocaleString('fr-FR') }}</template>
+                  </span>
+                  <!-- 4. Date de paiement effectif -->
+                  <span v-if="ech.date_paiement" class="text-[10px] leading-tight font-semibold">
+                    {{ new Date(ech.date_paiement).toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' }) }}
+                  </span>
                 </span>
               </div>
-              <div class="mt-2 flex gap-4 text-xs text-gray-400">
+              <div class="mt-2 flex flex-wrap items-center gap-4 text-xs text-gray-400">
                 <span class="text-green-600 font-medium">✓ {{ (echeancesMap[insc.id] ?? []).filter((e: any) => e.statut === 'paye').length }} payé(s)</span>
                 <span class="text-red-500 font-medium">✗ {{ (echeancesMap[insc.id] ?? []).filter((e: any) => e.statut === 'non_paye' && new Date(e.mois) < new Date()).length }} en retard</span>
                 <span class="text-gray-400">◦ {{ (echeancesMap[insc.id] ?? []).filter((e: any) => e.statut === 'non_paye' && new Date(e.mois) >= new Date()).length }} à venir</span>
+                <!-- Badge dernières relances -->
+                <span v-if="relancesMap[insc.id]?.length"
+                  class="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-xs font-medium">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                  </svg>
+                  {{ relancesMap[insc.id]?.length ?? 0 }} relance(s) envoyée(s)
+                </span>
+              </div>
+              <!-- Bouton relance manuelle -->
+              <div v-if="canWrite && (echeancesMap[insc.id] ?? []).some((e: any) => e.statut === 'non_paye')"
+                class="mt-3">
+                <button @click="sendManualRelance(insc.id)"
+                  :disabled="relanceSending[insc.id]"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition"
+                  :class="relanceSending[insc.id]
+                    ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
+                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'">
+                  <svg v-if="!relanceSending[insc.id]" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                  </svg>
+                  <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                  {{ relanceSending[insc.id] ? 'Envoi…' : 'Envoyer une relance' }}
+                </button>
               </div>
             </div>
 
@@ -1089,64 +2041,349 @@ function formatFileSize(bytes: number) {
         </div>
       </div>
 
-      <!-- Onglet : Documents -->
+      <!-- Onglet : Documents (checklist dépôt) -->
       <div v-else-if="activeTab === 'documents'">
-        <div v-if="canWrite" class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-          <h3 class="text-sm font-medium text-gray-700 mb-3">Ajouter un document</h3>
-          <div class="flex items-center gap-3">
-            <select v-model="docType"
-              class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
-              <option v-for="dt in docTypes" :key="dt.value" :value="dt.value">{{ dt.label }}</option>
-            </select>
-            <button @click="docInput?.click()" :disabled="docLoading"
-              class="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition disabled:opacity-50">
-              <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-              {{ docLoading ? 'Envoi…' : 'Choisir un fichier' }}
-            </button>
-            <input ref="docInput" type="file" class="hidden" @change="uploadDocument" />
+        <!-- En-tête avec progression -->
+        <div class="doc-checklist-header">
+          <div class="doc-checklist-title">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" class="doc-checklist-icon">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+            <div>
+              <h3 class="doc-checklist-name">Dossier documentaire</h3>
+              <p class="doc-checklist-sub">Cochez les documents physiquement remis par l'étudiant</p>
+            </div>
+          </div>
+          <div class="doc-progress-wrap">
+            <span class="doc-progress-label">{{ checklistRecuCount }} / {{ checklist.length }} reçu{{ checklistRecuCount > 1 ? 's' : '' }}</span>
+            <div class="doc-progress-bar">
+              <div
+                class="doc-progress-fill"
+                :style="{ width: checklist.length ? (checklistRecuCount / checklist.length * 100) + '%' : '0%' }"
+              ></div>
+            </div>
           </div>
         </div>
-        <div v-if="!etudiant.documents?.length" class="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
-          Aucun document enregistré
+
+        <!-- Liste des cases à cocher -->
+        <div v-if="checklistLoading" class="doc-checklist-empty">Chargement…</div>
+        <div v-else-if="!checklist.length" class="doc-checklist-empty">
+          Aucun type de document configuré.<br>
+          <small>Ajoutez des types dans <strong>Paramètres → Pédagogique → Types de documents</strong></small>
         </div>
-        <div v-else class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-gray-200 bg-gray-50">
-                <th class="text-left px-5 py-3 font-medium text-gray-500">Document</th>
-                <th class="text-left px-5 py-3 font-medium text-gray-500">Type</th>
-                <th class="text-left px-5 py-3 font-medium text-gray-500">Taille</th>
-                <th class="text-left px-5 py-3 font-medium text-gray-500">Date</th>
-                <th class="px-5 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="doc in etudiant.documents" :key="doc.id" class="border-b border-gray-100 last:border-0">
-                <td class="px-5 py-3">
-                  <span class="text-gray-700 flex items-center gap-2">
-                    <svg class="w-4 h-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                    </svg>
-                    {{ doc.nom_fichier }}
+        <div v-else class="doc-checklist-grid">
+          <button
+            v-for="item in checklist"
+            :key="item.code"
+            @click="canWrite && toggleDoc(item)"
+            :disabled="item.toggling"
+            class="doc-checklist-item"
+            :class="{
+              'doc-checklist-item--recu': item.recu,
+              'doc-checklist-item--pending': !item.recu,
+              'doc-checklist-item--readonly': !canWrite,
+            }"
+          >
+            <!-- Case à cocher visuelle -->
+            <div class="doc-checkbox" :class="item.recu ? 'doc-checkbox--checked' : ''">
+              <svg v-if="item.toggling" class="doc-spin" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"/>
+                <path fill="currentColor" class="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+              <svg v-else-if="item.recu" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+              </svg>
+            </div>
+            <!-- Libellé + date -->
+            <div class="doc-checklist-info">
+              <span class="doc-checklist-label">{{ item.label }}</span>
+              <span v-if="item.recu && item.date_reception" class="doc-checklist-date">
+                Reçu le {{ new Date(item.date_reception).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }) }}
+              </span>
+              <span v-else-if="!item.recu" class="doc-checklist-missing">Non remis</span>
+            </div>
+            <!-- Badge statut -->
+            <span class="doc-checklist-badge" :class="item.recu ? 'doc-badge--ok' : 'doc-badge--ko'">
+              {{ item.recu ? '✓ Reçu' : 'Manquant' }}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Onglet : Timeline ─────────────────────────────────────── -->
+      <div v-else-if="activeTab === 'timeline'" class="tl-wrapper">
+
+        <!-- Chargement -->
+        <div v-if="timelineLoading" class="flex items-center justify-center py-16">
+          <svg class="animate-spin w-7 h-7 text-red-400" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+        </div>
+
+        <!-- Vide -->
+        <div v-else-if="!timeline.length" class="tl-empty">
+          <div class="tl-empty-icon">📅</div>
+          <p class="tl-empty-title">Aucun événement enregistré</p>
+          <p class="tl-empty-sub">Les inscriptions, paiements, notes, absences, documents et relances apparaîtront ici.</p>
+        </div>
+
+        <!-- Timeline -->
+        <div v-else class="tl-timeline">
+          <div v-for="(group, gi) in timelineGrouped" :key="group.month" class="tl-group">
+
+            <!-- Mois / Année -->
+            <div class="tl-month-sep">
+              <span class="tl-month-pill">{{ group.month }}</span>
+            </div>
+
+            <!-- Événements du mois -->
+            <div v-for="(ev, ei) in group.events" :key="ei" class="tl-item">
+
+              <!-- Colonne icône + trait vertical -->
+              <div class="tl-icon-col">
+                <div class="tl-dot" :class="`tl-dot--${ev.type}`">
+                  <span v-if="ev.type === 'inscription'" class="tl-dot-emoji">🎓</span>
+                  <span v-else-if="ev.type === 'paiement'" class="tl-dot-emoji">💳</span>
+                  <span v-else-if="ev.type === 'note'" class="tl-dot-emoji">📝</span>
+                  <span v-else-if="ev.type === 'absence'" class="tl-dot-emoji">⚠️</span>
+                  <span v-else-if="ev.type === 'document'" class="tl-dot-emoji">📄</span>
+                  <span v-else-if="ev.type === 'relance'" class="tl-dot-emoji">📧</span>
+                </div>
+                <div class="tl-line"
+                  v-if="ei < group.events.length - 1 || gi < timelineGrouped.length - 1">
+                </div>
+              </div>
+
+              <!-- Carte événement -->
+              <div class="tl-card" :class="`tl-card--${ev.type}`">
+
+                <!-- En-tête carte -->
+                <div class="tl-card-head">
+                  <span class="tl-badge" :class="`tl-badge--${ev.type}`">
+                    {{ tlTypeLabel[ev.type] }}
                   </span>
-                </td>
-                <td class="px-5 py-3 text-gray-600 capitalize">{{ doc.type_document?.replace('_', ' ') }}</td>
-                <td class="px-5 py-3 text-gray-500">{{ formatFileSize(doc.taille_fichier) }}</td>
-                <td class="px-5 py-3 text-gray-500">{{ formatDate(doc.created_at) }}</td>
-                <td class="px-5 py-3">
-                  <button v-if="canWrite" @click="deleteDocument(doc.id)"
-                    class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                  <span class="tl-card-date">{{ formatEventDate(ev.event_date) }}</span>
+                </div>
+
+                <!-- Inscription -->
+                <template v-if="ev.type === 'inscription'">
+                  <p class="tl-card-title">{{ ev.titre }}</p>
+                  <p v-if="ev.meta?.annee" class="tl-card-sub">{{ ev.meta.annee }}</p>
+                  <span class="tl-status-pill"
+                    :class="{
+                      'tl-status--green': ev.meta?.statut === 'inscrit_actif',
+                      'tl-status--amber': ev.meta?.statut === 'pre_inscrit',
+                      'tl-status--blue':  ev.meta?.statut === 'en_examen',
+                      'tl-status--gray':  ['diplome','abandonne'].includes(ev.meta?.statut),
+                    }">
+                    {{ statutLabel[ev.meta?.statut] ?? ev.meta?.statut }}
+                  </span>
+                </template>
+
+                <!-- Paiement -->
+                <template v-else-if="ev.type === 'paiement'">
+                  <p class="tl-card-title">{{ tlPaiementLabel[ev.titre] ?? ev.titre }}</p>
+                  <p class="tl-montant">
+                    {{ Number(ev.meta?.montant ?? 0).toLocaleString('fr-FR') }}
+                    <span class="tl-devise">FCFA</span>
+                  </p>
+                  <div class="tl-chips">
+                    <span v-if="ev.meta?.mode" class="tl-chip">
+                      {{ tlModeLabel[ev.meta.mode] ?? ev.meta.mode }}
+                    </span>
+                    <span v-if="ev.meta?.numero_recu" class="tl-chip tl-chip--mono">
+                      {{ ev.meta.numero_recu }}
+                    </span>
+                    <span v-if="ev.meta?.mois" class="tl-chip">
+                      {{ new Date(ev.meta.mois.length === 7 ? ev.meta.mois + '-01' : ev.meta.mois).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }}
+                    </span>
+                  </div>
+                </template>
+
+                <!-- Note -->
+                <template v-else-if="ev.type === 'note'">
+                  <p class="tl-card-title">{{ ev.titre }}</p>
+                  <div class="tl-note-row">
+                    <span class="tl-note-val"
+                      :class="(ev.meta?.note ?? 0) >= 10 ? 'tl-note--pass' : 'tl-note--fail'">
+                      {{ ev.meta?.note !== undefined ? ev.meta.note : '—' }}<span class="tl-note-denom">/20</span>
+                    </span>
+                    <span class="tl-card-sub">
+                      Session {{ ev.meta?.session === 'rattrapage' ? 'rattrapage' : 'normale' }}
+                    </span>
+                  </div>
+                </template>
+
+                <!-- Absence -->
+                <template v-else-if="ev.type === 'absence'">
+                  <p class="tl-card-title">{{ ev.titre }}</p>
+                  <p class="tl-card-sub">Absence constatée</p>
+                </template>
+
+                <!-- Document -->
+                <template v-else-if="ev.type === 'document'">
+                  <p class="tl-card-title">{{ ev.titre }}</p>
+                  <p class="tl-card-sub">Document physiquement remis</p>
+                </template>
+
+                <!-- Relance -->
+                <template v-else-if="ev.type === 'relance'">
+                  <p class="tl-card-title">{{ ev.titre }}</p>
+                  <div class="tl-chips mt-1">
+                    <span class="tl-chip"
+                      :class="ev.meta?.type_relance === 'manuel' ? 'tl-chip--amber' : 'tl-chip--blue'">
+                      {{ ev.meta?.type_relance === 'manuel' ? '✋ Manuelle' : '🤖 Automatique' }}
+                    </span>
+                    <span v-if="ev.meta?.jours_avant === 0" class="tl-chip">Jour J</span>
+                    <span v-else-if="ev.meta?.jours_avant < 0" class="tl-chip">J{{ ev.meta.jours_avant }}</span>
+                    <span v-else-if="ev.meta?.jours_avant > 0" class="tl-chip">J-{{ ev.meta.jours_avant }}</span>
+                    <span v-if="ev.meta?.email" class="tl-chip tl-chip--mono" style="font-size:10px">{{ ev.meta.email }}</span>
+                  </div>
+                </template>
+
+              </div>
+            </div>
+          </div>
         </div>
+
+      </div>
+
+      <!-- ── Onglet : Notes internes ────────────────────────────────── -->
+      <div v-else-if="activeTab === 'commentaires'" class="comm-wrapper">
+
+        <!-- Bandeau "staff seulement" -->
+        <div class="comm-staff-notice">
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+          <span>Notes visibles uniquement par le staff — l'étudiant n'y a pas accès.</span>
+        </div>
+
+        <!-- Formulaire d'ajout -->
+        <div class="comm-form-card">
+          <div class="comm-form-row">
+            <select v-model="newCategorie" class="comm-cat-select">
+              <option v-for="opt in categorieOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+          </div>
+          <textarea
+            v-model="newCommentaire"
+            placeholder="Ajouter une note interne… (ex : Très motivé, difficultés en maths, A besoin d'un suivi RH)"
+            class="comm-textarea"
+            rows="3"
+            @keydown.ctrl.enter="submitCommentaire"
+          ></textarea>
+          <div class="comm-form-actions">
+            <span class="text-xs text-gray-400">Ctrl+Entrée pour envoyer</span>
+            <button @click="submitCommentaire"
+              :disabled="!newCommentaire.trim() || commentaireSubmitting"
+              class="comm-submit-btn"
+              :class="(!newCommentaire.trim() || commentaireSubmitting) ? 'opacity-50 cursor-not-allowed' : ''">
+              <svg v-if="commentaireSubmitting" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+              <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+              </svg>
+              {{ commentaireSubmitting ? 'Envoi…' : 'Ajouter' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Chargement -->
+        <div v-if="commentairesLoading" class="flex items-center justify-center py-12">
+          <svg class="animate-spin w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+        </div>
+
+        <!-- Liste vide -->
+        <div v-else-if="!commentaires.length" class="comm-empty">
+          <div class="text-3xl mb-2">🗒️</div>
+          <p class="font-semibold text-gray-600">Aucune note interne</p>
+          <p class="text-sm text-gray-400 mt-1">Soyez le premier à laisser une observation.</p>
+        </div>
+
+        <!-- Liste des commentaires -->
+        <div v-else class="comm-list">
+          <div v-for="comm in commentaires" :key="comm.id" class="comm-card">
+
+            <!-- Mode lecture -->
+            <template v-if="editingCommentId !== comm.id">
+              <div class="comm-card-head">
+                <!-- Avatar + auteur -->
+                <div class="comm-author">
+                  <div class="comm-avatar">
+                    <img v-if="comm.auteur_photo" :src="comm.auteur_photo" class="w-full h-full object-cover rounded-full"/>
+                    <span v-else class="comm-avatar-initials">
+                      {{ (comm.auteur_prenom?.[0] ?? '') + (comm.auteur_nom?.[0] ?? '') }}
+                    </span>
+                  </div>
+                  <div>
+                    <span class="comm-author-name">{{ comm.auteur_prenom }} {{ comm.auteur_nom }}</span>
+                    <span class="comm-author-role">{{ comm.auteur_role }}</span>
+                  </div>
+                </div>
+                <!-- Badge catégorie + date -->
+                <div class="comm-meta-right">
+                  <span class="comm-cat-badge" :class="categorieInfo(comm.categorie).color">
+                    {{ categorieInfo(comm.categorie).label }}
+                  </span>
+                  <span class="comm-date">
+                    {{ formatDate(comm.updated_at ?? comm.created_at) }}
+                    <span v-if="comm.updated_at" class="text-gray-300 text-xs"> (modifié)</span>
+                  </span>
+                </div>
+              </div>
+              <!-- Contenu -->
+              <p class="comm-contenu">{{ comm.contenu }}</p>
+              <!-- Actions -->
+              <div v-if="auth.user?.id === comm.auteur_id || auth.user?.role === 'dg'"
+                class="comm-actions">
+                <button @click="startEdit(comm)" class="comm-action-btn comm-action-btn--edit">
+                  ✏️ Modifier
+                </button>
+                <button @click="deleteCommentaire(comm.id)"
+                  :disabled="commentaireDeleting === comm.id"
+                  class="comm-action-btn comm-action-btn--del">
+                  {{ commentaireDeleting === comm.id ? '…' : '🗑️ Supprimer' }}
+                </button>
+              </div>
+            </template>
+
+            <!-- Mode édition -->
+            <template v-else>
+              <div class="mb-2">
+                <select v-model="editingCategorie" class="comm-cat-select">
+                  <option v-for="opt in categorieOptions" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </option>
+                </select>
+              </div>
+              <textarea v-model="editingContenu" class="comm-textarea" rows="3"
+                @keydown.ctrl.enter="saveEdit(comm)"></textarea>
+              <div class="comm-form-actions mt-2">
+                <button @click="cancelEdit" class="comm-action-btn comm-action-btn--edit">Annuler</button>
+                <button @click="saveEdit(comm)"
+                  :disabled="!editingContenu.trim()"
+                  class="comm-submit-btn"
+                  :class="!editingContenu.trim() ? 'opacity-50 cursor-not-allowed' : ''">
+                  Enregistrer
+                </button>
+              </div>
+            </template>
+
+          </div>
+        </div>
+
       </div>
 
     </template>
@@ -1246,6 +2483,54 @@ function formatFileSize(bytes: number) {
       </div>
     </div>
   </Teleport>
+
+  <!-- Modal Webcam -->
+  <Teleport to="body">
+    <div v-if="showWebcamModal" class="webcam-overlay" @click.self="closeWebcam">
+      <div class="webcam-modal">
+        <div class="webcam-header">
+          <span class="webcam-title">📷 Photo par webcam</span>
+          <button @click="closeWebcam" class="webcam-close">✕</button>
+        </div>
+        <div class="webcam-body">
+          <!-- Flux live (masqué après capture) -->
+          <template v-if="!webcamCaptured">
+            <video
+              ref="webcamVideo"
+              class="webcam-preview webcam-preview--flip"
+              autoplay
+              playsinline
+              muted
+            ></video>
+            <p class="webcam-hint">Centrez le visage de l'étudiant dans le cadre</p>
+          </template>
+          <!-- Aperçu après capture -->
+          <template v-else>
+            <img :src="webcamCaptured" class="webcam-preview" alt="Aperçu capture" />
+            <p class="webcam-hint">Vérifiez la photo avant d'enregistrer</p>
+          </template>
+        </div>
+        <div class="webcam-footer">
+          <template v-if="!webcamCaptured">
+            <button @click="closeWebcam" class="webcam-btn-cancel">Annuler</button>
+            <button @click="captureWebcam" class="webcam-btn-capture">
+              <svg class="webcam-btn-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="4" stroke-width="2" fill="currentColor"/>
+                <circle cx="12" cy="12" r="9" stroke-width="2"/>
+              </svg>
+              Capturer
+            </button>
+          </template>
+          <template v-else>
+            <button @click="webcamCaptured = null" class="webcam-btn-cancel">↩ Reprendre</button>
+            <button @click="saveWebcamPhoto" :disabled="webcamLoading" class="webcam-btn-save">
+              {{ webcamLoading ? 'Enregistrement…' : '✓ Enregistrer cette photo' }}
+            </button>
+          </template>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -1312,5 +2597,513 @@ function formatFileSize(bytes: number) {
 .del-btn-next:hover { background:#333; }
 .del-btn-confirm { background:#E30613;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:'Poppins',sans-serif;transition:background 0.15s; }
 .del-btn-confirm:hover:not(:disabled) { background:#c00510; }
-.del-btn-confirm:disabled { opacity:0.4;cursor:not-allowed; }
+/* ── Checklist documents ─────────────────────────────────────────────────── */
+.doc-checklist-header {
+  background:#fff; border:1px solid #e5e7eb; border-radius:12px;
+  padding:16px 20px; margin-bottom:14px;
+  display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+}
+.doc-checklist-title { display:flex; align-items:center; gap:12px; }
+.doc-checklist-icon { width:22px; height:22px; color:#E30613; flex-shrink:0; }
+.doc-checklist-name { font-size:14px; font-weight:700; color:#111; margin:0; }
+.doc-checklist-sub { font-size:11.5px; color:#888; margin:2px 0 0; }
+.doc-progress-wrap { display:flex; align-items:center; gap:10px; }
+.doc-progress-label { font-size:12px; font-weight:700; color:#555; white-space:nowrap; }
+.doc-progress-bar { width:120px; height:6px; background:#f0f0f0; border-radius:10px; overflow:hidden; }
+.doc-progress-fill { height:100%; background:#16a34a; border-radius:10px; transition:width 0.4s ease; }
+.doc-checklist-empty { text-align:center; color:#aaa; font-size:13px; padding:40px 20px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; line-height:1.8; }
+.doc-checklist-grid { display:flex; flex-direction:column; gap:8px; }
+.doc-checklist-item {
+  display:flex; align-items:center; gap:14px;
+  background:#fff; border:1.5px solid #e5e7eb; border-radius:10px;
+  padding:13px 16px; cursor:pointer; text-align:left; width:100%;
+  transition:border-color 0.15s, background 0.15s;
+}
+.doc-checklist-item--recu { border-color:#bbf7d0; background:#f0fdf4; }
+.doc-checklist-item--pending:hover { border-color:#E30613; background:#fff5f5; }
+.doc-checklist-item--readonly { cursor:default; }
+.doc-checklist-item:disabled { opacity:0.6; cursor:not-allowed; }
+.doc-checkbox {
+  width:22px; height:22px; flex-shrink:0;
+  border:2px solid #d1d5db; border-radius:5px;
+  display:flex; align-items:center; justify-content:center;
+  background:#fff; transition:all 0.15s;
+}
+.doc-checkbox--checked { background:#16a34a; border-color:#16a34a; }
+.doc-checkbox svg { width:13px; height:13px; color:#fff; }
+.doc-spin { width:14px; height:14px; color:#aaa; animation:spin 0.8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.doc-checklist-info { flex:1; min-width:0; }
+.doc-checklist-label { display:block; font-size:13px; font-weight:600; color:#111; }
+.doc-checklist-date { display:block; font-size:11px; color:#16a34a; margin-top:2px; }
+.doc-checklist-missing { display:block; font-size:11px; color:#aaa; margin-top:2px; }
+.doc-checklist-badge { font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; flex-shrink:0; }
+.doc-badge--ok { background:#dcfce7; color:#15803d; }
+.doc-badge--ko { background:#f3f4f6; color:#9ca3af; }
+
+/* ── Modal Webcam ────────────────────────────────────────────────────── */
+.webcam-overlay {
+  position:fixed;inset:0;z-index:9999;
+  background:rgba(0,0,0,0.72);
+  display:flex;align-items:center;justify-content:center;padding:20px;
+}
+.webcam-modal {
+  background:#fff;border-radius:14px;max-width:380px;width:100%;
+  box-shadow:0 28px 70px rgba(0,0,0,0.4);overflow:hidden;
+}
+.webcam-header {
+  display:flex;align-items:center;justify-content:space-between;
+  padding:13px 18px;border-bottom:1px solid #f0f0f0;background:#fafafa;
+}
+.webcam-title { font-size:14px;font-weight:700;color:#111; }
+.webcam-close { background:none;border:none;cursor:pointer;color:#aaa;font-size:18px;line-height:1;padding:2px 6px; }
+.webcam-close:hover { color:#333; }
+.webcam-body {
+  padding:18px 18px 10px;
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  background:#111;
+}
+.webcam-preview {
+  width:300px;height:300px;
+  border-radius:8px;object-fit:cover;
+  display:block;background:#222;
+}
+.webcam-preview--flip { transform:scaleX(-1); }
+.webcam-hint { font-size:11px;color:#888;text-align:center;margin:0;padding-bottom:6px; }
+.webcam-footer {
+  display:flex;gap:10px;justify-content:center;align-items:center;
+  padding:13px 18px;border-top:1px solid #f0f0f0;background:#fafafa;
+}
+.webcam-btn-cancel {
+  border:1px solid #e5e5e5;background:#fff;border-radius:6px;
+  padding:8px 14px;font-size:12.5px;font-weight:600;color:#555;cursor:pointer;
+  font-family:'Poppins',sans-serif;
+}
+.webcam-btn-cancel:hover { background:#f5f5f5; }
+.webcam-btn-capture {
+  background:#E30613;color:#fff;border:none;border-radius:6px;
+  padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;
+  font-family:'Poppins',sans-serif;
+  display:flex;align-items:center;gap:7px;
+}
+.webcam-btn-capture:hover { background:#c00510; }
+.webcam-btn-icon { width:16px;height:16px;flex-shrink:0; }
+.webcam-btn-save {
+  background:#16a34a;color:#fff;border:none;border-radius:6px;
+  padding:8px 18px;font-size:12.5px;font-weight:700;cursor:pointer;
+  font-family:'Poppins',sans-serif;
+}
+.webcam-btn-save:hover:not(:disabled) { background:#15803d; }
+.webcam-btn-save:disabled { opacity:0.4;cursor:not-allowed; }
+
+/* ── Indicateur risque d'abandon ── */
+.rqd-badge {
+  display:inline-flex; align-items:center; gap:4px;
+  padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700;
+}
+.rqd-badge--red    { background:#fef2f2; color:#b91c1c; }
+.rqd-badge--yellow { background:#fffbeb; color:#92400e; }
+.rqd-badge--green  { background:#f0fdf4; color:#15803d; }
+.rqd-details { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.rqd-chip {
+  display:inline-flex; align-items:center; gap:3px;
+  padding:2px 8px; border-radius:20px; font-size:10.5px; font-weight:600;
+}
+.rqd-chip--red    { background:#fee2e2; color:#b91c1c; }
+.rqd-chip--yellow { background:#fef9c3; color:#a16207; }
+
+/* ── Timeline ───────────────────────────────────────────────────────── */
+.tl-wrapper { padding-bottom: 32px; }
+
+/* État vide */
+.tl-empty {
+  text-align: center; padding: 56px 20px;
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+}
+.tl-empty-icon { font-size: 40px; margin-bottom: 10px; }
+.tl-empty-title { font-size: 15px; font-weight: 700; color: #374151; margin-bottom: 5px; }
+.tl-empty-sub   { font-size: 12.5px; color: #9ca3af; }
+
+/* Conteneur principal */
+.tl-timeline { display: flex; flex-direction: column; }
+
+/* Séparateur mensuel */
+.tl-month-sep {
+  display: flex; align-items: center; gap: 10px;
+  margin: 20px 0 12px 0;
+}
+.tl-month-sep::before, .tl-month-sep::after {
+  content: ''; flex: 1; height: 1px; background: #e5e7eb;
+}
+.tl-month-pill {
+  font-size: 11px; font-weight: 700; text-transform: capitalize;
+  color: #6b7280; background: #f3f4f6; border: 1px solid #e5e7eb;
+  padding: 3px 12px; border-radius: 20px; white-space: nowrap; flex-shrink: 0;
+}
+
+/* Ligne d'événement */
+.tl-item {
+  display: flex; gap: 14px; align-items: flex-start;
+  margin-bottom: 2px;
+}
+
+/* Colonne gauche : point + trait */
+.tl-icon-col {
+  display: flex; flex-direction: column; align-items: center;
+  flex-shrink: 0; width: 40px;
+}
+.tl-dot {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; position: relative; z-index: 1;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.tl-dot-emoji { font-size: 16px; line-height: 1; }
+.tl-dot--inscription { background: #dbeafe; border: 2px solid #93c5fd; }
+.tl-dot--paiement    { background: #dcfce7; border: 2px solid #86efac; }
+.tl-dot--note        { background: #ede9fe; border: 2px solid #c4b5fd; }
+.tl-dot--absence     { background: #fee2e2; border: 2px solid #fca5a5; }
+.tl-dot--document    { background: #fef9c3; border: 2px solid #fde047; }
+.tl-dot--relance     { background: #fff7ed; border: 2px solid #fdba74; }
+
+.tl-line {
+  width: 2px; min-height: 24px; flex: 1;
+  background: linear-gradient(to bottom, #e5e7eb, #f3f4f6);
+  margin: 2px 0;
+}
+
+/* Carte */
+.tl-card {
+  flex: 1; min-width: 0;
+  background: #fff; border: 1.5px solid #e5e7eb; border-radius: 10px;
+  padding: 12px 14px; margin-bottom: 14px;
+  transition: box-shadow 0.15s;
+}
+.tl-card:hover { box-shadow: 0 3px 12px rgba(0,0,0,0.07); }
+.tl-card--absence { border-color: #fecaca; background: #fff8f8; }
+
+/* En-tête carte */
+.tl-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px; gap: 8px;
+}
+.tl-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+  text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;
+}
+.tl-badge--inscription { background: #dbeafe; color: #1d4ed8; }
+.tl-badge--paiement    { background: #dcfce7; color: #15803d; }
+.tl-badge--note        { background: #ede9fe; color: #7c3aed; }
+.tl-badge--absence     { background: #fee2e2; color: #b91c1c; }
+.tl-badge--document    { background: #fef9c3; color: #92400e; }
+.tl-badge--relance     { background: #fff7ed; color: #c2410c; }
+
+.tl-card-date {
+  font-size: 10.5px; color: #9ca3af; white-space: nowrap; flex-shrink: 0;
+}
+.tl-card-title {
+  font-size: 13.5px; font-weight: 700; color: #111827;
+  margin: 0 0 2px; line-height: 1.3;
+}
+.tl-card-sub {
+  font-size: 11.5px; color: #6b7280; margin: 2px 0 0;
+}
+
+/* Statut pill (inscriptions) */
+.tl-status-pill {
+  display: inline-block; font-size: 10.5px; font-weight: 600;
+  padding: 2px 8px; border-radius: 20px; margin-top: 4px;
+}
+.tl-status--green { background: #dcfce7; color: #166534; }
+.tl-status--amber { background: #fef3c7; color: #92400e; }
+.tl-status--blue  { background: #dbeafe; color: #1e40af; }
+.tl-status--gray  { background: #f3f4f6; color: #6b7280; }
+
+/* Montant paiement */
+.tl-montant {
+  font-size: 18px; font-weight: 800; color: #15803d; margin: 4px 0 6px; line-height: 1;
+}
+.tl-devise { font-size: 11px; font-weight: 600; color: #6b7280; margin-left: 2px; }
+
+/* Chips paiement */
+.tl-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.tl-chip {
+  font-size: 10.5px; background: #f3f4f6; color: #374151;
+  padding: 2px 8px; border-radius: 20px; border: 1px solid #e5e7eb;
+}
+.tl-chip--mono  { font-family: monospace; font-size: 10px; }
+.tl-chip--amber { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+.tl-chip--blue  { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+
+/* Note */
+.tl-note-row {
+  display: flex; align-items: center; gap: 10px; margin-top: 4px;
+}
+.tl-note-val {
+  font-size: 20px; font-weight: 800; line-height: 1;
+}
+.tl-note--pass { color: #15803d; }
+.tl-note--fail { color: #dc2626; }
+/* ── 4 stat cards ───────────────────────────────────────────────────── */
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 16px 0 20px;
+}
+@media (max-width: 640px) {
+  .stat-strip { grid-template-columns: repeat(2, 1fr); }
+}
+
+.stat-card {
+  background: #fff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 16px 12px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.stat-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  border-color: #d1d5db;
+}
+
+.stat-donut-wrap {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stat-donut {
+  width: 72px;
+  height: 72px;
+  transform: rotate(-90deg);
+  position: absolute;
+  top: 0; left: 0;
+}
+
+.stat-donut-bg {
+  fill: none;
+  stroke: #f3f4f6;
+  stroke-width: 3.5;
+}
+
+.stat-donut-arc {
+  fill: none;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.6s ease, stroke 0.3s;
+}
+
+.stat-donut-val {
+  position: relative;
+  z-index: 1;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+
+.stat-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #374151;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.stat-sub {
+  font-size: 10.5px;
+  color: #9ca3af;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.tl-note-denom { font-size: 12px; font-weight: 600; color: #9ca3af; }
+
+/* ── Commentaires internes ──────────────────────────────────────────── */
+.comm-wrapper { padding-bottom: 32px; }
+
+.comm-staff-notice {
+  display: flex; align-items: center; gap: 8px;
+  background: #fffbeb; border: 1px solid #fde68a;
+  color: #92400e; font-size: 12px; font-weight: 500;
+  padding: 10px 14px; border-radius: 8px; margin-bottom: 16px;
+}
+
+.comm-form-card {
+  background: #fff; border: 1.5px solid #e5e7eb; border-radius: 12px;
+  padding: 14px 16px; margin-bottom: 20px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+
+.comm-form-row { margin-bottom: 10px; }
+
+.comm-cat-select {
+  font-size: 12px; padding: 5px 10px; border-radius: 7px;
+  border: 1px solid #d1d5db; background: #f9fafb; color: #374151;
+  outline: none; cursor: pointer;
+}
+.comm-cat-select:focus { border-color: #6366f1; background: #fff; }
+
+.comm-textarea {
+  width: 100%; font-size: 13px; line-height: 1.6;
+  padding: 10px 12px; border-radius: 8px;
+  border: 1.5px solid #e5e7eb; background: #fafafa;
+  color: #111827; resize: vertical; outline: none;
+  transition: border-color 0.15s;
+  font-family: inherit;
+}
+.comm-textarea:focus { border-color: #6366f1; background: #fff; }
+
+.comm-form-actions {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 10px; gap: 8px;
+}
+
+.comm-submit-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 600;
+  background: #4f46e5; color: #fff; border: none; cursor: pointer;
+  transition: background 0.15s;
+}
+.comm-submit-btn:hover:not(:disabled) { background: #4338ca; }
+
+/* Vide */
+.comm-empty {
+  text-align: center; padding: 40px 16px; color: #6b7280;
+}
+
+/* Liste */
+.comm-list { display: flex; flex-direction: column; gap: 12px; }
+
+.comm-card {
+  background: #fff; border: 1.5px solid #e5e7eb; border-radius: 12px;
+  padding: 14px 16px; transition: box-shadow 0.15s;
+}
+.comm-card:hover { box-shadow: 0 3px 12px rgba(0,0,0,0.07); }
+
+.comm-card-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; margin-bottom: 10px; flex-wrap: wrap;
+}
+
+.comm-author { display: flex; align-items: center; gap: 10px; }
+
+.comm-avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: #e0e7ff; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.comm-avatar-initials {
+  font-size: 12px; font-weight: 700; color: #4f46e5; text-transform: uppercase;
+}
+
+.comm-author-name { font-size: 13px; font-weight: 700; color: #111827; display: block; }
+.comm-author-role { font-size: 10.5px; color: #9ca3af; text-transform: capitalize; }
+
+.comm-meta-right {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0;
+}
+
+.comm-cat-badge {
+  font-size: 10.5px; font-weight: 600; padding: 2px 9px; border-radius: 20px;
+}
+
+.comm-date {
+  font-size: 10.5px; color: #9ca3af; white-space: nowrap;
+}
+
+.comm-contenu {
+  font-size: 13.5px; color: #374151; line-height: 1.65;
+  white-space: pre-wrap; word-break: break-word;
+  margin: 0 0 10px;
+}
+
+.comm-actions {
+  display: flex; gap: 8px; border-top: 1px solid #f3f4f6; padding-top: 10px;
+}
+
+.comm-action-btn {
+  font-size: 11.5px; font-weight: 500; padding: 4px 10px;
+  border-radius: 6px; border: 1px solid transparent; cursor: pointer;
+  transition: all 0.12s;
+}
+.comm-action-btn--edit {
+  background: #f3f4f6; color: #374151; border-color: #e5e7eb;
+}
+.comm-action-btn--edit:hover { background: #e5e7eb; }
+.comm-action-btn--del {
+  background: #fff0f0; color: #dc2626; border-color: #fecaca;
+}
+.comm-action-btn--del:hover:not(:disabled) { background: #fee2e2; }
+.comm-action-btn--del:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE MOBILE
+   ═══════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* ── Onglets → défilement horizontal sans barre ─────────── */
+  .etd-tab-bar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+    gap: 0;
+  }
+  .etd-tab-bar::-webkit-scrollbar { display: none; }
+  .etd-tab-bar button {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding-left: 14px;
+    padding-right: 14px;
+    font-size: 12px;
+  }
+
+  /* ── Stat strip ──────────────────────────────────────────── */
+  .stat-strip { grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 16px; }
+  .stat-card { padding: 12px 8px 10px; }
+  .stat-donut-wrap, .stat-donut { width: 58px; height: 58px; }
+  .stat-donut-val { font-size: 13px; }
+
+  /* ── Checklist documents ─────────────────────────────────── */
+  .doc-checklist-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .doc-progress-bar { width: 80px; }
+  .doc-checklist-item { padding: 10px 12px; gap: 10px; }
+
+  /* ── Commentaires ────────────────────────────────────────── */
+  .comm-card-head { flex-direction: column; gap: 6px; }
+  .comm-meta-right { flex-direction: row; align-items: center; gap: 8px; }
+  .comm-form-actions { flex-direction: column; align-items: stretch; gap: 8px; }
+  .comm-submit-btn { width: 100%; justify-content: center; }
+
+  /* ── Modal carte / suppression ───────────────────────────── */
+  .card-modal { max-width: calc(100vw - 20px); }
+  .card-modal-body { padding: 14px 14px; }
+  .del-modal { max-width: calc(100vw - 20px); }
+  .del-actions { flex-direction: column; padding: 12px 16px; }
+  .del-actions > button { width: 100%; }
+  .del-tree { margin: 0 12px 14px; }
+  .del-warning, .del-confirm-label { padding: 0 12px; margin-left: 0; margin-right: 0; }
+  .del-input { width: calc(100% - 24px); margin: 0 12px 14px; }
+  .del-title, .del-subtitle { padding: 0 12px; }
+
+  /* ── Risque détail ───────────────────────────────────────── */
+  .rqd-details { flex-wrap: wrap; gap: 4px; }
+  .rqd-chip { font-size: 10.5px; padding: 3px 7px; }
+}
+
+@media (max-width: 480px) {
+  .stat-strip { gap: 6px; }
+  .stat-card { padding: 10px 6px 8px; }
+  .etd-tab-bar button { font-size: 11px; padding-left: 10px; padding-right: 10px; }
+}
 </style>

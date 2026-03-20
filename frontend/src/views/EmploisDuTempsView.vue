@@ -16,7 +16,7 @@ const canWrite = computed(() =>
 interface Seance {
   id: number
   classe_id: number
-  intervenant_id: number | null
+  enseignant_id: number | null
   matiere: string
   date_debut: string
   date_fin: string
@@ -27,7 +27,7 @@ interface Seance {
   notes: string | null
   annee_academique_id: number | null
   classe?: { id: number; nom: string; filiere?: { nom: string } }
-  intervenant?: { id: number; nom: string; prenom: string }
+  enseignant?: { id: number; nom: string; prenom: string }
 }
 
 interface Matiere { id: number; nom: string; code: string }
@@ -40,14 +40,14 @@ interface MatiereOption extends FiliereMatiere {
   heuresRestantes: number
   label: string          // texte affiché dans le <option>
 }
-interface IntervenantFiliere { id: number; filiere_id: number; matiere: string }
+interface EnseignantFiliere { id: number; filiere_id: number; matiere: string }
 interface Classe { id: number; nom: string; filiere_id: number; filiere?: { id: number; nom: string } }
-interface Intervenant { id: number; nom: string; prenom: string; filieres?: IntervenantFiliere[] }
+interface Enseignant { id: number; nom: string; prenom: string; filieres?: EnseignantFiliere[] }
 interface AnneeAcademique { id: number; libelle: string; actif: boolean }
 
 const seances = ref<Seance[]>([])
 const classes = ref<Classe[]>([])
-const intervenants = ref<Intervenant[]>([])
+const enseignants = ref<Enseignant[]>([])
 const anneesAcademiques = ref<AnneeAcademique[]>([])
 const filieres = ref<{ id: number; nom: string; matieres?: FiliereMatiere[] }[]>([])
 const loading = ref(true)
@@ -56,7 +56,7 @@ const error = ref('')
 
 // Filtres
 const filterClasse = ref('')
-const filterIntervenant = ref('')
+const filterEnseignant = ref('')
 const currentWeekOffset = ref(0)
 
 // Semaine courante
@@ -94,7 +94,7 @@ function hourToRow(h: number, m = 0) { return (h - 8) * 2 + (m >= 30 ? 2 : 1) }
 const seancesFiltered = computed(() => {
   return seances.value.filter(s => {
     if (filterClasse.value && String(s.classe_id) !== String(filterClasse.value)) return false
-    if (filterIntervenant.value && String(s.intervenant_id) !== String(filterIntervenant.value)) return false
+    if (filterEnseignant.value && String(s.enseignant_id) !== String(filterEnseignant.value)) return false
     if (s.statut === 'annule') return false
     const d = new Date(s.date_debut)
     const start = weekDays.value[0]!; const end = weekDays.value[4]!
@@ -149,7 +149,7 @@ const showModal = ref(false)
 const editId = ref<number | null>(null)
 const form = ref({
   classe_id: '',
-  intervenant_id: '',
+  enseignant_id: '',
   matiere: '',
   date: '',
   heure_debut: '08:00',
@@ -166,7 +166,7 @@ function openCreate() {
   const today = weekDays.value[0]!
   form.value = {
     classe_id: filterClasse.value,
-    intervenant_id: filterIntervenant.value,
+    enseignant_id: filterEnseignant.value,
     matiere: '',
     date: today.toISOString().slice(0, 10),
     heure_debut: '08:00',
@@ -186,7 +186,7 @@ function openEdit(s: Seance) {
   const fin = new Date(s.date_fin)
   form.value = {
     classe_id: String(s.classe_id),
-    intervenant_id: String(s.intervenant_id ?? ''),
+    enseignant_id: String(s.enseignant_id ?? ''),
     matiere: s.matiere,
     date: debut.toISOString().slice(0, 10),
     heure_debut: debut.toTimeString().slice(0, 5),
@@ -210,13 +210,13 @@ function toggleDetail(s: Seance) {
 
 // Détection conflit
 function hasConflict() {
-  if (!form.value.intervenant_id || !form.value.date) return false
+  if (!form.value.enseignant_id || !form.value.date) return false
   const start = new Date(`${form.value.date}T${form.value.heure_debut}`)
   const end = new Date(`${form.value.date}T${form.value.heure_fin}`)
   return seances.value.some(s => {
     if (s.statut === 'annule') return false
     if (editId.value && s.id === editId.value) return false
-    if (String(s.intervenant_id) !== form.value.intervenant_id) return false
+    if (String(s.enseignant_id) !== form.value.enseignant_id) return false
     const sStart = new Date(s.date_debut)
     const sEnd = new Date(s.date_fin)
     return start < sEnd && end > sStart
@@ -229,7 +229,7 @@ async function save() {
   try {
     const payload = {
       classe_id: Number(form.value.classe_id),
-      intervenant_id: form.value.intervenant_id ? Number(form.value.intervenant_id) : null,
+      enseignant_id: form.value.enseignant_id ? Number(form.value.enseignant_id) : null,
       matiere: form.value.matiere,
       date_debut: `${form.value.date} ${form.value.heure_debut}:00`,
       date_fin: `${form.value.date} ${form.value.heure_fin}:00`,
@@ -266,15 +266,15 @@ async function load() {
     const [sRes, cRes, iRes, aRes, fRes] = await Promise.all([
       api.get('/seances'),
       api.get('/classes'),
-      api.get('/intervenants'),
+      api.get('/enseignants'),
       api.get('/annees-academiques'),
       api.get('/filieres'),
     ])
     seances.value = sRes.data
     classes.value = cRes.data
-    // Handle paginated intervenants (paginator has .data) or plain array
+    // Handle paginated enseignants (paginator has .data) or plain array
     const iRaw = iRes.data
-    intervenants.value = Array.isArray(iRaw) ? iRaw : (iRaw.data ?? [])
+    enseignants.value = Array.isArray(iRaw) ? iRaw : (iRaw.data ?? [])
     anneesAcademiques.value = aRes.data
     filieres.value = fRes.data
   } finally {
@@ -315,14 +315,14 @@ function heuresPlanifiees(classeId: string | number, matiereNom: string): number
 // Arrondi à 0.5h près pour affichage
 function roundHalf(n: number): number { return Math.round(n * 2) / 2 }
 
-// Intervenants filtrés sur la filière de la classe sélectionnée
-const intervenantsForClasse = computed(() => {
+// Enseignants filtrés sur la filière de la classe sélectionnée
+const enseignantsForClasse = computed(() => {
   const fId = filiereIdForClasse(form.value.classe_id)
-  if (!fId) return intervenants.value
-  const filtered = intervenants.value.filter(i =>
+  if (!fId) return enseignants.value
+  const filtered = enseignants.value.filter(i =>
     i.filieres?.some(f => f.filiere_id === fId)
   )
-  return filtered.length > 0 ? filtered : intervenants.value
+  return filtered.length > 0 ? filtered : enseignants.value
 })
 
 // Matières disponibles pour le formulaire avec volume horaire et filtrage
@@ -333,8 +333,8 @@ const matieresForForm = computed((): MatiereOption[] => {
   const allMatieres = matieresOfFiliere(fId)
 
   let candidates: FiliereMatiere[]
-  if (form.value.intervenant_id) {
-    const interv = intervenants.value.find(i => String(i.id) === String(form.value.intervenant_id))
+  if (form.value.enseignant_id) {
+    const interv = enseignants.value.find(i => String(i.id) === String(form.value.enseignant_id))
     const assignedNoms = [...new Set(
       (interv?.filieres ?? [])
         .filter(f => f.filiere_id === fId)
@@ -374,11 +374,11 @@ const selectedMatiereInfo = computed((): MatiereOption | null => {
 })
 
 function onClasseChange() {
-  form.value.intervenant_id = ''
+  form.value.enseignant_id = ''
   form.value.matiere = ''
 }
 
-function onIntervenantChange() {
+function onEnseignantChange() {
   form.value.matiere = ''
 }
 
@@ -408,9 +408,9 @@ onMounted(load)
         <option value="">Toutes les classes</option>
         <option v-for="c in classes" :key="c.id" :value="String(c.id)">{{ c.nom }}</option>
       </select>
-      <select v-model="filterIntervenant" class="edt-select">
-        <option value="">Tous les intervenants</option>
-        <option v-for="i in intervenants" :key="i.id" :value="String(i.id)">
+      <select v-model="filterEnseignant" class="edt-select">
+        <option value="">Tous les enseignants</option>
+        <option v-for="i in enseignants" :key="i.id" :value="String(i.id)">
           {{ i.prenom }} {{ i.nom }}
         </option>
       </select>
@@ -483,7 +483,7 @@ onMounted(load)
             @click="toggleDetail(s)">
             <p class="edt-seance-matiere">{{ s.matiere }}</p>
             <p class="edt-seance-time">{{ fmtTime(s.date_debut) }} – {{ fmtTime(s.date_fin) }}</p>
-            <p v-if="s.intervenant" class="edt-seance-interv">{{ s.intervenant.prenom }} {{ s.intervenant.nom }}</p>
+            <p v-if="s.enseignant" class="edt-seance-interv">{{ s.enseignant.prenom }} {{ s.enseignant.nom }}</p>
             <span class="edt-mode-badge" :class="`edt-mode-badge--${s.mode}`">
               {{ modeLabel[s.mode] }}
             </span>
@@ -515,8 +515,8 @@ onMounted(load)
               <dd class="edt-detail-value">{{ selectedSeance.classe?.nom ?? '—' }}</dd>
             </div>
             <div class="edt-detail-row">
-              <dt class="edt-detail-label">Intervenant</dt>
-              <dd class="edt-detail-value">{{ selectedSeance.intervenant ? `${selectedSeance.intervenant.prenom} ${selectedSeance.intervenant.nom}` : '—' }}</dd>
+              <dt class="edt-detail-label">Enseignant</dt>
+              <dd class="edt-detail-value">{{ selectedSeance.enseignant ? `${selectedSeance.enseignant.prenom} ${selectedSeance.enseignant.nom}` : '—' }}</dd>
             </div>
             <div class="edt-detail-row">
               <dt class="edt-detail-label">Horaire</dt>
@@ -554,7 +554,7 @@ onMounted(load)
         <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
         </svg>
-        Cet intervenant a déjà une séance sur ce créneau.
+        Cet enseignant a déjà une séance sur ce créneau.
       </div>
 
       <div v-if="error" class="edt-alert-error">{{ error }}</div>
@@ -568,20 +568,20 @@ onMounted(load)
           </select>
         </UcFormGroup>
 
-        <!-- Intervenant — filtré sur la filière de la classe -->
-        <UcFormGroup label="Intervenant">
-          <select v-model="form.intervenant_id" class="edt-select" @change="onIntervenantChange"
+        <!-- Enseignant — filtré sur la filière de la classe -->
+        <UcFormGroup label="Enseignant">
+          <select v-model="form.enseignant_id" class="edt-select" @change="onEnseignantChange"
             :disabled="!form.classe_id"
             :style="!form.classe_id ? 'opacity:0.5;cursor:not-allowed;' : ''">
-            <option value="">— Sans intervenant —</option>
-            <option v-for="i in intervenantsForClasse" :key="i.id" :value="String(i.id)">
+            <option value="">— Sans enseignant —</option>
+            <option v-for="i in enseignantsForClasse" :key="i.id" :value="String(i.id)">
               {{ i.prenom }} {{ i.nom }}
             </option>
           </select>
         </UcFormGroup>
       </UcFormGrid>
 
-      <!-- Matière — liste intelligente (filière + intervenant + heures restantes) -->
+      <!-- Matière — liste intelligente (filière + enseignant + heures restantes) -->
       <UcFormGroup label="Matière" :required="true" style="margin-top:12px;">
         <!-- Select quand il y a des matières disponibles -->
         <template v-if="matieresForForm.length > 0">
@@ -694,7 +694,7 @@ onMounted(load)
 
 .edt-loading { text-align: center; padding: 48px; color: #9ca3af; font-size: 14px; }
 
-.edt-grid-wrap { background: #fff; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); overflow: hidden; }
+.edt-grid-wrap { background: #fff; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
 .edt-grid-header { display: grid; grid-template-columns: 60px repeat(5, 1fr); border-bottom: 1px solid #e5e7eb; }
 .edt-time-col-header { background: #f9fafb; }
 .edt-day-header { padding: 12px; text-align: center; border-left: 1px solid #e5e7eb; background: #f9fafb; }
@@ -767,8 +767,13 @@ onMounted(load)
 .uc-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 @media (max-width: 768px) {
-  .edt-grid-header { overflow-x: auto; min-width: 0; grid-template-columns: 48px repeat(5, minmax(90px, 1fr)); }
-  .edt-grid-body { overflow-x: auto; min-width: 0; grid-template-columns: 48px repeat(5, minmax(90px, 1fr)); }
+  /* Grille planning : scroll horizontal dans le wrapper */
+  .edt-grid-wrap { overflow-x: auto; }
+  .edt-grid-header { min-width: 500px; grid-template-columns: 48px repeat(5, minmax(90px, 1fr)); }
+  .edt-grid-body   { min-width: 500px; grid-template-columns: 48px repeat(5, minmax(90px, 1fr)); }
   .edt-card { overflow-x: auto; }
+  /* Toolbars */
+  .edt-filters { flex-wrap: wrap; gap: 8px; }
+  .edt-filters select, .edt-filters input { width: 100%; }
 }
 </style>

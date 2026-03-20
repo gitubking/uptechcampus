@@ -44,6 +44,11 @@ const router = createRouter({
           component: () => import('@/views/EtudiantDetailView.vue'),
         },
         {
+          path: 'dossiers-etudiants',
+          name: 'dossiers-etudiants',
+          component: () => import('@/views/DossiersEtudiantsView.vue'),
+        },
+        {
           path: 'users',
           name: 'users',
           component: () => import('@/views/UsersView.vue'),
@@ -54,14 +59,19 @@ const router = createRouter({
           component: () => import('@/views/FilieresView.vue'),
         },
         {
-          path: 'intervenants',
-          name: 'intervenants',
-          component: () => import('@/views/IntervenantsView.vue'),
+          path: 'enseignants',
+          name: 'enseignants',
+          component: () => import('@/views/EnseignantsView.vue'),
         },
         {
-          path: 'intervenants/:id',
-          name: 'intervenant-detail',
-          component: () => import('@/views/IntervenantDetailView.vue'),
+          path: 'enseignants/:id',
+          name: 'enseignant-detail',
+          component: () => import('@/views/EnseignantDetailView.vue'),
+        },
+        {
+          path: 'finance',
+          name: 'finance',
+          component: () => import('@/views/FinanceView.vue'),
         },
         {
           path: 'paiements',
@@ -133,6 +143,12 @@ const router = createRouter({
         { path: '', name: 'espace-etudiant', component: () => import('@/views/EspaceEtudiantView.vue') },
       ],
     },
+    {
+      path: '/verify/:numero',
+      name: 'verify',
+      component: () => import('@/views/VerifyView.vue'),
+      meta: { public: true },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
   ],
 })
@@ -161,11 +177,12 @@ router.beforeEach(async (to) => {
     return '/setup'
   }
 
-  // Étudiant → toujours redirigé vers espace-etudiant
+  // Étudiant → toujours redirigé vers espace-etudiant (sauf pages publiques)
   if (
     auth.isAuthenticated &&
     auth.user?.role === 'etudiant' &&
     !to.path.startsWith('/espace-etudiant') &&
+    !to.path.startsWith('/verify') &&
     to.name !== 'login' &&
     to.name !== 'setup'
   ) {

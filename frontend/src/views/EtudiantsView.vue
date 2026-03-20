@@ -39,7 +39,7 @@ async function openDeleteEtudiant(etudiant: Etudiant) {
 
 async function confirmDeleteEtudiant() {
   if (!deleteTargetEtudiant.value) return
-  const fullName = `${deleteTargetEtudiant.value.prenom} ${deleteTargetEtudiant.value.nom}`
+  const fullName = `${deleteTargetEtudiant.value.prenom.trim()} ${deleteTargetEtudiant.value.nom.trim()}`
   if (confirmDeleteName.value.trim().toLowerCase() !== fullName.toLowerCase()) return
   deletingEtudiant.value = true
   try {
@@ -78,6 +78,12 @@ interface Etudiant {
   email: string
   telephone: string | null
   photo_path: string | null
+  date_naissance: string | null
+  lieu_naissance: string | null
+  adresse: string | null
+  cni_numero: string | null
+  nom_parent: string | null
+  telephone_parent: string | null
   inscription_active: InscriptionActive | null
 }
 
@@ -98,17 +104,70 @@ interface NiveauEntree { id: number; nom: string; code: string; est_superieur_ba
 interface NiveauBourse { id: number; nom: string; pourcentage: number; applique_inscription: boolean; actif: boolean }
 interface AnneeAcademique { id: number; libelle: string; actif: boolean }
 
+// ── Risque d'abandon ─────────────────────────────────────────────────
+interface RisqueRow {
+  etudiant_id: number
+  risque_global: 'red' | 'yellow' | 'green'
+  risque_presence: 'red' | 'yellow' | 'green'
+  taux_presence: number | null
+  presences_count: number
+  total_seances: number
+  risque_paiement: 'red' | 'yellow' | 'green'
+  jours_retard: number | null
+  risque_dossier: 'red' | 'yellow' | 'green'
+  docs_recu: number
+  total_docs: number
+}
+const risques = ref<Record<number, RisqueRow>>({})
+const risqueFiltre = ref<'' | 'red' | 'yellow' | 'green'>('')
+
+async function loadRisques() {
+  try {
+    const { data } = await api.get('/etudiants/risques')
+    const map: Record<number, RisqueRow> = {}
+    for (const r of data) map[r.etudiant_id] = r
+    risques.value = map
+  } catch { /* silencieux */ }
+}
+
+const risqueCounts = computed(() => {
+  const vals = Object.values(risques.value)
+  return {
+    red: vals.filter(r => r.risque_global === 'red').length,
+    yellow: vals.filter(r => r.risque_global === 'yellow').length,
+    green: vals.filter(r => r.risque_global === 'green').length,
+  }
+})
+
+const etudiantsFiltres = computed(() => {
+  if (!risqueFiltre.value) return pagination.value.data
+  return pagination.value.data.filter(e => {
+    const r = risques.value[(e as any).id]
+    return r?.risque_global === risqueFiltre.value
+  })
+})
+
 // ── Liste étudiants ──────────────────────────────────────────────────
 const pagination = ref<Pagination>({ data: [], current_page: 1, last_page: 1, total: 0 })
 const loading = ref(false)
 const search = ref('')
 const page = ref(1)
+// ── Filtres tableau ──────────────────────────────────────────────────
+const filterTypeId    = ref<number | ''>('')
+const filterFiliereId = ref<number | ''>('')
+const filterClasseId  = ref<number | ''>('')
 
 async function fetchEtudiants() {
   loading.value = true
   try {
     const { data } = await api.get('/etudiants', {
-      params: { search: search.value || undefined, page: page.value },
+      params: {
+        search: search.value || undefined,
+        page: page.value,
+        type_formation_id: filterTypeId.value || undefined,
+        filiere_id: filterFiliereId.value || undefined,
+        classe_id: filterClasseId.value || undefined,
+      },
     })
     pagination.value = data
   } finally {
@@ -122,6 +181,7 @@ watch(search, () => {
   searchTimer = setTimeout(() => { page.value = 1; fetchEtudiants() }, 350)
 })
 watch(page, fetchEtudiants)
+watch([filterTypeId, filterFiliereId, filterClasseId], () => { page.value = 1; fetchEtudiants() })
 
 // ── Statuts ───────────────────────────────────────────────────────────
 const statutLabel: Record<string, string> = {
@@ -143,22 +203,39 @@ const niveauxEntree = ref<NiveauEntree[]>([])
 const niveauxBourse = ref<NiveauBourse[]>([])
 const annees = ref<AnneeAcademique[]>([])
 const typesFormation = ref<TypeFormation[]>([])
+const allClasses = ref<{ id: number; nom: string; filiere?: { id: number; type_formation_id: number | null } | null }[]>([])
 const refsLoaded = ref(false)
+
+const filteredFilieresList = computed(() =>
+  filterTypeId.value
+    ? filieres.value.filter(f => f.type_formation_id === filterTypeId.value)
+    : filieres.value
+)
+const filteredClassesList = computed(() => {
+  let list = allClasses.value
+  if (filterFiliereId.value) list = list.filter(c => c.filiere?.id === filterFiliereId.value)
+  else if (filterTypeId.value) list = list.filter(c => c.filiere?.type_formation_id === filterTypeId.value)
+  return list
+})
+function onFilterTypeChange() { filterFiliereId.value = ''; filterClasseId.value = '' }
+function onFilterFiliereChange() { filterClasseId.value = '' }
 
 async function loadRefs() {
   if (refsLoaded.value) return
-  const [f, ne, nb, a, t] = await Promise.all([
+  const [f, ne, nb, a, t, cl] = await Promise.all([
     api.get('/filieres'),
     api.get('/niveaux-entree'),
     api.get('/niveaux-bourse'),
     api.get('/annees-academiques'),
     api.get('/types-formation'),
+    api.get('/classes'),
   ])
   filieres.value = f.data
   niveauxEntree.value = (ne.data ?? []).filter((n: NiveauEntree) => n.actif)
   niveauxBourse.value = (nb.data ?? []).filter((b: NiveauBourse) => b.actif)
   annees.value = a.data
   typesFormation.value = t.data
+  allClasses.value = cl.data
   refsLoaded.value = true
 }
 
@@ -284,8 +361,13 @@ function openEditEtudiant(etudiant: Etudiant) {
   editingEtudiantId.value = etudiant.id
   studentForm.value = {
     prenom: etudiant.prenom, nom: etudiant.nom, email: etudiant.email,
-    telephone: etudiant.telephone ?? '', date_naissance: '', lieu_naissance: '', adresse: '', cni_numero: '',
-    nom_parent: '', telephone_parent: '',
+    telephone: etudiant.telephone ?? '',
+    date_naissance: etudiant.date_naissance ? etudiant.date_naissance.substring(0, 10) : '',
+    lieu_naissance: etudiant.lieu_naissance ?? '',
+    adresse: etudiant.adresse ?? '',
+    cni_numero: etudiant.cni_numero ?? '',
+    nom_parent: etudiant.nom_parent ?? '',
+    telephone_parent: etudiant.telephone_parent ?? '',
   }
   showPanel.value = true
 }
@@ -930,14 +1012,24 @@ function statutDotClass(statut: string): string {
 const tableCols = [
   { key: 'numero', label: 'N° Étudiant' },
   { key: 'etudiant', label: 'Étudiant' },
+  { key: 'type_formation', label: 'Type de formation' },
   { key: 'filiere', label: 'Filière / Parcours' },
+  { key: 'classe', label: 'Classe' },
   { key: 'statut', label: 'Statut' },
   { key: 'actions', label: 'Actions' },
 ]
 
+function getTypeFormation(filiereId: number | null | undefined): string {
+  if (!filiereId) return '—'
+  const fil = filieres.value.find(f => f.id === filiereId)
+  if (!fil?.type_formation_id) return '—'
+  return typesFormation.value.find(t => t.id === fil.type_formation_id)?.nom ?? '—'
+}
+
 onMounted(() => {
   fetchEtudiants()
   loadRefs()
+  loadRisques()
 })
 </script>
 
@@ -950,28 +1042,87 @@ onMounted(() => {
       :subtitle="`${pagination.total} étudiant${pagination.total !== 1 ? 's' : ''} au total`"
     >
       <template #actions>
+        <button @click="$router.push('/dossiers-etudiants')" class="uc-btn-secondary" style="display:flex;align-items:center;gap:6px;padding:9px 14px;font-size:12.5px;">
+          <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+          </svg>
+          État des dossiers
+        </button>
         <button v-if="canWrite" @click="openInscrire" class="uc-btn-primary" style="display:flex;align-items:center;gap:6px;padding:9px 16px;font-size:12.5px;">
           <span style="font-size:16px;line-height:1;">+</span> Nouvel étudiant
         </button>
       </template>
     </UcPageHeader>
 
-    <!-- Toolbar : Recherche -->
-    <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;">
+    <!-- Toolbar : Recherche + Filtres -->
+    <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
       <div style="position:relative;flex:1;min-width:200px;">
         <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#bbb;font-size:14px;">🔍</span>
         <input v-model="search" type="text" placeholder="Rechercher par nom, prénom ou N° étudiant…" class="uc-search-input" />
       </div>
+      <!-- Filtres Type / Filière / Classe -->
+      <select v-model="filterTypeId" @change="onFilterTypeChange" class="uc-filter-select">
+        <option value="">Tous les types</option>
+        <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }}</option>
+      </select>
+      <select v-model="filterFiliereId" @change="onFilterFiliereChange" class="uc-filter-select">
+        <option value="">Toutes les filières</option>
+        <option v-for="f in filteredFilieresList" :key="f.id" :value="f.id">{{ f.nom }}</option>
+      </select>
+      <select v-model="filterClasseId" class="uc-filter-select">
+        <option value="">Toutes les classes</option>
+        <option v-for="c in filteredClassesList" :key="c.id" :value="c.id">{{ c.nom }}</option>
+      </select>
+      <!-- Bouton reset filtres -->
+      <button v-if="filterTypeId || filterFiliereId || filterClasseId"
+        @click="filterTypeId=''; filterFiliereId=''; filterClasseId=''"
+        style="padding:7px 12px;border:1px solid #e5e5e5;border-radius:6px;background:#fff;font-size:12px;color:#888;cursor:pointer;white-space:nowrap;">
+        ✕ Effacer
+      </button>
+      <!-- Filtres risque -->
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <button @click="risqueFiltre = ''" :class="risqueFiltre === '' ? 'rq-btn rq-btn--active' : 'rq-btn'">Tous</button>
+        <button @click="risqueFiltre = 'red'" :class="risqueFiltre === 'red' ? 'rq-btn rq-btn--red rq-btn--active' : 'rq-btn rq-btn--red'">
+          🔴 À risque <span v-if="risqueCounts.red" class="rq-count">{{ risqueCounts.red }}</span>
+        </button>
+        <button @click="risqueFiltre = 'yellow'" :class="risqueFiltre === 'yellow' ? 'rq-btn rq-btn--yellow rq-btn--active' : 'rq-btn rq-btn--yellow'">
+          🟡 À surveiller <span v-if="risqueCounts.yellow" class="rq-count">{{ risqueCounts.yellow }}</span>
+        </button>
+        <button @click="risqueFiltre = 'green'" :class="risqueFiltre === 'green' ? 'rq-btn rq-btn--green rq-btn--active' : 'rq-btn rq-btn--green'">
+          🟢 OK <span v-if="risqueCounts.green" class="rq-count">{{ risqueCounts.green }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Bannière alerte risque élevé -->
+    <div v-if="risqueCounts.red > 0 && !risqueFiltre" class="rq-banner">
+      ⚠️ <strong>{{ risqueCounts.red }} étudiant{{ risqueCounts.red > 1 ? 's' : '' }}</strong>
+      en situation de risque élevé —
+      <button @click="risqueFiltre = 'red'" class="rq-banner-link">Voir</button>
     </div>
 
     <!-- Tableau -->
-    <UcTable :cols="tableCols" :data="pagination.data" empty-text="Aucun étudiant trouvé">
+    <UcTable :cols="tableCols" :data="etudiantsFiltres" empty-text="Aucun étudiant trouvé">
       <template #row="{ item: etudiant }">
         <td class="td-num">{{ (etudiant as any).numero_etudiant }}</td>
         <td>
           <div class="student-name" style="cursor:pointer;" @click="router.push(`/etudiants/${(etudiant as any).id}`)">
-            <div class="s-avatar" :style="{ background: avatarColor((etudiant as any).prenom, (etudiant as any).nom) }">
-              {{ ((etudiant as any).prenom[0] ?? '') + ((etudiant as any).nom[0] ?? '') }}
+            <div class="s-avatar-wrap">
+              <div class="s-avatar"
+                :style="{ background: avatarColor((etudiant as any).prenom, (etudiant as any).nom) }"
+                :class="{
+                  'rq-ring--red':    risques[(etudiant as any).id]?.risque_global === 'red',
+                  'rq-ring--yellow': risques[(etudiant as any).id]?.risque_global === 'yellow',
+                }">
+                {{ ((etudiant as any).prenom[0] ?? '') + ((etudiant as any).nom[0] ?? '') }}
+              </div>
+              <!-- Dot risque -->
+              <span v-if="risques[(etudiant as any).id]"
+                class="rq-dot"
+                :class="`rq-dot--${risques[(etudiant as any).id]?.risque_global}`"
+                :title="risques[(etudiant as any).id]?.risque_global === 'red' ? 'Risque élevé d\'abandon' : risques[(etudiant as any).id]?.risque_global === 'yellow' ? 'À surveiller' : 'Situation OK'"
+              ></span>
             </div>
             <div class="s-name">
               <strong>{{ (etudiant as any).prenom }} {{ (etudiant as any).nom }}</strong>
@@ -980,11 +1131,22 @@ onMounted(() => {
           </div>
         </td>
         <td @click="router.push(`/etudiants/${(etudiant as any).id}`)">
+          <span style="font-size:12.5px;color:#374151;font-weight:500;">
+            {{ getTypeFormation((etudiant as any).inscription_active?.filiere?.id) }}
+          </span>
+        </td>
+        <td @click="router.push(`/etudiants/${(etudiant as any).id}`)">
           <span v-if="(etudiant as any).inscription_active?.filiere">
             {{ (etudiant as any).inscription_active.filiere.nom }}<br>
             <span style="font-size:10.5px;color:#aaa;">{{ (etudiant as any).inscription_active.filiere.code }}</span>
           </span>
           <span v-else style="color:#aaa;">—</span>
+        </td>
+        <td @click="router.push(`/etudiants/${(etudiant as any).id}`)">
+          <span v-if="(etudiant as any).inscription_active?.classe" style="font-size:13px;font-weight:600;color:#374151;">
+            {{ (etudiant as any).inscription_active.classe.nom }}
+          </span>
+          <span v-else style="color:#aaa;font-size:12px;">—</span>
         </td>
         <td @click="router.push(`/etudiants/${(etudiant as any).id}`)">
           <span v-if="(etudiant as any).inscription_active" class="uc-badge" :class="statutBadgeClass((etudiant as any).inscription_active.statut)">
@@ -1505,7 +1667,7 @@ onMounted(() => {
               Cette action est <strong>irréversible</strong>. Toutes les données listées à l'étape précédente seront définitivement effacées.
             </p>
             <p class="del-confirm-label">
-              Tapez <strong>{{ deleteTargetEtudiant.prenom }} {{ deleteTargetEtudiant.nom }}</strong> pour confirmer :
+              Tapez <strong>{{ deleteTargetEtudiant.prenom.trim() }} {{ deleteTargetEtudiant.nom.trim() }}</strong> pour confirmer :
             </p>
             <input
               v-model="confirmDeleteName"
@@ -1519,7 +1681,7 @@ onMounted(() => {
               <button @click="deleteStep = 1" class="del-btn-cancel">← Retour</button>
               <button
                 @click="confirmDeleteEtudiant"
-                :disabled="deletingEtudiant || confirmDeleteName.trim().toLowerCase() !== `${deleteTargetEtudiant.prenom} ${deleteTargetEtudiant.nom}`.toLowerCase()"
+                :disabled="deletingEtudiant || confirmDeleteName.trim().toLowerCase() !== `${deleteTargetEtudiant.prenom.trim()} ${deleteTargetEtudiant.nom.trim()}`.toLowerCase()"
                 class="del-btn-confirm"
               >
                 {{ deletingEtudiant ? 'Suppression…' : 'Supprimer définitivement' }}
@@ -1670,8 +1832,25 @@ onMounted(() => {
 .uc-search-input:focus { border-color: #E30613; }
 .uc-search-input::placeholder { color: #ccc; }
 
+/* Filter selects */
+.uc-filter-select {
+  height: 38px;
+  padding: 0 10px;
+  border: 1.5px solid #e5e5e5;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: #374151;
+  background: #fff;
+  cursor: pointer;
+  min-width: 140px;
+  max-width: 200px;
+  transition: border-color 0.2s;
+}
+.uc-filter-select:focus { border-color: #E30613; outline: none; }
+
 /* Student avatar */
 .student-name { display: flex; align-items: center; gap: 9px; }
+.s-avatar-wrap { position: relative; flex-shrink: 0; }
 .s-avatar {
   width: 30px; height: 30px;
   border-radius: 50%;
@@ -1679,9 +1858,49 @@ onMounted(() => {
   font-size: 11px; font-weight: 700;
   color: #fff; flex-shrink: 0;
   text-transform: uppercase;
+  transition: box-shadow 0.15s;
 }
+.rq-ring--red    { box-shadow: 0 0 0 2px #fca5a5; }
+.rq-ring--yellow { box-shadow: 0 0 0 2px #fde68a; }
+.rq-dot {
+  position: absolute; bottom: -1px; right: -1px;
+  width: 8px; height: 8px; border-radius: 50%;
+  border: 1.5px solid #fff;
+}
+.rq-dot--red    { background: #ef4444; }
+.rq-dot--yellow { background: #f59e0b; }
+.rq-dot--green  { background: #22c55e; }
 .s-name strong { display: block; font-size: 12.5px; font-weight: 600; color: #111; }
 .s-name span { font-size: 10.5px; color: #aaa; }
+
+/* Filtres risque */
+.rq-btn {
+  padding: 5px 10px; border-radius: 20px; border: 1.5px solid #e5e7eb;
+  background: #fff; font-size: 11.5px; font-weight: 600; color: #666;
+  cursor: pointer; display: flex; align-items: center; gap: 4px;
+  transition: all 0.12s; white-space: nowrap;
+}
+.rq-btn:hover { border-color: #9ca3af; }
+.rq-btn--active { background: #111; color: #fff; border-color: #111; }
+.rq-btn--red.rq-btn--active    { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; }
+.rq-btn--yellow.rq-btn--active { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.rq-btn--green.rq-btn--active  { background: #f0fdf4; border-color: #86efac; color: #15803d; }
+.rq-count {
+  background: #e5e7eb; border-radius: 10px; padding: 1px 6px;
+  font-size: 10px; font-weight: 700; color: #374151;
+}
+.rq-btn--red.rq-btn--active    .rq-count { background: #fecaca; color: #b91c1c; }
+.rq-btn--yellow.rq-btn--active .rq-count { background: #fde68a; color: #92400e; }
+.rq-btn--green.rq-btn--active  .rq-count { background: #bbf7d0; color: #15803d; }
+/* Bannière d'alerte */
+.rq-banner {
+  background: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px;
+  padding: 9px 14px; margin-bottom: 12px; font-size: 12.5px; color: #b91c1c;
+}
+.rq-banner-link {
+  background: none; border: none; color: #b91c1c; font-weight: 700;
+  text-decoration: underline; cursor: pointer; padding: 0; font-size: 12.5px;
+}
 
 /* Row actions */
 .row-actions { display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s; }
@@ -1909,4 +2128,54 @@ onMounted(() => {
 .hidden { display: none; }
 
 .td-num { font-size: 11px; font-weight: 600; color: #888; font-family: monospace; }
+
+/* ═══════════════════════════════════════════════════════
+   RESPONSIVE — MOBILE
+   ═══════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* Row actions : toujours visibles sur mobile (pas de hover) */
+  .row-actions { opacity: 1; }
+
+  /* Tableau : scroll horizontal */
+  .uc-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .uc-table { min-width: 520px; }
+
+  /* Masquer colonne N° sur mobile pour gagner de la place */
+  .td-num { display: none; }
+  .uc-table thead th:first-child { display: none; }
+
+  /* Pagination */
+  .uc-pagination { flex-direction: column; gap: 8px; text-align: center; }
+  .uc-pagination-btns { justify-content: center; }
+
+  /* Boutons risque : plus compacts */
+  .rq-btn { font-size: 11px; padding: 5px 8px; }
+
+  /* Filtres : pleine largeur dans le flex-wrap */
+  .uc-filter-select { min-width: 0; flex: 1; }
+  .uc-search-input { font-size: 13px; }
+}
+
+@media (max-width: 580px) {
+  /* Formulaire : 1 colonne */
+  .form-row { grid-template-columns: 1fr !important; }
+
+  /* Étapes du modal : réduire */
+  .insc-steps { gap: 4px; }
+  .insc-step { font-size: 10px; gap: 3px; }
+  .insc-step-num { width: 17px; height: 17px; font-size: 9px; }
+  .insc-step-arrow { display: none; } /* Cacher les flèches entre étapes */
+
+  /* Footer modal : boutons pleine largeur */
+  .insc-modal-footer { flex-direction: column; }
+  .insc-modal-footer > button { width: 100%; justify-content: center; }
+
+  /* Modal suppression */
+  .del-actions { flex-direction: column; }
+  .del-actions > button { width: 100%; }
+  .del-title, .del-subtitle, .del-confirm-label { padding: 0 16px; }
+  .del-tree { margin: 0 16px 16px; }
+  .del-warning { margin: 0 16px 16px; }
+  .del-input { width: calc(100% - 32px); margin: 0 16px 16px; }
+}
 </style>

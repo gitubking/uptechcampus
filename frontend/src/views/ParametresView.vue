@@ -2,6 +2,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
+import UcModal from '@/components/ui/UcModal.vue'
+import UcFormGroup from '@/components/ui/UcFormGroup.vue'
 
 // ── Interfaces ──────────────────────────────────────────────────────
 interface Parametre {
@@ -59,6 +61,16 @@ interface NiveauBourse {
   actif: boolean
 }
 
+interface TypeDocument {
+  id: number
+  code: string
+  label: string
+  actif: boolean
+  ordre: number
+  type_formation_id: number | null
+  type_formation_nom: string | null
+}
+
 // ── Général ──────────────────────────────────────────────────────────
 const auth = useAuthStore()
 const parametres = ref<Parametre[]>([])
@@ -69,7 +81,7 @@ const editValues = ref<Record<string, string>>({})
 const activeGroup = ref('etablissement')
 
 // ── Onglet pédagogique actif ─────────────────────────────────────────
-const activePedaTab = ref<'types' | 'tarifs' | 'matieres' | 'niveaux-entree' | 'niveaux-bourse'>('types')
+const activePedaTab = ref<'types' | 'tarifs' | 'matieres' | 'niveaux-entree' | 'niveaux-bourse' | 'types-docs'>('types')
 
 // ── Types de formation ──────────────────────────────────────────────
 const typesFormation = ref<TypeFormation[]>([])
@@ -136,7 +148,7 @@ async function deleteType(t: TypeFormation) {
   }
 }
 
-// ── Tarifs intervenants ───────────────────────────────────────────────
+// ── Tarifs enseignants ───────────────────────────────────────────────
 const tarifs = ref<Tarif[]>([])
 const anneesAcademiques = ref<AnneeAcademique[]>([])
 const loadingTarifs = ref(false)
@@ -512,6 +524,135 @@ function toggleValue(cle: string) {
   save(cle)
 }
 
+// ── Catégories de dépenses ────────────────────────────────────────────
+interface CategorieDep { id: number; code: string; libelle: string; description: string | null; ordre: number; actif: boolean }
+const categoriesDep       = ref<CategorieDep[]>([])
+const loadingCatDep       = ref(false)
+const showModalCatDep     = ref(false)
+const editingCatDep       = ref<CategorieDep | null>(null)
+const savingCatDep        = ref(false)
+const deletingCatDepId    = ref<number | null>(null)
+const formCatDep          = ref({ libelle: '', description: '', ordre: 0 })
+
+async function loadCatDep() {
+  loadingCatDep.value = true
+  try {
+    const { data } = await api.get('/categories-depenses')
+    categoriesDep.value = data
+  } finally { loadingCatDep.value = false }
+}
+function openAddCatDep() {
+  editingCatDep.value = null
+  formCatDep.value = { libelle: '', description: '', ordre: categoriesDep.value.length + 1 }
+  showModalCatDep.value = true
+}
+function openEditCatDep(c: CategorieDep) {
+  editingCatDep.value = c
+  formCatDep.value = { libelle: c.libelle, description: c.description ?? '', ordre: c.ordre }
+  showModalCatDep.value = true
+}
+async function saveCatDep() {
+  savingCatDep.value = true
+  try {
+    if (editingCatDep.value) {
+      const { data } = await api.put(`/categories-depenses/${editingCatDep.value.id}`, { ...formCatDep.value, actif: editingCatDep.value.actif })
+      const idx = categoriesDep.value.findIndex(x => x.id === editingCatDep.value!.id)
+      if (idx >= 0) categoriesDep.value[idx] = data
+    } else {
+      const { data } = await api.post('/categories-depenses', formCatDep.value)
+      categoriesDep.value.push(data)
+    }
+    showModalCatDep.value = false
+  } catch (e: unknown) {
+    alert((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Erreur')
+  } finally { savingCatDep.value = false }
+}
+async function toggleCatDep(c: CategorieDep) {
+  const { data } = await api.put(`/categories-depenses/${c.id}`, { libelle: c.libelle, ordre: c.ordre, actif: !c.actif })
+  const idx = categoriesDep.value.findIndex(x => x.id === c.id)
+  if (idx >= 0) categoriesDep.value[idx] = data
+}
+async function deleteCatDep(c: CategorieDep) {
+  if (!confirm(`Supprimer la catégorie "${c.libelle}" ?`)) return
+  deletingCatDepId.value = c.id
+  try {
+    await api.delete(`/categories-depenses/${c.id}`)
+    categoriesDep.value = categoriesDep.value.filter(x => x.id !== c.id)
+  } catch (e: unknown) {
+    alert((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Suppression impossible')
+  } finally { deletingCatDepId.value = null }
+}
+
+// ── Types de documents ────────────────────────────────────────────────
+const typesDocuments = ref<TypeDocument[]>([])
+const loadingTypesDocs = ref(false)
+const showModalTypeDoc = ref(false)
+const editingTypeDoc = ref<TypeDocument | null>(null)
+const savingTypeDoc = ref(false)
+const deletingTypeDocId = ref<number | null>(null)
+const formTypeDoc = ref<{ code: string; label: string; actif: boolean; ordre: number; type_formation_id: number | null }>({ code: '', label: '', actif: true, ordre: 0, type_formation_id: null })
+
+async function loadTypesDocs() {
+  loadingTypesDocs.value = true
+  try {
+    const { data } = await api.get('/types-documents')
+    typesDocuments.value = data
+  } finally {
+    loadingTypesDocs.value = false
+  }
+}
+
+function openNewTypeDoc() {
+  editingTypeDoc.value = null
+  formTypeDoc.value = { code: '', label: '', actif: true, ordre: 0, type_formation_id: null }
+  showModalTypeDoc.value = true
+}
+
+function openEditTypeDoc(t: TypeDocument) {
+  editingTypeDoc.value = t
+  formTypeDoc.value = { code: t.code, label: t.label, actif: t.actif, ordre: t.ordre, type_formation_id: t.type_formation_id ?? null }
+  showModalTypeDoc.value = true
+}
+
+async function saveTypeDoc() {
+  if (!formTypeDoc.value.label.trim()) return
+  savingTypeDoc.value = true
+  try {
+    if (editingTypeDoc.value) {
+      const { data } = await api.put(`/types-documents/${editingTypeDoc.value.id}`, {
+        label: formTypeDoc.value.label,
+        actif: formTypeDoc.value.actif,
+        ordre: formTypeDoc.value.ordre,
+        type_formation_id: formTypeDoc.value.type_formation_id || null,
+      })
+      const idx = typesDocuments.value.findIndex(t => t.id === editingTypeDoc.value!.id)
+      if (idx >= 0) typesDocuments.value[idx] = data
+    } else {
+      if (!formTypeDoc.value.code.trim()) return
+      const { data } = await api.post('/types-documents', formTypeDoc.value)
+      typesDocuments.value.push(data)
+    }
+    showModalTypeDoc.value = false
+  } catch (e: any) {
+    alert(e?.response?.data?.message || 'Erreur lors de la sauvegarde')
+  } finally {
+    savingTypeDoc.value = false
+  }
+}
+
+async function deleteTypeDoc(t: TypeDocument) {
+  if (!confirm(`Supprimer le type de document "${t.label}" ?`)) return
+  deletingTypeDocId.value = t.id
+  try {
+    await api.delete(`/types-documents/${t.id}`)
+    typesDocuments.value = typesDocuments.value.filter(x => x.id !== t.id)
+  } catch (e: any) {
+    alert(e?.response?.data?.message || 'Suppression impossible')
+  } finally {
+    deletingTypeDocId.value = null
+  }
+}
+
 onMounted(() => {
   load()
   loadTypesFormation()
@@ -519,6 +660,8 @@ onMounted(() => {
   loadMatieres()
   loadNiveauxEntree()
   loadNiveauxBourse()
+  loadTypesDocs()
+  loadCatDep()
 })
 </script>
 
@@ -564,6 +707,7 @@ onMounted(() => {
               { key: 'matieres',       label: 'Matières' },
               { key: 'niveaux-entree', label: 'Niveaux d\'entrée' },
               { key: 'niveaux-bourse', label: 'Niveaux de bourse' },
+              { key: 'types-docs',     label: 'Types de documents' },
             ]"
             :key="tab.key"
             @click="activePedaTab = tab.key as any"
@@ -667,7 +811,7 @@ onMounted(() => {
           </Teleport>
         </template>
 
-        <!-- ─── Tarifs intervenants ───────────────────────────────── -->
+        <!-- ─── Tarifs enseignants ───────────────────────────────── -->
         <template v-else-if="activePedaTab === 'tarifs'">
           <div class="pm-tab-bar">
             <p class="pm-tab-desc">Taux horaires par type de formation et année académique.</p>
@@ -675,7 +819,7 @@ onMounted(() => {
           </div>
 
           <div class="pm-info-banner">
-            <strong>Règle tronc commun :</strong> Lorsqu'une séance regroupe plusieurs types de formation, le taux le plus élevé est appliqué à l'intervenant.
+            <strong>Règle tronc commun :</strong> Lorsqu'une séance regroupe plusieurs types de formation, le taux le plus élevé est appliqué à l'enseignant.
           </div>
 
           <div v-if="loadingTarifs" class="pm-empty">Chargement…</div>
@@ -1047,6 +1191,121 @@ onMounted(() => {
           </Teleport>
         </template>
 
+        <!-- ─── Types de documents ────────────────────────────────── -->
+        <template v-if="activePedaTab === 'types-docs'">
+          <div class="pm-tab-bar">
+            <p class="pm-tab-desc">Définissez les types de pièces et documents acceptés pour les dossiers étudiants.</p>
+            <button v-if="isDG" @click="openNewTypeDoc" class="uc-btn-primary">+ Nouveau type</button>
+          </div>
+
+          <div v-if="loadingTypesDocs" class="pm-empty">Chargement…</div>
+          <div v-else-if="typesDocuments.length === 0" class="pm-empty">Aucun type de document configuré.</div>
+          <div v-else class="pm-table-wrap">
+            <table class="pm-table">
+              <thead>
+                <tr>
+                  <th>Libellé</th>
+                  <th>Code interne</th>
+                  <th>Type de formation</th>
+                  <th style="text-align:center">Ordre</th>
+                  <th style="text-align:center">Statut</th>
+                  <th v-if="isDG" style="text-align:right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="t in typesDocuments" :key="t.id">
+                  <td class="pm-td-bold">{{ t.label }}</td>
+                  <td><span class="pm-badge-code">{{ t.code }}</span></td>
+                  <td style="font-size:12px;">
+                    <span v-if="t.type_formation_nom" class="pm-badge-code" style="background:#ede9fe;color:#6d28d9;">{{ t.type_formation_nom }}</span>
+                    <span v-else style="color:#aaa;font-size:11px;">Tous types de formation</span>
+                  </td>
+                  <td style="text-align:center;color:#999;font-size:12px;">{{ t.ordre }}</td>
+                  <td style="text-align:center">
+                    <span v-if="t.actif" class="pm-badge-active">Actif</span>
+                    <span v-else class="pm-badge-inactive">Inactif</span>
+                  </td>
+                  <td v-if="isDG" style="text-align:right">
+                    <div class="pm-row-actions">
+                      <button @click="openEditTypeDoc(t)" class="pm-action-btn pm-action-btn--edit">Modifier</button>
+                      <button
+                        @click="deleteTypeDoc(t)"
+                        :disabled="deletingTypeDocId === t.id"
+                        class="pm-action-btn pm-action-btn--del"
+                      >{{ deletingTypeDocId === t.id ? '…' : 'Supprimer' }}</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Modal créer / modifier un type de document -->
+          <Teleport to="body">
+            <div v-if="showModalTypeDoc" class="pm-overlay" @click.self="showModalTypeDoc = false">
+              <div class="pm-modal">
+                <div class="pm-modal-header">
+                  <h2 class="pm-modal-title">{{ editingTypeDoc ? 'Modifier le type de document' : 'Nouveau type de document' }}</h2>
+                  <button @click="showModalTypeDoc = false" class="pm-modal-close">✕</button>
+                </div>
+                <div class="pm-modal-body">
+                  <!-- Code (création uniquement) -->
+                  <div v-if="!editingTypeDoc" class="pm-field">
+                    <label class="pm-label">Code interne <span class="pm-req">*</span></label>
+                    <input v-model="formTypeDoc.code" type="text" class="pm-input"
+                      placeholder="Ex: attestation, relevé_notes…"
+                      @input="formTypeDoc.code = (formTypeDoc.code as string).toLowerCase().replace(/\s+/g, '_')" />
+                    <p class="pm-hint">Identifiant technique unique, en minuscules, sans espaces.</p>
+                  </div>
+                  <div v-else class="pm-field">
+                    <label class="pm-label">Code interne</label>
+                    <input :value="editingTypeDoc.code" type="text" class="pm-input" disabled style="opacity:0.5;cursor:not-allowed" />
+                    <p class="pm-hint">Le code ne peut pas être modifié après création.</p>
+                  </div>
+                  <!-- Libellé -->
+                  <div class="pm-field">
+                    <label class="pm-label">Libellé <span class="pm-req">*</span></label>
+                    <input v-model="formTypeDoc.label" type="text" class="pm-input" placeholder="Ex: Attestation de scolarité" />
+                  </div>
+                  <!-- Ordre d'affichage -->
+                  <div class="pm-field">
+                    <label class="pm-label">Ordre d'affichage</label>
+                    <input v-model.number="formTypeDoc.ordre" type="number" min="0" class="pm-input" placeholder="0" />
+                    <p class="pm-hint">Nombre inférieur = affiché en premier dans la liste.</p>
+                  </div>
+                  <!-- Type de formation -->
+                  <div class="pm-field">
+                    <label class="pm-label">Type de formation concerné</label>
+                    <select v-model="formTypeDoc.type_formation_id" class="pm-input">
+                      <option :value="null">Tous les types (document commun à toutes les formations)</option>
+                      <option v-for="tf in typesFormation" :key="tf.id" :value="tf.id">{{ tf.nom }}</option>
+                    </select>
+                    <p class="pm-hint">Ex : choisir "Accéléré" pour un document exigé uniquement en formation accélérée.</p>
+                  </div>
+                  <!-- Statut actif -->
+                  <div class="pm-toggle-row">
+                    <button @click="formTypeDoc.actif = !formTypeDoc.actif" class="pm-toggle" :class="formTypeDoc.actif ? 'pm-toggle--on' : ''">
+                      <span class="pm-toggle-knob" :class="formTypeDoc.actif ? 'pm-toggle-knob--on' : ''" />
+                    </button>
+                    <span class="pm-toggle-label">{{ formTypeDoc.actif ? 'Actif — visible dans le formulaire étudiant' : 'Inactif — masqué dans le formulaire' }}</span>
+                  </div>
+                </div>
+                <div class="pm-modal-footer">
+                  <button @click="showModalTypeDoc = false" class="pm-btn-cancel">Annuler</button>
+                  <button
+                    @click="saveTypeDoc"
+                    :disabled="!formTypeDoc.label.trim() || (!editingTypeDoc && !formTypeDoc.code.trim()) || savingTypeDoc"
+                    class="uc-btn-primary"
+                    :style="(!formTypeDoc.label.trim() || (!editingTypeDoc && !formTypeDoc.code.trim()) || savingTypeDoc) ? 'opacity:0.4' : ''"
+                  >
+                    {{ savingTypeDoc ? 'Enregistrement…' : editingTypeDoc ? 'Modifier' : 'Créer' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Teleport>
+        </template>
+
       </template>
 
       <!-- ═══ FINANCE ══════════════════════════════════════════════════ -->
@@ -1121,6 +1380,64 @@ onMounted(() => {
             </div>
           </div>
         </template>
+
+        <!-- ── Catégories de dépenses ─────────────────────────────── -->
+        <div class="pm-section-header" style="margin-top:28px;">
+          <div>
+            <h2 class="pm-section-title" style="font-size:15px;">Catégories de dépenses</h2>
+            <p class="pm-section-desc">Gérez les catégories utilisées dans la page Dépenses</p>
+          </div>
+          <button v-if="isDG" @click="openAddCatDep" class="pm-btn-add">
+            <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Ajouter
+          </button>
+        </div>
+        <div v-if="loadingCatDep" class="pm-empty">Chargement…</div>
+        <div v-else-if="!categoriesDep.length" class="pm-empty">Aucune catégorie définie.</div>
+        <div v-else class="pm-cat-dep-list">
+          <div v-for="c in categoriesDep" :key="c.id" class="pm-cat-dep-row">
+            <div style="display:flex;align-items:center;gap:10px;flex:1;">
+              <span class="pm-cat-dep-code">{{ c.code }}</span>
+              <div>
+                <span style="font-weight:600;font-size:13px;color:#111;">{{ c.libelle }}</span>
+                <span v-if="!c.actif" style="font-size:10px;background:#f5f5f5;color:#999;padding:2px 7px;border-radius:10px;margin-left:6px;">Inactif</span>
+                <p v-if="c.description" style="font-size:11px;color:#888;margin:2px 0 0;white-space:pre-line;line-height:1.5;">{{ c.description }}</p>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button v-if="isDG" @click="toggleCatDep(c)" :title="c.actif ? 'Désactiver' : 'Activer'"
+                :style="{ background: c.actif ? '#f0fdf4' : '#f5f5f5', color: c.actif ? '#15803d' : '#999', border:'1px solid', borderColor: c.actif ? '#bbf7d0' : '#e5e5e5', borderRadius:'4px', padding:'4px 10px', fontSize:'11px', fontWeight:'600', cursor:'pointer' }">
+                {{ c.actif ? 'Actif' : 'Inactif' }}
+              </button>
+              <button v-if="isDG" @click="openEditCatDep(c)" style="background:none;border:none;cursor:pointer;padding:4px;color:#555;" title="Modifier">✏️</button>
+              <button v-if="isDG" @click="deleteCatDep(c)" :disabled="deletingCatDepId===c.id" style="background:none;border:none;cursor:pointer;padding:4px;color:#b91c1c;" title="Supprimer">🗑</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal catégorie -->
+        <UcModal v-model="showModalCatDep" :title="editingCatDep ? 'Modifier la catégorie' : 'Nouvelle catégorie'" width="480px" @close="showModalCatDep=false">
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <UcFormGroup label="Libellé" :required="true">
+              <input v-model="formCatDep.libelle" required placeholder="Ex : Charges de fonctionnement" />
+            </UcFormGroup>
+            <UcFormGroup label="Éléments inclus (un par ligne)">
+              <textarea v-model="formCatDep.description" rows="5" style="resize:vertical;width:100%;padding:8px 10px;border:1px solid #e0e0e0;border-radius:6px;font-size:12.5px;font-family:inherit;"
+                placeholder="Ex :&#10;• Loyer / location&#10;• Électricité&#10;• Eau&#10;• Internet / connexion&#10;• Téléphonie / communication" />
+              <p style="font-size:11px;color:#aaa;margin-top:4px;">Ces précisions s'afficheront comme aide dans le formulaire de saisie.</p>
+            </UcFormGroup>
+            <UcFormGroup label="Ordre d'affichage">
+              <input v-model.number="formCatDep.ordre" type="number" min="0" />
+            </UcFormGroup>
+          </div>
+          <template #footer>
+            <button @click="showModalCatDep=false" class="pm-btn-cancel">Annuler</button>
+            <button @click="saveCatDep" :disabled="savingCatDep||!formCatDep.libelle" class="pm-btn-save">
+              {{ savingCatDep ? 'Enregistrement…' : 'Enregistrer' }}
+            </button>
+          </template>
+        </UcModal>
+
       </template>
 
       <!-- ═══ ZONE DE DANGER ══════════════════════════════════════════ -->
@@ -1261,6 +1578,11 @@ onMounted(() => {
 .pm-modal-footer { padding:14px 22px 18px; display:flex; justify-content:flex-end; gap:10px; border-top:1px solid #f0f0f0; }
 .pm-btn-cancel { padding:8px 16px; font-size:13px; color:#555; border:1px solid #ddd; background:#fff; border-radius:7px; cursor:pointer; font-weight:500; }
 .pm-btn-cancel:hover { background:#f9f9f9; }
+.pm-btn-add { display:inline-flex;align-items:center;gap:5px;padding:7px 14px;font-size:12px;font-weight:600;border:1px solid #E30613;color:#E30613;background:#fff;border-radius:6px;cursor:pointer; }
+.pm-btn-add:hover { background:#fff0f0; }
+.pm-cat-dep-list { display:flex;flex-direction:column;gap:6px;margin-top:8px; }
+.pm-cat-dep-row { display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#fff;border:1px solid #f0f0f0;border-radius:7px; }
+.pm-cat-dep-code { font-size:10px;font-weight:600;background:#f5f5f5;color:#888;padding:2px 7px;border-radius:4px;font-family:monospace; }
 
 /* Form */
 .pm-label { display:block; font-size:11.5px; font-weight:600; color:#555; margin-bottom:5px; }
@@ -1325,4 +1647,13 @@ onMounted(() => {
 
 /* Empty */
 .pm-empty { padding:40px; text-align:center; color:#aaa; font-size:13px; }
+
+@media (max-width: 640px) {
+  .pm-grid-2 { grid-template-columns: 1fr !important; }
+  .pm-param-row { flex-direction: column; align-items: flex-start; }
+  .pm-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .pm-tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .pm-tab { white-space: nowrap; }
+  .pm-section-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
 </style>

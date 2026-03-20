@@ -9,31 +9,47 @@ import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 import UcTable from '@/components/ui/UcTable.vue'
 
 const auth = useAuthStore()
+const isEnseignant = computed(() => auth.user?.role === 'enseignant')
 const canWrite = computed(() =>
-  ['dg', 'dir_peda', 'coordinateur'].includes(auth.user?.role ?? '')
+  ['dg', 'dir_peda', 'coordinateur', 'enseignant'].includes(auth.user?.role ?? '')
 )
+// Profil enseignant connecté (ses UEs et ses classes)
+const monProfil = ref<{ id: number; mes_ues: {id:number;classe_id:number;code:string;intitule:string}[]; mes_classes: {id:number;nom:string}[] } | null>(null)
+// IDs des UEs dont le prof connecté peut saisir les notes (Number() pour éviter string vs number)
+const mesUeIds = computed(() => monProfil.value?.mes_ues.map(u => Number(u.id)) ?? [])
 
 interface UE {
-  id: number; classe_id: number; intervenant_id: number | null
+  id: number; classe_id: number; enseignant_id: number | null; matiere_id?: number | null
   code: string; intitule: string; coefficient: number; credits_ects: number; ordre: number
-  intervenant?: { id: number; nom: string; prenom: string }
+  is_tronc_commun?: boolean
+  enseignant?: { id: number; nom: string; prenom: string }
+}
+interface Bulletin {
+  inscription: any; ues: any[]
+  ues_tronc_commun?: any[]; ues_specifiques?: any[]
+  moyenne: number | null; mention: string | null
+  decision: string; credits_valides: number; credits_total: number
+  has_tronc_commun?: boolean
 }
 interface Inscription {
   id: number
+  filiere_id?: number | null
+  filiere?: { id: number; nom: string } | null
   etudiant: { nom: string; prenom: string }
 }
 interface Note { id?: number; inscription_id: number; ue_id: number; note: number; session: string }
-interface Bulletin {
-  inscription: any; ues: any[]; moyenne: number | null
-  mention: string | null; decision: string; credits_valides: number; credits_total: number
-}
 
 const activeTab = ref<'saisie' | 'jury' | 'bulletins'>('saisie')
 
 const classes = ref<{ id: number; nom: string }[]>([])
 const ues = ref<UE[]>([])
+const uesTronc = computed(() => ues.value.filter(u => u.is_tronc_commun))
+const uesSpecifiques = computed(() => ues.value.filter(u => !u.is_tronc_commun))
+const hasTroncCommun = computed(() => uesTronc.value.length > 0)
 const inscriptions = ref<Inscription[]>([])
 const notesData = ref<Note[]>([])
+// filiere_id → { matiere_id → { coefficient, credits } } — reçu de l'API pour calculs cross-filière
+const filierePivots = ref<Record<number, Record<number, { coefficient: number; credits: number }>>>({})
 const loading = ref(true)
 const saving = ref(false)
 const saved = ref(false)
@@ -44,7 +60,19 @@ const filterSession = ref<'normale' | 'rattrapage'>('normale')
 // Grille notes [inscription_id][ue_id] = valeur
 const localNotes = ref<Record<number, Record<number, string>>>({})
 
-// Moyenne pondérée pour un étudiant
+// Retourne le coefficient effectif d'une UE pour un étudiant donné (cross-filière tronc commun)
+function getCoef(ue: UE, inscriptionId: number): number {
+  if (ue.is_tronc_commun && ue.matiere_id) {
+    const insc = inscriptions.value.find(i => i.id === inscriptionId)
+    const fId = insc?.filiere_id ?? insc?.filiere?.id
+    if (fId && filierePivots.value[fId]?.[ue.matiere_id]) {
+      return filierePivots.value[fId][ue.matiere_id].coefficient
+    }
+  }
+  return parseFloat(String(ue.coefficient)) || 1
+}
+
+// Moyenne pondérée pour un étudiant (coefficient cross-filière si tronc commun)
 function moyennePonderee(inscriptionId: number): number | null {
   let totalPts = 0, totalCoef = 0
   let hasNote = false
@@ -52,7 +80,8 @@ function moyennePonderee(inscriptionId: number): number | null {
     const v = localNotes.value[inscriptionId]?.[ue.id]
     if (v !== '' && v !== undefined && v !== null) {
       const n = parseFloat(v)
-      if (!isNaN(n)) { totalPts += n * ue.coefficient; totalCoef += ue.coefficient; hasNote = true }
+      const coef = getCoef(ue, inscriptionId)
+      if (!isNaN(n)) { totalPts += n * coef; totalCoef += coef; hasNote = true }
     }
   }
   return hasNote && totalCoef > 0 ? Math.round(totalPts / totalCoef * 100) / 100 : null
@@ -98,6 +127,7 @@ async function loadNotes() {
     ues.value = data.ues
     inscriptions.value = data.inscriptions
     notesData.value = data.notes
+    filierePivots.value = data.filiere_pivots ?? {}
 
     // Initialiser localNotes
     localNotes.value = {}
@@ -144,18 +174,18 @@ async function enregistrerNotes() {
 // ─── UE CRUD ──────────────────────────────────────────────────────────
 const showUeModal = ref(false)
 const editUeId = ref<number | null>(null)
-const ueForm = ref({ code: '', intitule: '', coefficient: '1', credits_ects: '0', ordre: '0', intervenant_id: '' })
-const intervenants = ref<{ id: number; nom: string; prenom: string }[]>([])
+const ueForm = ref({ code: '', intitule: '', coefficient: '1', credits_ects: '0', ordre: '0', enseignant_id: '' })
+const enseignants = ref<{ id: number; nom: string; prenom: string }[]>([])
 const savingUe = ref(false)
 
 async function openUeCreate() {
   editUeId.value = null
-  ueForm.value = { code: '', intitule: '', coefficient: '1', credits_ects: '0', ordre: String(ues.value.length), intervenant_id: '' }
+  ueForm.value = { code: '', intitule: '', coefficient: '1', credits_ects: '0', ordre: String(ues.value.length), enseignant_id: '' }
   showUeModal.value = true
 }
 async function openUeEdit(ue: UE) {
   editUeId.value = ue.id
-  ueForm.value = { code: ue.code, intitule: ue.intitule, coefficient: String(ue.coefficient), credits_ects: String(ue.credits_ects), ordre: String(ue.ordre), intervenant_id: String(ue.intervenant_id ?? '') }
+  ueForm.value = { code: ue.code, intitule: ue.intitule, coefficient: String(ue.coefficient), credits_ects: String(ue.credits_ects), ordre: String(ue.ordre), enseignant_id: String(ue.enseignant_id ?? '') }
   showUeModal.value = true
 }
 async function saveUe() {
@@ -167,7 +197,7 @@ async function saveUe() {
       coefficient: parseFloat(ueForm.value.coefficient),
       credits_ects: parseInt(ueForm.value.credits_ects),
       ordre: parseInt(ueForm.value.ordre),
-      intervenant_id: ueForm.value.intervenant_id ? Number(ueForm.value.intervenant_id) : null,
+      enseignant_id: ueForm.value.enseignant_id ? Number(ueForm.value.enseignant_id) : null,
     }
     if (editUeId.value) await api.put(`/ues/${editUeId.value}`, payload)
     else await api.post('/ues', payload)
@@ -203,9 +233,22 @@ function mentionColor(m: string | null) {
 async function load() {
   loading.value = true
   try {
-    const [cRes, iRes] = await Promise.all([api.get('/classes'), api.get('/intervenants')])
-    classes.value = cRes.data
-    intervenants.value = iRes.data
+    if (isEnseignant.value) {
+      // Prof : charger uniquement son profil et ses classes
+      const { data } = await api.get('/enseignants/me')
+      monProfil.value = data
+      classes.value = data.mes_classes ?? []
+      // Pré-sélectionner la première classe si une seule
+      if (classes.value.length === 1 && classes.value[0]) {
+        filterClasse.value = String(classes.value[0].id)
+        await loadNotes()
+      }
+    } else {
+      // Admin : charger toutes les classes + enseignants
+      const [cRes, iRes] = await Promise.all([api.get('/classes'), api.get('/enseignants')])
+      classes.value = cRes.data
+      enseignants.value = iRes.data
+    }
   } finally { loading.value = false }
 }
 
@@ -217,8 +260,17 @@ onMounted(load)
 
     <UcPageHeader
       title="Notes & Bulletins"
-      subtitle="Saisie des notes, jury et édition des bulletins"
+      :subtitle="isEnseignant ? `Saisie des notes — ${monProfil?.mes_ues.length ?? 0} matière(s) assignée(s)` : 'Saisie des notes, jury et édition des bulletins'"
     />
+
+    <!-- Bandeau info pour le prof -->
+    <div v-if="isEnseignant && monProfil" class="nb-prof-banner">
+      <span>👨‍🏫 Vous êtes connecté en tant qu'enseignant.</span>
+      <span>Vous pouvez saisir les notes uniquement pour vos matières :
+        <strong>{{ monProfil.mes_ues.map(u => u.code).join(', ') || '—' }}</strong>
+      </span>
+      <span style="color:#aaa;">Les cellules 🔒 appartiennent à d'autres enseignants.</span>
+    </div>
 
     <!-- Sélecteurs + tabs -->
     <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
@@ -267,13 +319,25 @@ onMounted(load)
         <div v-else style="overflow-x:auto;">
           <table class="nb-table">
             <thead>
+              <tr v-if="hasTroncCommun">
+                <th style="background:#fff;border:none;"></th>
+                <th :colspan="uesTronc.length" style="text-align:center;background:#eff6ff;color:#1d4ed8;font-size:11px;padding:5px 8px;border-bottom:2px solid #bfdbfe;">
+                  🏫 Tronc Commun ({{ uesTronc.length }} UE{{ uesTronc.length>1?'s':'' }})
+                </th>
+                <th :colspan="uesSpecifiques.length" style="text-align:center;background:#f0fdf4;color:#15803d;font-size:11px;padding:5px 8px;border-bottom:2px solid #86efac;">
+                  📚 Matières Spécifiques ({{ uesSpecifiques.length }} UE{{ uesSpecifiques.length>1?'s':'' }})
+                </th>
+                <th style="background:#fff;border:none;"></th>
+              </tr>
               <tr>
                 <th style="text-align:left;min-width:160px;">Étudiant</th>
-                <th v-for="ue in ues" :key="ue.id" style="text-align:center;min-width:100px;">
+                <th v-for="ue in ues" :key="ue.id"
+                  :style="{ textAlign:'center', minWidth:'100px', background: ue.is_tronc_commun ? '#f0f9ff' : '#f0fdf4' }">
                   <div style="line-height:1.4;">
                     <span style="font-weight:700;color:#333;">{{ ue.code }}</span><br>
                     <span style="font-weight:400;text-transform:none;font-size:10px;color:#888;">{{ ue.intitule }}</span><br>
-                    <span style="color:#E30613;font-size:10px;">Coef. {{ ue.coefficient }}</span>
+                    <span v-if="ue.is_tronc_commun && ue.matiere_id" style="color:#7c3aed;font-size:10px;" title="Coefficient selon la filière de chaque étudiant">Coef. ⚡ filière</span>
+                    <span v-else style="color:#E30613;font-size:10px;">Coef. {{ ue.coefficient }}</span>
                   </div>
                 </th>
                 <th style="text-align:center;">Moyenne</th>
@@ -281,12 +345,19 @@ onMounted(load)
             </thead>
             <tbody>
               <tr v-for="insc in inscriptions" :key="insc.id">
-                <td style="font-weight:600;color:#333;white-space:nowrap;">{{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}</td>
-                <td v-for="ue in ues" :key="ue.id" style="padding:8px;">
+                <td style="font-weight:600;color:#333;white-space:nowrap;">
+                  {{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}
+                  <span v-if="(insc as any).classe" style="display:block;font-size:10px;color:#aaa;font-weight:400;">{{ (insc as any).classe?.nom }}</span>
+                </td>
+                <td v-for="ue in ues" :key="ue.id" style="padding:8px;"
+                  :style="{ background: ue.is_tronc_commun ? '#f8fbff' : '#f9fff9' }">
+                  <!-- Prof ne peut saisir que pour ses UEs -->
                   <input v-model="localNotes[insc.id]![ue.id]"
                     type="number" min="0" max="20" step="0.25"
-                    :disabled="!canWrite" placeholder="—"
+                    :disabled="!canWrite || (isEnseignant && !mesUeIds.includes(ue.id))"
+                    :placeholder="(isEnseignant && !mesUeIds.includes(ue.id)) ? '🔒' : '—'"
                     class="nb-note-input"
+                    :class="{ 'nb-note-locked': isEnseignant && !mesUeIds.includes(ue.id) }"
                     :style="{ borderColor: localNotes[insc.id]?.[ue.id] && parseFloat(localNotes[insc.id]![ue.id]!) >= 10 ? '#22c55e' : localNotes[insc.id]?.[ue.id] && parseFloat(localNotes[insc.id]![ue.id]!) < 10 ? '#E30613' : '#e5e5e5' }"
                   />
                 </td>
@@ -422,10 +493,10 @@ onMounted(load)
           <input v-model="ueForm.ordre" type="number" min="0" class="nb-input" style="width:100%;box-sizing:border-box;" />
         </UcFormGroup>
       </UcFormGrid>
-      <UcFormGroup label="Intervenant" style="margin-top:12px;">
-        <select v-model="ueForm.intervenant_id" class="nb-input" style="width:100%;box-sizing:border-box;">
-          <option value="">— Sans intervenant —</option>
-          <option v-for="i in intervenants" :key="i.id" :value="String(i.id)">{{ i.prenom }} {{ i.nom }}</option>
+      <UcFormGroup label="Enseignant" style="margin-top:12px;">
+        <select v-model="ueForm.enseignant_id" class="nb-input" style="width:100%;box-sizing:border-box;">
+          <option value="">— Sans enseignant —</option>
+          <option v-for="i in enseignants" :key="i.id" :value="String(i.id)">{{ i.prenom }} {{ i.nom }}</option>
         </select>
       </UcFormGroup>
 
@@ -470,13 +541,42 @@ onMounted(load)
             </div>
           </div>
         </div>
-        <!-- Tableau UEs -->
+        <!-- Tableau UEs — Tronc commun -->
+        <template v-if="bulletin.has_tronc_commun && bulletin.ues_tronc_commun?.length">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#1d4ed8;margin:0 0 6px;display:flex;align-items:center;gap:6px;">
+            <span style="background:#eff6ff;border:1px solid #bfdbfe;padding:2px 8px;border-radius:6px;">🏫 Tronc Commun</span>
+          </div>
+          <table class="nb-table" style="margin-bottom:12px;">
+            <thead><tr style="background:#f0f9ff;"><th>UE</th><th>Intitulé</th><th>Enseignant</th><th style="text-align:center;">Coef.</th><th style="text-align:center;">Note</th><th style="text-align:center;">Points</th><th style="text-align:center;">Crédits</th></tr></thead>
+            <tbody>
+              <tr v-for="ue in bulletin.ues_tronc_commun" :key="ue.id" style="background:#f8fbff;">
+                <td style="font-family:monospace;font-size:11px;color:#1d4ed8;">{{ ue.code }}</td>
+                <td style="color:#333;font-weight:600;">{{ ue.intitule }}</td>
+                <td style="font-size:12px;color:#64748b;">{{ ue.enseignant ? `${ue.enseignant.prenom} ${ue.enseignant.nom}` : '—' }}</td>
+                <td style="text-align:center;color:#555;">{{ ue.coefficient }}</td>
+                <td style="text-align:center;font-weight:800;" :style="{ color: ue.note !== null ? (ue.note >= 10 ? '#16a34a' : '#E30613') : '#ccc' }">{{ ue.note !== null ? ue.note : '—' }}</td>
+                <td style="text-align:center;color:#555;">{{ ue.points ?? '—' }}</td>
+                <td style="text-align:center;">
+                  <span v-if="ue.note !== null" style="padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;" :style="{ background: ue.valide ? '#f0fdf4' : '#fff0f0', color: ue.valide ? '#16a34a' : '#E30613' }">
+                    {{ ue.valide ? `✓ ${ue.credits_ects}` : `✗ ${ue.credits_ects}` }}
+                  </span>
+                  <span v-else style="color:#ccc;">—</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#15803d;margin:0 0 6px;display:flex;align-items:center;gap:6px;">
+            <span style="background:#f0fdf4;border:1px solid #86efac;padding:2px 8px;border-radius:6px;">📚 Matières Spécifiques</span>
+          </div>
+        </template>
+        <!-- Tableau UEs — Spécifiques (ou toutes si pas de tronc commun) -->
         <table class="nb-table" style="margin-bottom:16px;">
-          <thead><tr><th>UE</th><th>Intitulé</th><th style="text-align:center;">Coef.</th><th style="text-align:center;">Note</th><th style="text-align:center;">Points</th><th style="text-align:center;">Crédits</th></tr></thead>
+          <thead><tr><th>UE</th><th>Intitulé</th><th>Enseignant</th><th style="text-align:center;">Coef.</th><th style="text-align:center;">Note</th><th style="text-align:center;">Points</th><th style="text-align:center;">Crédits</th></tr></thead>
           <tbody>
-            <tr v-for="ue in bulletin.ues" :key="ue.id">
+            <tr v-for="ue in (bulletin.has_tronc_commun ? bulletin.ues_specifiques : bulletin.ues)" :key="ue.id">
               <td style="font-family:monospace;font-size:11px;color:#888;">{{ ue.code }}</td>
               <td style="color:#333;">{{ ue.intitule }}</td>
+              <td style="font-size:12px;color:#64748b;">{{ ue.enseignant ? `${ue.enseignant.prenom} ${ue.enseignant.nom}` : '—' }}</td>
               <td style="text-align:center;color:#555;">{{ ue.coefficient }}</td>
               <td style="text-align:center;font-weight:800;" :style="{ color: ue.note !== null ? (ue.note >= 10 ? '#16a34a' : '#E30613') : '#ccc' }">{{ ue.note !== null ? ue.note : '—' }}</td>
               <td style="text-align:center;color:#555;">{{ ue.points ?? '—' }}</td>
@@ -533,6 +633,9 @@ onMounted(load)
 .nb-note-input { width:72px; text-align:center; border:1.5px solid #e5e5e5; border-radius:4px; padding:5px 4px; font-family:'Poppins',sans-serif; font-size:13px; font-weight:700; }
 .nb-note-input:focus { outline:none; }
 .nb-note-input:disabled { background:#f9f9f9; }
+.nb-note-locked { background:#f3f4f6 !important; cursor:not-allowed; color:#ccc; font-size:12px; }
+.nb-prof-banner { background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:10px 16px; margin-bottom:14px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:12.5px; color:#1d4ed8; }
+.nb-prof-banner strong { color:#1e40af; }
 
 .nb-decision-badge { padding:3px 9px; border-radius:20px; font-size:10.5px; font-weight:600; }
 .bg-green-100 { background:#f0fdf4; } .text-green-700 { color:#15803d; }

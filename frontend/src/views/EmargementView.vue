@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 
 const auth = useAuthStore()
-
+const isEnseignant = computed(() => auth.user?.role === 'enseignant')
 const canWrite = computed(() =>
-  ['dg', 'dir_peda', 'coordinateur', 'secretariat', 'intervenant'].includes(auth.user?.role ?? '')
+  ['dg', 'dir_peda', 'coordinateur', 'secretariat', 'enseignant'].includes(auth.user?.role ?? '')
 )
+// Profil enseignant connecté (pour filtrer ses séances)
+const monEnseignantId = ref<number | null>(null)
 
 interface Seance {
   id: number
@@ -17,44 +19,56 @@ interface Seance {
   date_fin: string
   mode: string
   statut: string
+  notes?: string
+  contenu_seance?: string
+  objectifs?: string
+  signe_enseignant_at?: string
+  signe_enseignant_id?: number
   classe?: { id: number; nom: string }
-  intervenant?: { id: number; nom: string; prenom: string }
+  enseignant?: { id: number; nom: string; prenom: string }
 }
 interface Inscription {
   id: number
-  etudiant: { nom: string; prenom: string }
-  parcours?: { nom: string }
+  etudiant: { nom: string; prenom: string; numero_etudiant?: string }
+  classe?: { id: number; nom: string }
 }
 interface Presence {
-  id?: number
   seance_id: number
   inscription_id: number
   statut: 'present' | 'retard' | 'absent' | 'excuse'
   heure_arrivee?: string
 }
 
-const seances = ref<Seance[]>([])
-const classes = ref<{ id: number; nom: string }[]>([])
-const inscriptions = ref<Inscription[]>([])
-const presences = ref<Presence[]>([])
-const loading = ref(true)
+const seances        = ref<Seance[]>([])
+const classes        = ref<{ id: number; nom: string }[]>([])
+const inscriptions   = ref<Inscription[]>([])
+const loading        = ref(true)
 const loadingInscrits = ref(false)
-const saving = ref(false)
-const success = ref(false)
+const saving         = ref(false)
+const savingContenu  = ref(false)
+const success        = ref(false)
+const successContenu = ref(false)
 
 const filterClasse = ref('')
-const filterDate = ref(new Date().toISOString().slice(0, 10))
+const filterDate   = ref(new Date().toISOString().slice(0, 10))
+const filterStatut = ref('')
 const selectedSeance = ref<Seance | null>(null)
 
-// États de présence locaux (avant envoi)
+// Présences locales
 const localPresences = ref<Record<number, 'present' | 'retard' | 'absent' | 'excuse'>>({})
+
+// Contenu de séance
+const contenuForm = ref({ contenu_seance: '', objectifs: '' })
 
 const seancesFiltrees = computed(() => {
   return seances.value.filter(s => {
+    // Prof : ne voir que ses séances
+    if (isEnseignant.value && monEnseignantId.value && s.enseignant?.id !== monEnseignantId.value) return false
     if (filterClasse.value && String(s.classe?.id) !== filterClasse.value) return false
+    if (filterStatut.value && s.statut !== filterStatut.value) return false
     if (filterDate.value) {
       const d = new Date(s.date_debut)
-      const fd = new Date(filterDate.value)
+      const fd = new Date(filterDate.value + 'T00:00:00')
       return d.getFullYear() === fd.getFullYear() &&
         d.getMonth() === fd.getMonth() &&
         d.getDate() === fd.getDate()
@@ -63,15 +77,14 @@ const seancesFiltrees = computed(() => {
   })
 })
 
-// Compteurs
 const compteurs = computed(() => {
   const vals = Object.values(localPresences.value)
   return {
     present: vals.filter(v => v === 'present').length,
-    retard: vals.filter(v => v === 'retard').length,
-    absent: vals.filter(v => v === 'absent').length,
-    excuse: vals.filter(v => v === 'excuse').length,
-    total: inscriptions.value.length,
+    retard:  vals.filter(v => v === 'retard').length,
+    absent:  vals.filter(v => v === 'absent').length,
+    excuse:  vals.filter(v => v === 'excuse').length,
+    total:   inscriptions.value.length,
   }
 })
 
@@ -80,40 +93,47 @@ const tauxPresence = computed(() => {
   return Math.round((compteurs.value.present + compteurs.value.retard) / compteurs.value.total * 100)
 })
 
+const estCloturee = computed(() => selectedSeance.value?.statut === 'effectue')
+
 function fmtTime(dt: string) {
   return new Date(dt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
-
-function statutClass(s: string) {
-  return {
-    present: 'bg-green-100 text-green-700',
-    retard:  'bg-orange-100 text-orange-700',
-    absent:  'bg-red-100 text-red-700',
-    excuse:  'bg-gray-100 text-gray-600',
-  }[s] ?? 'bg-gray-100 text-gray-600'
+function fmtDate(dt: string) {
+  return new Date(dt).toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' })
+}
+function fmtDateTime(dt: string) {
+  return new Date(dt).toLocaleString('fr-FR', { day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit' })
 }
 
-function btnClass(statut: string, current: string) {
-  const active = statut === current
+function statutBadge(s: string) {
   const map: Record<string, string> = {
-    present: active ? 'bg-green-600 text-white' : 'bg-green-50 text-green-700 hover:bg-green-100',
-    retard:  active ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100',
-    absent:  active ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100',
-    excuse:  active ? 'bg-gray-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
+    planifie: 'em-badge-planifie',
+    confirme: 'em-badge-confirme',
+    effectue: 'em-badge-effectue',
+    annule:   'em-badge-annule',
+    reporte:  'em-badge-reporte',
   }
-  return map[statut] ?? ''
+  return map[s] ?? 'em-badge-planifie'
+}
+function statutLabel(s: string) {
+  return { planifie: 'Planifiée', confirme: 'Confirmée', effectue: '✓ Émargée', annule: 'Annulée', reporte: 'Reportée' }[s] ?? s
 }
 
-function setPresence(inscriptionId: number, statut: 'present' | 'retard' | 'absent' | 'excuse') {
-  localPresences.value[inscriptionId] = statut
+function setPresence(id: number, st: 'present' | 'retard' | 'absent' | 'excuse') {
+  if (estCloturee.value) return
+  localPresences.value[id] = st
 }
-
 function marquerTousPresents() {
+  if (estCloturee.value) return
   inscriptions.value.forEach(i => { localPresences.value[i.id] = 'present' })
 }
 
 async function selectSeance(s: Seance) {
   selectedSeance.value = s
+  contenuForm.value = {
+    contenu_seance: s.contenu_seance ?? '',
+    objectifs:      s.objectifs ?? '',
+  }
   loadingInscrits.value = true
   try {
     const [iRes, pRes] = await Promise.all([
@@ -121,11 +141,8 @@ async function selectSeance(s: Seance) {
       api.get(`/seances/${s.id}/presences`),
     ])
     inscriptions.value = iRes.data.data ?? iRes.data
-    presences.value = pRes.data
-
-    // Initialiser localPresences depuis les présences existantes ou absent par défaut
     const presenceMap: Record<number, Presence> = {}
-    pRes.data.forEach((p: Presence) => { presenceMap[p.inscription_id] = p })
+    ;(pRes.data as Presence[]).forEach(p => { presenceMap[p.inscription_id] = p })
     localPresences.value = {}
     inscriptions.value.forEach(i => {
       localPresences.value[i.id] = presenceMap[i.id]?.statut ?? 'absent'
@@ -135,10 +152,9 @@ async function selectSeance(s: Seance) {
   }
 }
 
-async function enregistrer() {
+async function sauvegarderPresences() {
   if (!selectedSeance.value) return
-  saving.value = true
-  success.value = false
+  saving.value = true; success.value = false
   try {
     const payload = inscriptions.value.map(i => ({
       inscription_id: i.id,
@@ -147,23 +163,59 @@ async function enregistrer() {
     await api.post(`/seances/${selectedSeance.value.id}/presences`, { presences: payload })
     success.value = true
     setTimeout(() => { success.value = false }, 3000)
-  } finally {
-    saving.value = false
-  }
+  } finally { saving.value = false }
+}
+
+async function sauvegarderContenu() {
+  if (!selectedSeance.value) return
+  savingContenu.value = true; successContenu.value = false
+  try {
+    await api.post(`/seances/${selectedSeance.value.id}/contenu`, contenuForm.value)
+    successContenu.value = true
+    selectedSeance.value.contenu_seance = contenuForm.value.contenu_seance
+    selectedSeance.value.objectifs = contenuForm.value.objectifs
+    setTimeout(() => { successContenu.value = false }, 3000)
+  } finally { savingContenu.value = false }
+}
+
+async function emargerEtCloturer() {
+  if (!selectedSeance.value) return
+  if (!confirm('Clôturer et émarger cette séance ? Elle ne pourra plus être modifiée.')) return
+  saving.value = true
+  try {
+    const payload = inscriptions.value.map(i => ({
+      inscription_id: i.id,
+      statut: localPresences.value[i.id] ?? 'absent',
+    }))
+    const { data } = await api.post(`/seances/${selectedSeance.value.id}/emarger`, {
+      ...contenuForm.value,
+      presences: payload,
+      enseignant_id: selectedSeance.value.enseignant?.id ?? null,
+    })
+    // Mettre à jour la séance localement
+    selectedSeance.value = { ...selectedSeance.value, ...data }
+    const idx = seances.value.findIndex(s => s.id === data.id)
+    if (idx !== -1) seances.value[idx] = { ...seances.value[idx], ...data }
+  } finally { saving.value = false }
 }
 
 async function load() {
   loading.value = true
   try {
-    const [sRes, cRes] = await Promise.all([
-      api.get('/seances'),
-      api.get('/classes'),
-    ])
+    const [sRes, cRes] = await Promise.all([api.get('/seances'), api.get('/classes')])
     seances.value = sRes.data
     classes.value = cRes.data
-  } finally {
-    loading.value = false
-  }
+    // Si enseignant : récupérer son ID pour filtrer ses séances
+    if (isEnseignant.value) {
+      try {
+        const { data } = await api.get('/enseignants/me')
+        monEnseignantId.value = data.id ?? null
+        // Filtrer les classes du prof seulement
+        const mesClasseIds = (data.mes_classes ?? []).map((c: any) => c.id)
+        classes.value = classes.value.filter((c: any) => mesClasseIds.includes(c.id))
+      } catch {}
+    }
+  } finally { loading.value = false }
 }
 
 onMounted(load)
@@ -171,108 +223,210 @@ onMounted(load)
 
 <template>
   <div class="uc-content">
-
-    <!-- En-tête -->
-    <UcPageHeader title="Émargement" subtitle="Saisie des présences par séance" />
+    <UcPageHeader title="Émargement" subtitle="Saisie des présences et contenu des séances" />
 
     <div class="em-grid">
 
-      <!-- Colonne gauche : liste des séances -->
-      <div class="em-seances-col">
-        <div class="em-seances-card">
-          <div class="em-seances-header">Séances</div>
-          <div class="em-seances-filters">
+      <!-- ── Colonne gauche : liste séances ── -->
+      <div class="em-left">
+        <div class="em-card">
+          <div class="em-card-header">Séances</div>
+          <div class="em-filters">
             <select v-model="filterClasse" class="em-select">
               <option value="">Toutes les classes</option>
               <option v-for="c in classes" :key="c.id" :value="String(c.id)">{{ c.nom }}</option>
             </select>
             <input v-model="filterDate" type="date" class="em-select" />
+            <select v-model="filterStatut" class="em-select">
+              <option value="">Tous les statuts</option>
+              <option value="planifie">Planifiées</option>
+              <option value="confirme">Confirmées</option>
+              <option value="effectue">Émargées</option>
+              <option value="annule">Annulées</option>
+            </select>
           </div>
           <div v-if="loading" class="em-empty">Chargement…</div>
           <div v-else-if="!seancesFiltrees.length" class="em-empty">Aucune séance trouvée</div>
-          <div v-else class="em-seances-list">
+          <div v-else class="em-list">
             <button v-for="s in seancesFiltrees" :key="s.id"
               @click="selectSeance(s)"
-              class="em-seance-item"
-              :class="selectedSeance?.id === s.id ? 'em-seance-item--active' : ''">
-              <p class="em-seance-matiere">{{ s.matiere }}</p>
-              <p class="em-seance-meta">{{ s.classe?.nom }} · {{ fmtTime(s.date_debut) }}–{{ fmtTime(s.date_fin) }}</p>
-              <p v-if="s.intervenant" class="em-seance-interv">{{ s.intervenant.prenom }} {{ s.intervenant.nom }}</p>
+              class="em-item"
+              :class="[selectedSeance?.id === s.id ? 'em-item--active' : '', s.statut === 'effectue' ? 'em-item--done' : '']">
+              <div class="em-item-top">
+                <span class="em-item-mat">{{ s.matiere }}</span>
+                <span class="em-statut-dot" :class="statutBadge(s.statut)">{{ statutLabel(s.statut) }}</span>
+              </div>
+              <p class="em-item-meta">{{ s.classe?.nom }} · {{ fmtTime(s.date_debut) }}–{{ fmtTime(s.date_fin) }}</p>
+              <p v-if="s.enseignant" class="em-item-prof">{{ s.enseignant.prenom }} {{ s.enseignant.nom }}</p>
             </button>
           </div>
         </div>
       </div>
 
-      <!-- Colonne droite : émargement -->
-      <div class="em-right-col">
+      <!-- ── Colonne droite : détail ── -->
+      <div class="em-right">
         <div v-if="!selectedSeance" class="em-placeholder">
-          <p style="font-size:13px;color:#aaa;">Sélectionnez une séance pour saisir les présences</p>
+          <svg width="40" height="40" fill="none" stroke="#ddd" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+          <p>Sélectionnez une séance</p>
         </div>
 
-        <div v-else class="em-emargement-card">
-          <!-- En-tête séance -->
-          <div class="em-seance-head">
-            <div style="flex:1;">
-              <h2 class="em-seance-nom">{{ selectedSeance.matiere }}</h2>
-              <p class="em-seance-info">{{ selectedSeance.classe?.nom }} · {{ fmtTime(selectedSeance.date_debut) }} – {{ fmtTime(selectedSeance.date_fin) }}</p>
-            </div>
-            <div style="text-align:right;">
-              <p class="em-taux" :style="{ color: tauxPresence >= 80 ? '#16a34a' : tauxPresence >= 50 ? '#ea580c' : '#E30613' }">
-                {{ tauxPresence }}%
+        <div v-else class="em-detail">
+
+          <!-- ── Bloc 1 : Info séance ── -->
+          <div class="em-block em-block-info">
+            <div class="em-info-left">
+              <h2 class="em-seance-titre">{{ selectedSeance.matiere }}</h2>
+              <p class="em-seance-sub">
+                {{ selectedSeance.classe?.nom }} ·
+                {{ fmtDate(selectedSeance.date_debut) }} ·
+                {{ fmtTime(selectedSeance.date_debut) }}–{{ fmtTime(selectedSeance.date_fin) }}
               </p>
-              <p class="em-taux-sub">{{ compteurs.present + compteurs.retard }}/{{ compteurs.total }} présents</p>
+              <p v-if="selectedSeance.enseignant" class="em-seance-prof">
+                👨‍🏫 {{ selectedSeance.enseignant.prenom }} {{ selectedSeance.enseignant.nom }}
+              </p>
             </div>
-          </div>
-          <!-- Progress bar -->
-          <div class="em-progress-bar">
-            <div class="em-progress-present" :style="{ width: `${Math.round(compteurs.present / (compteurs.total || 1) * 100)}%` }"></div>
-            <div class="em-progress-retard" :style="{ width: `${Math.round(compteurs.retard / (compteurs.total || 1) * 100)}%` }"></div>
-          </div>
-
-          <!-- Compteurs -->
-          <div class="em-compteurs">
-            <div class="em-compteur"><span class="em-cpt-val" style="color:#16a34a;">{{ compteurs.present }}</span><span class="em-cpt-label">Présents</span></div>
-            <div class="em-compteur"><span class="em-cpt-val" style="color:#ea580c;">{{ compteurs.retard }}</span><span class="em-cpt-label">Retards</span></div>
-            <div class="em-compteur"><span class="em-cpt-val" style="color:#E30613;">{{ compteurs.absent }}</span><span class="em-cpt-label">Absents</span></div>
-            <div class="em-compteur"><span class="em-cpt-val" style="color:#888;">{{ compteurs.excuse }}</span><span class="em-cpt-label">Excusés</span></div>
-          </div>
-
-          <!-- Action -->
-          <div v-if="canWrite" class="em-actions">
-            <button @click="marquerTousPresents" class="em-btn-tous-presents">✓ Tous présents</button>
-            <span v-if="success" class="em-success-msg">✓ Enregistré avec succès</span>
-          </div>
-
-          <!-- Liste étudiants -->
-          <div v-if="loadingInscrits" class="em-empty" style="padding:24px;">Chargement des inscrits…</div>
-          <div v-else-if="!inscriptions.length" class="em-empty" style="padding:24px;">Aucun étudiant inscrit dans cette classe.</div>
-          <div v-else class="em-students-list">
-            <div v-for="insc in inscriptions" :key="insc.id" class="em-student-row">
-              <div class="em-avatar">{{ insc.etudiant.prenom[0] }}{{ insc.etudiant.nom[0] }}</div>
-              <div style="flex:1;min-width:0;">
-                <p class="em-student-name">{{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}</p>
-                <p v-if="insc.parcours" class="em-student-sub">{{ insc.parcours.nom }}</p>
-              </div>
-              <span class="em-presence-badge" :class="`em-badge-${localPresences[insc.id] ?? 'absent'}`">
-                {{ { present: 'Présent', retard: 'Retard', absent: 'Absent', excuse: 'Excusé' }[localPresences[insc.id] ?? 'absent'] }}
+            <div class="em-info-right">
+              <span class="em-statut-badge" :class="statutBadge(selectedSeance.statut)">
+                {{ statutLabel(selectedSeance.statut) }}
               </span>
-              <div v-if="canWrite" class="em-btn-group">
-                <button v-for="st in ['present', 'retard', 'absent', 'excuse']" :key="st"
-                  @click="setPresence(insc.id, st as any)"
-                  class="em-toggle-btn"
-                  :class="`em-toggle-${st}${(localPresences[insc.id] ?? 'absent') === st ? '--active' : ''}`">
-                  {{ { present: 'P', retard: 'R', absent: 'A', excuse: 'E' }[st] }}
-                </button>
+              <div v-if="estCloturee && selectedSeance.signe_enseignant_at" class="em-signe-info">
+                Émargé le {{ fmtDateTime(selectedSeance.signe_enseignant_at) }}
               </div>
             </div>
           </div>
 
-          <!-- Bouton enregistrer -->
-          <div v-if="canWrite" class="em-save-footer">
-            <button @click="enregistrer" :disabled="saving || !inscriptions.length" class="em-btn-save">
-              {{ saving ? 'Enregistrement…' : 'Enregistrer les présences' }}
-            </button>
+          <!-- ── Bloc 2 : Contenu de la séance ── -->
+          <div class="em-block">
+            <div class="em-block-title">
+              <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              Contenu de la séance
+            </div>
+            <div class="em-form-group">
+              <label class="em-label">Objectifs du cours</label>
+              <textarea v-model="contenuForm.objectifs" :disabled="estCloturee"
+                class="em-textarea" rows="2"
+                placeholder="Ex: Comprendre les bases du HTML, créer une structure de page web…"></textarea>
+            </div>
+            <div class="em-form-group">
+              <label class="em-label">Contenu enseigné <span style="color:#E30613">*</span></label>
+              <textarea v-model="contenuForm.contenu_seance" :disabled="estCloturee"
+                class="em-textarea" rows="4"
+                placeholder="Décrivez ce qui a été traité durant cette séance : chapitres, exercices, notions abordées…"></textarea>
+            </div>
+            <div v-if="!estCloturee && canWrite" class="em-save-contenu">
+              <button @click="sauvegarderContenu" :disabled="savingContenu" class="em-btn-secondary">
+                {{ savingContenu ? 'Sauvegarde…' : '💾 Sauvegarder le contenu' }}
+              </button>
+              <span v-if="successContenu" class="em-success-msg">✓ Contenu sauvegardé</span>
+            </div>
+            <div v-if="estCloturee && (selectedSeance.contenu_seance || selectedSeance.objectifs)" class="em-contenu-readonly">
+              <div v-if="selectedSeance.objectifs"><strong>Objectifs :</strong> {{ selectedSeance.objectifs }}</div>
+              <div v-if="selectedSeance.contenu_seance" style="margin-top:6px;"><strong>Contenu :</strong> {{ selectedSeance.contenu_seance }}</div>
+            </div>
           </div>
+
+          <!-- ── Bloc 3 : Présences ── -->
+          <div class="em-block">
+            <div class="em-block-title">
+              <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+              Présences
+            </div>
+
+            <!-- KPIs présences -->
+            <div class="em-kpis">
+              <div class="em-kpi em-kpi-present">
+                <span class="em-kpi-val">{{ compteurs.present }}</span>
+                <span class="em-kpi-label">Présents</span>
+              </div>
+              <div class="em-kpi em-kpi-retard">
+                <span class="em-kpi-val">{{ compteurs.retard }}</span>
+                <span class="em-kpi-label">Retards</span>
+              </div>
+              <div class="em-kpi em-kpi-absent">
+                <span class="em-kpi-val">{{ compteurs.absent }}</span>
+                <span class="em-kpi-label">Absents</span>
+              </div>
+              <div class="em-kpi em-kpi-excuse">
+                <span class="em-kpi-val">{{ compteurs.excuse }}</span>
+                <span class="em-kpi-label">Excusés</span>
+              </div>
+              <div class="em-kpi em-kpi-taux">
+                <span class="em-kpi-val" :style="{ color: tauxPresence >= 80 ? '#16a34a' : tauxPresence >= 50 ? '#ea580c' : '#E30613' }">
+                  {{ tauxPresence }}%
+                </span>
+                <span class="em-kpi-label">Taux présence</span>
+              </div>
+            </div>
+
+            <!-- Barre de progression -->
+            <div class="em-progress">
+              <div class="em-progress-present" :style="{ width: `${Math.round(compteurs.present/Math.max(compteurs.total,1)*100)}%` }"></div>
+              <div class="em-progress-retard" :style="{ width: `${Math.round(compteurs.retard/Math.max(compteurs.total,1)*100)}%` }"></div>
+              <div class="em-progress-absent" :style="{ width: `${Math.round(compteurs.absent/Math.max(compteurs.total,1)*100)}%` }"></div>
+            </div>
+
+            <!-- Action rapide -->
+            <div v-if="canWrite && !estCloturee" class="em-quick-actions">
+              <button @click="marquerTousPresents" class="em-btn-all-present">✓ Tous présents</button>
+            </div>
+
+            <!-- Liste étudiants -->
+            <div v-if="loadingInscrits" class="em-empty">Chargement…</div>
+            <div v-else-if="!inscriptions.length" class="em-empty">Aucun étudiant inscrit dans cette classe.</div>
+            <div v-else class="em-students">
+              <div v-for="insc in inscriptions" :key="insc.id" class="em-student">
+                <div class="em-avatar">{{ (insc.etudiant.prenom[0] ?? '') + (insc.etudiant.nom[0] ?? '') }}</div>
+                <div class="em-student-info">
+                  <p class="em-student-name">{{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}</p>
+                  <p v-if="insc.classe" class="em-student-sub">{{ insc.classe.nom }}</p>
+                </div>
+                <span class="em-badge" :class="`em-badge-${localPresences[insc.id] ?? 'absent'}`">
+                  {{ { present: 'Présent', retard: 'Retard', absent: 'Absent', excuse: 'Excusé' }[localPresences[insc.id] ?? 'absent'] }}
+                </span>
+                <div v-if="canWrite && !estCloturee" class="em-toggles">
+                  <button v-for="st in ['present','retard','absent','excuse']" :key="st"
+                    @click="setPresence(insc.id, st as any)"
+                    class="em-toggle"
+                    :class="`em-toggle-${st}${(localPresences[insc.id] ?? 'absent') === st ? '--active' : ''}`">
+                    {{ { present:'P', retard:'R', absent:'A', excuse:'E' }[st] }}
+                  </button>
+                </div>
+                <div v-else-if="estCloturee" class="em-locked-icon">🔒</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Bloc 4 : Émargement / Clôture ── -->
+          <div v-if="canWrite" class="em-block em-block-footer">
+
+            <!-- Séance déjà clôturée -->
+            <div v-if="estCloturee" class="em-cloture-done">
+              <div class="em-cloture-done-icon">✅</div>
+              <div>
+                <strong>Séance émargée et clôturée</strong>
+                <p v-if="selectedSeance.signe_enseignant_at">
+                  Le {{ fmtDateTime(selectedSeance.signe_enseignant_at) }}
+                </p>
+              </div>
+            </div>
+
+            <!-- Actions si pas encore clôturée -->
+            <div v-else class="em-footer-actions">
+              <button @click="sauvegarderPresences" :disabled="saving || !inscriptions.length"
+                class="em-btn-secondary">
+                {{ saving ? 'Sauvegarde…' : '💾 Sauvegarder les présences' }}
+              </button>
+              <button @click="emargerEtCloturer" :disabled="saving || !inscriptions.length"
+                class="em-btn-emarger">
+                ✍️ Émarger et clôturer la séance
+              </button>
+              <span v-if="success" class="em-success-msg">✓ Présences enregistrées</span>
+            </div>
+            <p v-if="!estCloturee && !contenuForm.contenu_seance.trim()" class="em-hint">
+              ℹ️ Pensez à renseigner le contenu de la séance avant de clôturer.
+            </p>
+          </div>
+
         </div>
       </div>
     </div>
@@ -280,77 +434,125 @@ onMounted(load)
 </template>
 
 <style scoped>
-.em-grid { display:grid; grid-template-columns:1fr 2fr; gap:16px; }
-.em-seances-col {}
-.em-seances-card { background:#fff; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,0.05); overflow:hidden; }
-.em-seances-header { padding:12px 16px; background:#f9f9f9; border-bottom:1px solid #f0f0f0; font-size:12px; font-weight:700; color:#555; text-transform:uppercase; }
-.em-seances-filters { padding:10px; border-bottom:1px solid #f0f0f0; display:flex; flex-direction:column; gap:8px; }
-.em-select { width:100%; box-sizing:border-box; border:1.5px solid #e5e5e5; border-radius:4px; padding:8px 10px; font-family:'Poppins',sans-serif; font-size:12px; color:#333; background:#fff; }
-.em-empty { padding:24px; text-align:center; color:#aaa; font-size:13px; }
-.em-seances-list { max-height:500px; overflow-y:auto; }
-.em-seance-item { width:100%; text-align:left; padding:12px 16px; border:none; background:none; cursor:pointer; border-bottom:1px solid #f9f9f9; border-left:3px solid transparent; font-family:'Poppins',sans-serif; }
-.em-seance-item:hover { background:#fafafa; }
-.em-seance-item--active { background:#fff5f5; border-left-color:#E30613; }
-.em-seance-matiere { font-size:13px; font-weight:600; color:#333; margin:0; }
-.em-seance-meta { font-size:11px; color:#888; margin:2px 0 0; }
-.em-seance-interv { font-size:11px; color:#aaa; margin:1px 0 0; }
+.em-grid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
 
-.em-right-col {}
-.em-placeholder { background:#fff; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,0.05); display:flex; align-items:center; justify-content:center; min-height:240px; }
-.em-emargement-card { background:#fff; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,0.05); overflow:hidden; }
-.em-seance-head { display:flex; align-items:flex-start; gap:16px; padding:16px 20px; background:#f9f9f9; border-bottom:1px solid #f0f0f0; }
-.em-seance-nom { font-size:15px; font-weight:700; color:#111; margin:0; }
-.em-seance-info { font-size:12px; color:#888; margin:3px 0 0; }
-.em-taux { font-size:24px; font-weight:800; margin:0; }
-.em-taux-sub { font-size:11px; color:#aaa; margin:2px 0 0; }
-.em-progress-bar { height:6px; background:#f0f0f0; display:flex; overflow:hidden; }
-.em-progress-present { background:#22c55e; transition:width 0.3s; }
-.em-progress-retard { background:#f97316; transition:width 0.3s; }
+/* ── Carte gauche ── */
+.em-card { background: #fff; border-radius: 10px; border: 1px solid #f0f0f0; box-shadow: 0 2px 8px rgba(0,0,0,0.04); overflow: hidden; }
+.em-card-header { padding: 12px 16px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #888; background: #fafafa; border-bottom: 1px solid #f0f0f0; letter-spacing: .5px; }
+.em-filters { padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; border-bottom: 1px solid #f0f0f0; }
+.em-select { width: 100%; box-sizing: border-box; border: 1.5px solid #e5e5e5; border-radius: 6px; padding: 7px 10px; font-size: 12px; color: #333; background: #fff; font-family: inherit; }
+.em-empty { padding: 24px; text-align: center; color: #aaa; font-size: 13px; }
+.em-list { max-height: 520px; overflow-y: auto; }
+.em-item { width: 100%; text-align: left; padding: 11px 14px; border: none; background: none; cursor: pointer; border-bottom: 1px solid #f9f9f9; border-left: 3px solid transparent; font-family: inherit; transition: background .15s; }
+.em-item:hover { background: #fafafa; }
+.em-item--active { background: #fff5f5 !important; border-left-color: #E30613; }
+.em-item--done { opacity: .8; }
+.em-item-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.em-item-mat { font-size: 12.5px; font-weight: 600; color: #222; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.em-item-meta { font-size: 11px; color: #999; margin: 3px 0 0; }
+.em-item-prof { font-size: 11px; color: #bbb; margin: 1px 0 0; }
 
-.em-compteurs { display:grid; grid-template-columns:repeat(4,1fr); border-bottom:1px solid #f0f0f0; }
-.em-compteur { padding:12px; text-align:center; border-right:1px solid #f0f0f0; }
-.em-compteur:last-child { border-right:none; }
-.em-cpt-val { display:block; font-size:20px; font-weight:800; }
-.em-cpt-label { display:block; font-size:10.5px; color:#aaa; margin-top:2px; }
+/* Statut dots */
+.em-statut-dot { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
+.em-badge-planifie { background: #eff6ff; color: #2563eb; }
+.em-badge-confirme { background: #f0fdf4; color: #16a34a; }
+.em-badge-effectue { background: #f0fdf4; color: #15803d; }
+.em-badge-annule   { background: #fff0f0; color: #b91c1c; }
+.em-badge-reporte  { background: #fffbeb; color: #92400e; }
 
-.em-actions { display:flex; align-items:center; gap:12px; padding:10px 20px; background:#f9f9f9; border-bottom:1px solid #f0f0f0; }
-.em-btn-tous-presents { background:#22c55e; color:#fff; border:none; border-radius:4px; padding:6px 12px; font-size:11px; font-weight:600; cursor:pointer; font-family:'Poppins',sans-serif; }
-.em-btn-tous-presents:hover { background:#16a34a; }
-.em-success-msg { color:#16a34a; font-size:12px; font-weight:600; margin-left:auto; }
+/* ── Droite ── */
+.em-right {}
+.em-placeholder { background: #fff; border-radius: 10px; border: 1px solid #f0f0f0; box-shadow: 0 2px 8px rgba(0,0,0,0.04); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 260px; color: #bbb; font-size: 13px; }
+.em-detail { display: flex; flex-direction: column; gap: 12px; }
 
-.em-students-list { max-height:360px; overflow-y:auto; }
-.em-student-row { display:flex; align-items:center; gap:12px; padding:10px 20px; border-bottom:1px solid #f9f9f9; }
-.em-avatar { width:32px; height:32px; border-radius:50%; background:#fde8e8; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#E30613; flex-shrink:0; text-transform:uppercase; }
-.em-student-name { font-size:13px; font-weight:600; color:#333; margin:0; }
-.em-student-sub { font-size:11px; color:#aaa; margin:0; }
+.em-block { background: #fff; border-radius: 10px; border: 1px solid #f0f0f0; box-shadow: 0 2px 8px rgba(0,0,0,0.04); overflow: hidden; }
+.em-block-title { display: flex; align-items: center; gap: 7px; padding: 12px 16px; font-size: 12px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: .5px; background: #fafafa; border-bottom: 1px solid #f0f0f0; }
 
-.em-presence-badge { padding:3px 8px; border-radius:20px; font-size:10.5px; font-weight:600; }
-.em-badge-present { background:#f0fdf4; color:#15803d; }
-.em-badge-retard { background:#fff7ed; color:#c2410c; }
-.em-badge-absent { background:#fff0f0; color:#b91c1c; }
-.em-badge-excuse { background:#f3f4f6; color:#555; }
+/* Bloc info séance */
+.em-block-info { padding: 16px 20px; display: flex; align-items: flex-start; gap: 16px; }
+.em-info-left { flex: 1; }
+.em-seance-titre { font-size: 16px; font-weight: 700; color: #111; margin: 0; }
+.em-seance-sub { font-size: 12px; color: #888; margin: 4px 0 0; }
+.em-seance-prof { font-size: 12px; color: #555; margin: 4px 0 0; }
+.em-info-right { text-align: right; flex-shrink: 0; }
+.em-statut-badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 20px; }
+.em-signe-info { font-size: 10.5px; color: #aaa; margin-top: 6px; }
 
-.em-btn-group { display:flex; gap:3px; }
-.em-toggle-btn { border:none; border-radius:3px; padding:4px 8px; font-size:11px; font-weight:700; cursor:pointer; font-family:'Poppins',sans-serif; }
-.em-toggle-present { background:#f0fdf4; color:#15803d; }
-.em-toggle-present--active { background:#22c55e; color:#fff; }
-.em-toggle-retard { background:#fff7ed; color:#c2410c; }
-.em-toggle-retard--active { background:#f97316; color:#fff; }
-.em-toggle-absent { background:#fff0f0; color:#b91c1c; }
-.em-toggle-absent--active { background:#E30613; color:#fff; }
-.em-toggle-excuse { background:#f3f4f6; color:#555; }
-.em-toggle-excuse--active { background:#888; color:#fff; }
+/* Contenu séance */
+.em-form-group { padding: 10px 16px 0; }
+.em-label { display: block; font-size: 11.5px; font-weight: 600; color: #555; margin-bottom: 5px; }
+.em-textarea { width: 100%; box-sizing: border-box; border: 1.5px solid #e5e5e5; border-radius: 6px; padding: 8px 12px; font-size: 13px; font-family: inherit; color: #333; resize: vertical; background: #fff; }
+.em-textarea:focus { outline: none; border-color: #E30613; }
+.em-textarea:disabled { background: #f9f9f9; color: #888; cursor: not-allowed; }
+.em-save-contenu { display: flex; align-items: center; gap: 10px; padding: 10px 16px 14px; }
+.em-contenu-readonly { padding: 12px 16px; font-size: 13px; color: #444; line-height: 1.6; border-top: 1px solid #f0f0f0; margin-top: 8px; }
 
-.em-save-footer { padding:14px 20px; border-top:1px solid #f0f0f0; background:#f9f9f9; }
-.em-btn-save { width:100%; padding:11px; background:#E30613; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:600; cursor:pointer; font-family:'Poppins',sans-serif; }
-.em-btn-save:hover { background:#c00; }
-.em-btn-save:disabled { opacity:0.5; cursor:not-allowed; }
+/* KPIs présences */
+.em-kpis { display: grid; grid-template-columns: repeat(5,1fr); border-bottom: 1px solid #f0f0f0; }
+.em-kpi { padding: 12px 8px; text-align: center; border-right: 1px solid #f0f0f0; }
+.em-kpi:last-child { border-right: none; }
+.em-kpi-val { display: block; font-size: 20px; font-weight: 800; }
+.em-kpi-label { display: block; font-size: 10px; color: #aaa; margin-top: 2px; }
+.em-kpi-present .em-kpi-val { color: #16a34a; }
+.em-kpi-retard  .em-kpi-val { color: #ea580c; }
+.em-kpi-absent  .em-kpi-val { color: #E30613; }
+.em-kpi-excuse  .em-kpi-val { color: #888; }
 
-@media (max-width: 768px) {
-  .em-grid { grid-template-columns: 1fr !important; }
-  .em-compteurs { grid-template-columns: repeat(2, 1fr) !important; }
-  .em-compteur:nth-child(2) { border-right: none; }
-  .em-students-list { max-height: none; }
-  .em-seances-list { max-height: 260px; }
+/* Barre progression */
+.em-progress { height: 5px; background: #f0f0f0; display: flex; overflow: hidden; }
+.em-progress-present { background: #22c55e; transition: width .3s; }
+.em-progress-retard  { background: #f97316; transition: width .3s; }
+.em-progress-absent  { background: #E30613; transition: width .3s; }
+
+.em-quick-actions { padding: 10px 16px; border-bottom: 1px solid #f0f0f0; background: #fafafa; }
+.em-btn-all-present { background: #22c55e; color: #fff; border: none; border-radius: 5px; padding: 6px 14px; font-size: 11.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.em-btn-all-present:hover { background: #16a34a; }
+
+/* Liste étudiants */
+.em-students { max-height: 340px; overflow-y: auto; }
+.em-student { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid #f9f9f9; }
+.em-avatar { width: 32px; height: 32px; border-radius: 50%; background: #fde8e8; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #E30613; flex-shrink: 0; text-transform: uppercase; }
+.em-student-info { flex: 1; min-width: 0; }
+.em-student-name { font-size: 13px; font-weight: 600; color: #222; margin: 0; }
+.em-student-sub { font-size: 10.5px; color: #aaa; margin: 0; }
+.em-badge { padding: 3px 8px; border-radius: 20px; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.em-badge-present { background: #f0fdf4; color: #15803d; }
+.em-badge-retard  { background: #fff7ed; color: #c2410c; }
+.em-badge-absent  { background: #fff0f0; color: #b91c1c; }
+.em-badge-excuse  { background: #f3f4f6; color: #555; }
+.em-toggles { display: flex; gap: 3px; }
+.em-toggle { border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit; }
+.em-toggle-present { background: #f0fdf4; color: #15803d; }
+.em-toggle-present--active { background: #22c55e; color: #fff; }
+.em-toggle-retard  { background: #fff7ed; color: #c2410c; }
+.em-toggle-retard--active  { background: #f97316; color: #fff; }
+.em-toggle-absent  { background: #fff0f0; color: #b91c1c; }
+.em-toggle-absent--active  { background: #E30613; color: #fff; }
+.em-toggle-excuse  { background: #f3f4f6; color: #555; }
+.em-toggle-excuse--active  { background: #888; color: #fff; }
+.em-locked-icon { font-size: 14px; color: #ccc; }
+
+/* Footer bloc */
+.em-block-footer { padding: 16px 20px; }
+.em-footer-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.em-btn-secondary { background: #f3f4f6; color: #374151; border: 1.5px solid #e5e7eb; border-radius: 6px; padding: 9px 16px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.em-btn-secondary:hover { background: #e5e7eb; }
+.em-btn-secondary:disabled { opacity: .5; cursor: not-allowed; }
+.em-btn-emarger { background: #E30613; color: #fff; border: none; border-radius: 6px; padding: 9px 20px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+.em-btn-emarger:hover { background: #c00; }
+.em-btn-emarger:disabled { opacity: .45; cursor: not-allowed; }
+.em-success-msg { color: #16a34a; font-size: 12px; font-weight: 600; }
+.em-hint { margin: 8px 0 0; font-size: 11.5px; color: #f59e0b; }
+.em-cloture-done { display: flex; align-items: center; gap: 14px; background: #f0fdf4; border-radius: 8px; padding: 14px 18px; }
+.em-cloture-done-icon { font-size: 24px; }
+.em-cloture-done strong { font-size: 13.5px; color: #15803d; }
+.em-cloture-done p { font-size: 12px; color: #888; margin: 3px 0 0; }
+
+@media (max-width: 900px) {
+  .em-grid { grid-template-columns: 1fr; }
+  .em-kpis { grid-template-columns: repeat(3,1fr); }
+  .em-kpi:nth-child(3) { border-right: none; }
+  .em-students { max-height: none; }
+  .em-list { max-height: 280px; }
 }
 </style>

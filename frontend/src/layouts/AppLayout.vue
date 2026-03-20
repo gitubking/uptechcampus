@@ -17,7 +17,7 @@ const roleLabel: Record<string, string> = {
   resp_fin: 'Resp. Financier',
   coordinateur: 'Coordinateur',
   secretariat: 'Secrétariat',
-  intervenant: 'Intervenant',
+  enseignant: 'Enseignant',
   etudiant: 'Étudiant',
 }
 
@@ -73,7 +73,7 @@ const navSections: NavSection[] = [
         path: '/dashboard',
         label: 'Tableau de bord',
         icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
-        roles: ['dg', 'dir_peda', 'resp_fin', 'coordinateur', 'secretariat', 'intervenant'],
+        roles: ['dg', 'dir_peda', 'resp_fin', 'coordinateur', 'secretariat', 'enseignant'],
       },
       {
         path: '/rapports',
@@ -114,23 +114,23 @@ const navSections: NavSection[] = [
         path: '/emplois-du-temps',
         label: 'Emplois du temps',
         icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
-        roles: ['dg', 'dir_peda', 'coordinateur', 'secretariat', 'intervenant'],
+        roles: ['dg', 'dir_peda', 'coordinateur', 'secretariat', 'enseignant'],
       },
       {
         path: '/emargement',
         label: 'Émargement',
         icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
-        roles: ['dg', 'dir_peda', 'coordinateur', 'secretariat', 'intervenant'],
+        roles: ['dg', 'dir_peda', 'coordinateur', 'secretariat', 'enseignant'],
       },
       {
         path: '/notes-bulletins',
         label: 'Notes & Bulletins',
         icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
-        roles: ['dg', 'dir_peda', 'coordinateur'],
+        roles: ['dg', 'dir_peda', 'coordinateur', 'enseignant'],
       },
       {
-        path: '/intervenants',
-        label: 'Intervenants',
+        path: '/enseignants',
+        label: 'Enseignants',
         icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
         roles: ['dg', 'dir_peda', 'coordinateur', 'secretariat'],
       },
@@ -140,8 +140,14 @@ const navSections: NavSection[] = [
     label: 'Finances',
     items: [
       {
+        path: '/finance',
+        label: 'Tableau financier',
+        icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+        roles: ['dg', 'resp_fin'],
+      },
+      {
         path: '/paiements',
-        label: 'Paiements',
+        label: 'Recettes',
         icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z',
         roles: ['dg', 'resp_fin', 'secretariat'],
       },
@@ -219,14 +225,15 @@ const pageTitleMap: Record<string, string> = {
   '/filieres': 'Filières',
   '/parcours': 'Parcours',
   '/classes': 'Classes',
-  '/paiements': 'Paiements',
+  '/finance': 'Tableau financier',
+  '/paiements': 'Recettes',
   '/depenses': 'Dépenses',
   '/emplois-du-temps': 'Emplois du temps',
   '/emargement': 'Émargement',
   '/notes-bulletins': 'Notes & Bulletins',
   '/rapports': 'Rapports',
   '/communication': 'Communication',
-  '/intervenants': 'Intervenants',
+  '/enseignants': 'Enseignants',
   '/annees-academiques': 'Années académiques',
   '/tarifs': 'Tarifs',
   '/users': 'Utilisateurs',
@@ -322,14 +329,24 @@ const userInitials = computed(() => {
           <span class="uc-topbar-breadcrumb">/ {{ auth.user?.role ? roleLabel[auth.user.role] : '' }}</span>
         </h1>
         <div class="uc-topbar-right">
-          <span class="uc-topbar-date">📅 {{ todayStr }}</span>
+          <span class="uc-topbar-date">
+            <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:inline;vertical-align:-1px;opacity:0.6;margin-right:4px;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>{{ todayStr }}
+          </span>
           <button class="uc-notif-btn" title="Notifications">
-            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
             <span class="uc-notif-dot"></span>
           </button>
+          <div class="uc-topbar-sep"></div>
+          <div class="uc-topbar-user">
+            <div class="uc-topbar-user-avatar">{{ userInitials }}</div>
+            <span class="uc-topbar-user-name">{{ auth.fullName }}</span>
+          </div>
         </div>
       </div>
 
@@ -343,29 +360,40 @@ const userInitials = computed(() => {
 
   <!-- ── Avertissement session expirante ── -->
   <Teleport to="body">
-    <div v-if="showSessionWarning"
-      style="position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);">
-      <div style="background:#fff;border-radius:8px;padding:28px 32px;max-width:400px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.25);">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
-          <div style="width:40px;height:40px;border-radius:50%;background:#fff8f0;border:1px solid #fed7aa;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-            <svg width="20" height="20" fill="none" stroke="#f97316" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+    <Transition name="modal-fade">
+      <div v-if="showSessionWarning" class="uc-modal-overlay" style="z-index:500;">
+        <div class="uc-modal-box" style="max-width:400px;">
+          <div class="uc-modal-header">
+            <div style="display:flex;align-items:center;gap:11px;">
+              <div style="width:38px;height:38px;border-radius:10px;background:#fff7ed;border:1px solid #fed7aa;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <svg width="18" height="18" fill="none" stroke="#f97316" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="uc-modal-title">Session sur le point d'expirer</h3>
+                <p class="uc-modal-subtitle">Inactivité détectée</p>
+              </div>
+            </div>
           </div>
-          <h3 style="font-size:15px;font-weight:700;color:#111;">Session sur le point d'expirer</h3>
+          <div class="uc-modal-body">
+            <p style="font-size:13px;color:var(--ink-600);line-height:1.65;">
+              Votre session va expirer dans <strong style="color:var(--ink-900);">5 minutes</strong> en raison d'inactivité.
+              Cliquez sur le bouton ci-dessous pour rester connecté.
+            </p>
+          </div>
+          <div class="uc-modal-footer">
+            <button class="uc-btn uc-btn-primary" style="width:100%;justify-content:center;" @click="resetIdleTimer">
+              <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Rester connecté
+            </button>
+          </div>
         </div>
-        <p style="font-size:12.5px;color:#555;margin-bottom:20px;line-height:1.6;">
-          Votre session va expirer dans <strong style="color:#111;">5 minutes</strong> en raison d'inactivité.
-          Cliquez pour rester connecté.
-        </p>
-        <button @click="resetIdleTimer"
-          style="width:100%;padding:13px;background:#E30613;color:#fff;border:none;border-radius:4px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s;"
-          onmouseover="this.style.background='#c0000e'"
-          onmouseout="this.style.background='#E30613'">
-          Rester connecté
-        </button>
       </div>
-    </div>
+    </Transition>
   </Teleport>
 </template>

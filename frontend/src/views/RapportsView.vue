@@ -21,7 +21,7 @@ interface RapportData {
     nb_ues: number; nb_etudiants_notes: number
   }
   rh: {
-    intervenants_actifs: number; volume_horaire: number
+    enseignants_actifs: number; volume_horaire: number
     repartition_mode: Record<string, number>
   }
   etudiants: {
@@ -96,7 +96,7 @@ function exportCSV() {
     filename = 'rapport_rh.csv'
     rows = [
       ['Indicateur', 'Valeur'],
-      ['Intervenants actifs', String(data.value.rh.intervenants_actifs)],
+      ['Enseignants actifs', String(data.value.rh.enseignants_actifs)],
       ['Volume horaire', `${data.value.rh.volume_horaire}h`],
       [],
       ['Mode', 'Pourcentage'],
@@ -228,7 +228,7 @@ onMounted(load)
       <!-- RH -->
       <div v-else-if="activeTab === 'rh'" style="display:flex;flex-direction:column;gap:16px;">
         <div class="uc-kpi-grid" style="grid-template-columns:repeat(3,1fr);">
-          <div class="uc-kpi-card blue"><div class="uc-kpi-label">Intervenants actifs</div><div class="uc-kpi-value">{{ data.rh.intervenants_actifs }}</div></div>
+          <div class="uc-kpi-card blue"><div class="uc-kpi-label">Enseignants actifs</div><div class="uc-kpi-value">{{ data.rh.enseignants_actifs }}</div></div>
           <div class="uc-kpi-card orange"><div class="uc-kpi-label">Volume horaire</div><div class="uc-kpi-value">{{ data.rh.volume_horaire }}h</div></div>
           <div class="uc-kpi-card green"><div class="uc-kpi-label">Modes utilisés</div><div class="uc-kpi-value">{{ Object.keys(data.rh.repartition_mode).length }}</div></div>
         </div>

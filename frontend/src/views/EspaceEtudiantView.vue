@@ -93,6 +93,86 @@ function avatarColor(id: number) {
   return avatarColors[id % avatarColors.length]
 }
 
+function printRecu(p: any) {
+  const etud = dashboardData?.value?.etudiant
+  const insc = dashboardData?.value?.inscription
+  const typeLabel = (t: string) => ({ frais_inscription: 'Frais d\'inscription', mensualite: 'Mensualité', tenue: 'Tenue', rattrapage: 'Rattrapage' }[t] ?? t)
+  const moisLabel = (m: string) => m ? new Date(m).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) : ''
+  const recuBlock = (exemplaire: string) => `
+    <div class="recu-block">
+      <div class="header">
+        <div class="logo-area"><div class="logo-circle">U</div></div>
+        <div class="school-info">
+          <div class="school-name">UPTECH CAMPUS</div>
+          <div class="school-meta">NINEA : 008595312 &nbsp;|&nbsp; Agrément : 006547/MEN/DEST</div>
+          <div class="school-meta">Liberté 6 Extension, Dakar – Sénégal</div>
+        </div>
+        <div class="recu-ref">
+          <div class="recu-num">${p.numero_recu || '—'}</div>
+          <div class="recu-date">${new Date(p.created_at).toLocaleDateString('fr-FR')}</div>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="title-row"><span class="title-recu">REÇU DE PAIEMENT</span><span class="exemplaire">${exemplaire}</span></div>
+      <div class="student-row">
+        <div class="sfield"><span class="slbl">Étudiant</span><span class="sval">${etud?.prenom ?? ''} ${etud?.nom ?? ''}</span></div>
+        <div class="sfield"><span class="slbl">N° Étudiant</span><span class="sval">${etud?.numero_etudiant ?? '—'}</span></div>
+        <div class="sfield"><span class="slbl">Filière</span><span class="sval">${insc?.filiere ?? '—'}</span></div>
+        ${p.mois_concerne ? `<div class="sfield"><span class="slbl">Mois</span><span class="sval">${moisLabel(p.mois_concerne)}</span></div>` : ''}
+      </div>
+      <div class="montant-box">
+        <div class="lbl">Montant payé</div>
+        <div class="amt">${Number(p.montant).toLocaleString('fr-FR')} FCFA</div>
+      </div>
+      <div class="type-row"><strong>Objet :</strong> ${typeLabel(p.type_paiement)}</div>
+      <div class="footer-bar">Ce reçu est un justificatif officiel de paiement — Uptech Campus · Dakar, Sénégal</div>
+    </div>`
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Reçu ${p.numero_recu}</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{font-family:Arial,sans-serif;background:#f5f5f5;padding:20px}
+      .recu-block{background:#fff;border:1px solid #ddd;border-radius:8px;padding:18px 20px;width:420px;margin:0 auto}
+      .header{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+      .logo-circle{width:42px;height:42px;background:#E30613;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;font-weight:900}
+      .school-name{font-size:13px;font-weight:900;color:#111;letter-spacing:1px}
+      .school-meta{font-size:8px;color:#777;margin-top:1px}
+      .school-info{flex:1}
+      .recu-ref{text-align:right}
+      .recu-num{font-size:11px;font-weight:700;color:#E30613}
+      .recu-date{font-size:9px;color:#aaa;margin-top:2px}
+      .divider{border-top:1.5px solid #E30613;margin:8px 0}
+      .title-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+      .title-recu{font-size:13px;font-weight:900;color:#111;letter-spacing:1px;text-transform:uppercase}
+      .exemplaire{font-size:9px;color:#aaa;font-style:italic}
+      .student-row{display:flex;flex-wrap:wrap;gap:6px 16px;margin-bottom:10px}
+      .sfield{display:flex;flex-direction:column}
+      .slbl{font-size:8px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px}
+      .sval{font-size:11px;font-weight:600;color:#111}
+      .montant-box{border:1.5px solid #111;border-radius:6px;padding:8px 16px;text-align:center;margin:10px 0}
+      .montant-box .lbl{font-size:8px;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:2px}
+      .montant-box .amt{font-size:20px;font-weight:900;color:#111}
+      .type-row{font-size:10px;color:#555;margin-bottom:8px}
+      .footer-bar{border-top:1px solid #ccc;color:#777;font-size:7px;text-align:center;padding:4px 0;margin-top:10px}
+      .cut-line{text-align:center;font-size:11px;color:#aaa;margin:14px 0;letter-spacing:2px;border-top:1px dashed #ccc;padding-top:8px}
+      @media print{body{background:#fff;padding:0}.cut-line{page-break-inside:avoid}}
+    </style></head><body>
+    ${recuBlock('Exemplaire établissement')}
+    <div class="cut-line">✂ &nbsp; Découper ici &nbsp; ✂</div>
+    ${recuBlock('Exemplaire étudiant')}
+    </body></html>`
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const w = window.open(url, '_blank')
+  if (w) {
+    w.addEventListener('load', () => {
+      w.addEventListener('afterprint', () => { try { w.close() } catch { /* ignore */ }; URL.revokeObjectURL(url) })
+      setTimeout(() => { w.print() }, 300)
+    })
+  } else {
+    URL.revokeObjectURL(url)
+  }
+}
+
 // Grouper les séances par jour
 const seancesParJour = computed(() => {
   if (!dashboardData?.value?.seances_semaine) return []
@@ -198,7 +278,7 @@ const progressionFinanciere = computed(() => {
                 <div class="ee-seance-sep"></div>
                 <div class="ee-seance-info">
                   <p class="ee-seance-matiere">{{ s.matiere }}</p>
-                  <p class="ee-seance-sub">{{ s.intervenant }} · {{ s.salle || 'Salle TBD' }}</p>
+                  <p class="ee-seance-sub">{{ s.enseignant }} · {{ s.salle || 'Salle TBD' }}</p>
                 </div>
                 <span class="ee-mode-badge" :class="modeBadgeClass(s.mode)">{{ modeLabel(s.mode) }}</span>
               </div>
@@ -283,9 +363,14 @@ const progressionFinanciere = computed(() => {
                   <p class="ee-paiement-type">{{ typePaiementLabel(p.type_paiement) }}</p>
                   <p class="ee-paiement-recu">{{ p.numero_recu }}</p>
                 </div>
-                <div style="text-align:right">
-                  <p class="ee-paiement-montant">{{ p.montant.toLocaleString('fr-FR') }} FCFA</p>
-                  <span class="ee-paiement-statut" :class="paiementStatutClass(p.statut)">{{ paiementStatutLabel(p.statut) }}</span>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="text-align:right">
+                    <p class="ee-paiement-montant">{{ p.montant.toLocaleString('fr-FR') }} FCFA</p>
+                    <span class="ee-paiement-statut" :class="paiementStatutClass(p.statut)">{{ paiementStatutLabel(p.statut) }}</span>
+                  </div>
+                  <button v-if="p.statut === 'confirme'" @click="printRecu(p)" title="Imprimer le reçu" style="background:none;border:1px solid #e5e7eb;border-radius:6px;padding:4px 6px;cursor:pointer;color:#666;display:flex;align-items:center">
+                    <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -555,4 +640,16 @@ const progressionFinanciere = computed(() => {
 .bg-amber-500 { background:#f59e0b; }
 .bg-red-600 { background:#E30613; }
 .bg-red-500 { background:#6366f1; }
+
+@media (max-width: 768px) {
+  .ee-grid { grid-template-columns: 1fr !important; }
+  .ee-col-right { order: -1; } /* sidebar remonte en haut */
+  .ee-notes-grid { grid-template-columns: 1fr 1fr !important; }
+  .ee-fin-stats { grid-template-columns: 1fr 1fr !important; }
+  .ee-notes-resume { flex-direction: column; align-items: flex-start; gap: 10px; }
+}
+@media (max-width: 480px) {
+  .ee-notes-grid { grid-template-columns: 1fr !important; }
+  .ee-fin-stats { grid-template-columns: 1fr !important; }
+}
 </style>

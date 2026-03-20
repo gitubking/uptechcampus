@@ -1,5 +1,5 @@
 <template>
-  <div class="uc-table-wrap">
+  <div class="uc-table-wrap" style="-webkit-overflow-scrolling:touch;">
     <table class="uc-table">
       <thead>
         <tr>
