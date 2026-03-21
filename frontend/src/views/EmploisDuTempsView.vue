@@ -41,7 +41,8 @@ interface MatiereOption extends FiliereMatiere {
   label: string          // texte affiché dans le <option>
 }
 interface EnseignantFiliere { id: number; filiere_id: number; matiere: string }
-interface Classe { id: number; nom: string; filiere_id: number; filiere?: { id: number; nom: string } }
+interface UESimple { id: number; intitule: string; code: string; enseignant_id: number | null; matiere_id: number | null }
+interface Classe { id: number; nom: string; filiere_id: number | null; est_tronc_commun?: boolean; filiere?: { id: number; nom: string } }
 interface Enseignant { id: number; nom: string; prenom: string; filieres?: EnseignantFiliere[] }
 interface AnneeAcademique { id: number; libelle: string; actif: boolean }
 
@@ -50,6 +51,7 @@ const classes = ref<Classe[]>([])
 const enseignants = ref<Enseignant[]>([])
 const anneesAcademiques = ref<AnneeAcademique[]>([])
 const filieres = ref<{ id: number; nom: string; matieres?: FiliereMatiere[] }[]>([])
+const uesForSelectedClasse = ref<UESimple[]>([])
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
@@ -163,6 +165,7 @@ const form = ref({
 
 function openCreate() {
   editId.value = null
+  uesForSelectedClasse.value = []
   const today = weekDays.value[0]!
   form.value = {
     classe_id: filterClasse.value,
@@ -177,11 +180,17 @@ function openCreate() {
     annee_academique_id: String(anneesAcademiques.value.find(a => a.actif)?.id ?? ''),
     notes: '',
   }
+  // Si la classe pré-filtrée est un tronc commun, charger ses UEs
+  if (filterClasse.value) {
+    const c = classes.value.find(c => String(c.id) === String(filterClasse.value))
+    if (c?.est_tronc_commun) loadUesForClasse(filterClasse.value)
+  }
   showModal.value = true
 }
 
 function openEdit(s: Seance) {
   editId.value = s.id
+  uesForSelectedClasse.value = []
   const debut = new Date(s.date_debut)
   const fin = new Date(s.date_fin)
   form.value = {
@@ -197,6 +206,9 @@ function openEdit(s: Seance) {
     annee_academique_id: String(s.annee_academique_id ?? ''),
     notes: s.notes ?? '',
   }
+  // Si la classe est un tronc commun, charger ses UEs
+  const c = classes.value.find(c => String(c.id) === String(s.classe_id))
+  if (c?.est_tronc_commun) loadUesForClasse(String(s.classe_id))
   selectedSeance.value = null
   showModal.value = true
 }
@@ -327,6 +339,30 @@ const enseignantsForClasse = computed(() => {
 
 // Matières disponibles pour le formulaire avec volume horaire et filtrage
 const matieresForForm = computed((): MatiereOption[] => {
+  // ── Tronc commun : matières depuis les UEs de la classe ──
+  if (isTroncCommunSelected.value) {
+    let ues = uesForSelectedClasse.value
+    // Si un enseignant est sélectionné, ne montrer que ses UEs
+    if (form.value.enseignant_id) {
+      const filtered = ues.filter(u => String(u.enseignant_id) === String(form.value.enseignant_id))
+      if (filtered.length > 0) ues = filtered
+    }
+    // Dédupliquer par intitulé (une matière = une seule option)
+    const seen = new Set<string>()
+    return ues
+      .filter(u => { if (seen.has(u.intitule)) return false; seen.add(u.intitule); return true })
+      .map((u): MatiereOption => ({
+        id: u.matiere_id ?? 0,
+        nom: u.intitule,
+        code: u.code,
+        volumeTotal: 0,
+        heuresPlanifiees: heuresPlanifiees(form.value.classe_id, u.intitule),
+        heuresRestantes: 0,
+        label: u.intitule,
+      }))
+  }
+
+  // ── Classe normale : matières de la filière ──
   const fId = filiereIdForClasse(form.value.classe_id)
   if (!fId) return []
 
@@ -373,9 +409,23 @@ const selectedMatiereInfo = computed((): MatiereOption | null => {
   return matieresForForm.value.find(m => m.nom === form.value.matiere) ?? null
 })
 
+const isTroncCommunSelected = computed(() => {
+  if (!form.value.classe_id) return false
+  const c = classes.value.find(c => String(c.id) === String(form.value.classe_id))
+  return c?.est_tronc_commun ?? false
+})
+
+async function loadUesForClasse(classeId: string) {
+  if (!classeId) { uesForSelectedClasse.value = []; return }
+  const { data } = await api.get('/ues', { params: { classe_id: classeId } })
+  uesForSelectedClasse.value = Array.isArray(data) ? data : (data.data ?? [])
+}
+
 function onClasseChange() {
   form.value.enseignant_id = ''
   form.value.matiere = ''
+  uesForSelectedClasse.value = []
+  if (isTroncCommunSelected.value) loadUesForClasse(form.value.classe_id)
 }
 
 function onEnseignantChange() {
@@ -615,6 +665,14 @@ onMounted(load)
                 · {{ roundHalf(selectedMatiereInfo.heuresRestantes) }}h restantes
               </span>
             </div>
+          </div>
+        </template>
+
+        <!-- Tronc commun sélectionné mais UEs pas encore chargées ou vides -->
+        <template v-else-if="isTroncCommunSelected">
+          <div style="font-size:12px;color:#e67e22;background:#fff8f0;border:1px solid #fed7aa;border-radius:6px;padding:8px 12px;">
+            ⚠️ Aucune matière affectée à cette classe tronc commun.
+            Assignez d'abord un enseignant + matière dans l'onglet <strong>Enseignants</strong> de la classe.
           </div>
         </template>
 
