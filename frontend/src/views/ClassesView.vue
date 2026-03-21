@@ -801,15 +801,17 @@ onMounted(load)
         <UcFormGroup label="Nom de la classe" :required="true">
           <input v-model="form.nom" required placeholder="ex: BTS SIO 1 — 2025/2026" class="cl-input" style="width:100%;box-sizing:border-box;" />
         </UcFormGroup>
-        <UcFormGroup v-if="isAcademique" label="Année d'étude" :required="true">
-          <select v-model.number="form.niveau" class="cl-input" style="width:100%;box-sizing:border-box;">
-            <option :value="1">1ère année</option>
-            <option :value="2">2ème année</option>
-            <option :value="3">3ème année</option>
-            <option :value="4">4ème année</option>
-            <option :value="5">5ème année</option>
-          </select>
-        </UcFormGroup>
+        <!-- Tronc commun toggle — EN PREMIER pour conditionner filière -->
+        <div style="background:#f8fafc;border:1.5px solid #e5e5e5;border-radius:8px;padding:12px 14px;">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+            <input type="checkbox" v-model="form.est_tronc_commun" @change="() => { if(form.est_tronc_commun) { form.tronc_commun_id = null; form.filiere_id = null } }" style="width:16px;height:16px;accent-color:#E30613;" />
+            <div>
+              <div style="font-size:13px;font-weight:600;color:#1e3a5f;">🏫 Cette classe est un Tronc Commun</div>
+              <div style="font-size:11px;color:#64748b;margin-top:2px;">Ses UEs seront automatiquement partagées avec les classes qui lui sont liées</div>
+            </div>
+          </label>
+        </div>
+
         <template v-if="!form.est_tronc_commun">
           <UcFormGroup label="Type de formation">
             <select v-model="selectedType" @change="onTypeChange" class="cl-input" style="width:100%;box-sizing:border-box;">
@@ -827,21 +829,21 @@ onMounted(load)
         <div v-else style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 14px;font-size:12px;color:#0369a1;">
           🏫 <strong>Tronc commun</strong> — Pas de filière spécifique. Les étudiants de plusieurs filières peuvent y être inscrits. Les coefficients sont ceux de leur propre filière.
         </div>
+
+        <UcFormGroup v-if="isAcademique" label="Année d'étude" :required="true">
+          <select v-model.number="form.niveau" class="cl-input" style="width:100%;box-sizing:border-box;">
+            <option :value="1">1ère année</option>
+            <option :value="2">2ème année</option>
+            <option :value="3">3ème année</option>
+            <option :value="4">4ème année</option>
+            <option :value="5">5ème année</option>
+          </select>
+        </UcFormGroup>
         <UcFormGroup label="Année académique" :required="true">
           <select v-model="form.annee_academique_id" required class="cl-input" style="width:100%;box-sizing:border-box;">
             <option v-for="a in annees" :key="a.id" :value="a.id">{{ a.libelle }}</option>
           </select>
         </UcFormGroup>
-        <!-- Tronc commun toggle -->
-        <div style="background:#f8fafc;border:1.5px solid #e5e5e5;border-radius:8px;padding:12px 14px;">
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
-            <input type="checkbox" v-model="form.est_tronc_commun" @change="() => { if(form.est_tronc_commun) { form.tronc_commun_id = null; form.filiere_id = null } }" style="width:16px;height:16px;accent-color:#E30613;" />
-            <div>
-              <div style="font-size:13px;font-weight:600;color:#1e3a5f;">🏫 Cette classe est un Tronc Commun</div>
-              <div style="font-size:11px;color:#64748b;margin-top:2px;">Ses UEs seront automatiquement partagées avec les classes qui lui sont liées</div>
-            </div>
-          </label>
-        </div>
 
         <!-- Lier à un tronc commun (uniquement si pas elle-même tronc commun) -->
         <UcFormGroup v-if="!form.est_tronc_commun" label="Lier à un Tronc Commun">
