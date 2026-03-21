@@ -1675,11 +1675,12 @@ app.get('/enseignants/:id/stats', requireAuth, async (c) => {
   const heuresMois = parseFloat(seancesMois[0]?.heures) || 0
 
   // Vacations payées (dépenses liées à cet enseignant)
+  const ensNom = (await pool.query('SELECT nom FROM enseignants WHERE id=$1',[id])).rows[0]?.nom ?? ''
   const { rows: vacRows } = await pool.query(`
     SELECT COALESCE(SUM(montant),0)::numeric(10,2) as paye
-    FROM depenses WHERE categorie_code='vacations'
+    FROM depenses WHERE categorie='vacations'
       AND (notes ILIKE $1 OR libelle ILIKE $1)
-  `, [`%${(await pool.query('SELECT nom,prenom FROM enseignants WHERE id=$1',[id])).rows[0]?.nom ?? ''}%`])
+  `, [`%${ensNom}%`])
   const vacPaye = parseFloat(vacRows[0]?.paye) || 0
   const montantDu = Math.round(heuresTot * tarif)
 
