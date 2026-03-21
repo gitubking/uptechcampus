@@ -63,16 +63,14 @@ const contenuForm = ref({ contenu_seance: '', objectifs: '' })
 
 const seancesFiltrees = computed(() => {
   return seances.value.filter(s => {
-    // Prof : ne voir que ses séances
-    if (isEnseignant.value && monEnseignantId.value && s.enseignant?.id !== monEnseignantId.value) return false
+    // Prof : ne voir que ses séances — ne pas exclure si enseignant est null (déjà filtré côté backend)
+    if (isEnseignant.value && monEnseignantId.value && s.enseignant && s.enseignant.id !== monEnseignantId.value) return false
     if (filterClasse.value && String(s.classe?.id) !== filterClasse.value) return false
     if (filterStatut.value && s.statut !== filterStatut.value) return false
     if (filterDate.value) {
-      const d = new Date(s.date_debut)
-      const fd = new Date(filterDate.value + 'T00:00:00')
-      return d.getFullYear() === fd.getFullYear() &&
-        d.getMonth() === fd.getMonth() &&
-        d.getDate() === fd.getDate()
+      // Comparer uniquement la partie YYYY-MM-DD du timestamp (évite les décalages UTC/local)
+      const seanceDate = s.date_debut.slice(0, 10)
+      return seanceDate === filterDate.value
     }
     return true
   })
