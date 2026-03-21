@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
+import RichTextEditor from '@/components/ui/RichTextEditor.vue'
 
 const auth = useAuthStore()
 const isEnseignant = computed(() => auth.user?.role === 'enseignant')
@@ -303,15 +304,21 @@ onMounted(load)
             </div>
             <div class="em-form-group">
               <label class="em-label">Objectifs du cours</label>
-              <textarea v-model="contenuForm.objectifs" :disabled="estCloturee"
-                class="em-textarea" rows="2"
-                placeholder="Ex: Comprendre les bases du HTML, créer une structure de page web…"></textarea>
+              <RichTextEditor
+                v-model="contenuForm.objectifs"
+                :disabled="estCloturee"
+                :rows="2"
+                placeholder="Ex: Comprendre les bases du HTML, créer une structure de page web…"
+              />
             </div>
             <div class="em-form-group">
               <label class="em-label">Contenu enseigné <span style="color:#E30613">*</span></label>
-              <textarea v-model="contenuForm.contenu_seance" :disabled="estCloturee"
-                class="em-textarea" rows="4"
-                placeholder="Décrivez ce qui a été traité durant cette séance : chapitres, exercices, notions abordées…"></textarea>
+              <RichTextEditor
+                v-model="contenuForm.contenu_seance"
+                :disabled="estCloturee"
+                :rows="4"
+                placeholder="Décrivez ce qui a été traité durant cette séance : chapitres, exercices, notions abordées…"
+              />
             </div>
             <div v-if="!estCloturee && canWrite" class="em-save-contenu">
               <button @click="sauvegarderContenu" :disabled="savingContenu" class="em-btn-secondary">
@@ -320,8 +327,14 @@ onMounted(load)
               <span v-if="successContenu" class="em-success-msg">✓ Contenu sauvegardé</span>
             </div>
             <div v-if="estCloturee && (selectedSeance.contenu_seance || selectedSeance.objectifs)" class="em-contenu-readonly">
-              <div v-if="selectedSeance.objectifs"><strong>Objectifs :</strong> {{ selectedSeance.objectifs }}</div>
-              <div v-if="selectedSeance.contenu_seance" style="margin-top:6px;"><strong>Contenu :</strong> {{ selectedSeance.contenu_seance }}</div>
+              <div v-if="selectedSeance.objectifs">
+                <strong>Objectifs :</strong>
+                <div class="em-rich-display" v-html="selectedSeance.objectifs"></div>
+              </div>
+              <div v-if="selectedSeance.contenu_seance" style="margin-top:6px;">
+                <strong>Contenu :</strong>
+                <div class="em-rich-display" v-html="selectedSeance.contenu_seance"></div>
+              </div>
             </div>
           </div>
 
@@ -481,9 +494,9 @@ onMounted(load)
 /* Contenu séance */
 .em-form-group { padding: 10px 16px 0; }
 .em-label { display: block; font-size: 11.5px; font-weight: 600; color: #555; margin-bottom: 5px; }
-.em-textarea { width: 100%; box-sizing: border-box; border: 1.5px solid #e5e5e5; border-radius: 6px; padding: 8px 12px; font-size: 13px; font-family: inherit; color: #333; resize: vertical; background: #fff; }
-.em-textarea:focus { outline: none; border-color: #E30613; }
-.em-textarea:disabled { background: #f9f9f9; color: #888; cursor: not-allowed; }
+.em-rich-display { margin-top: 4px; font-size: 13px; color: #333; line-height: 1.6; }
+.em-rich-display ul, .em-rich-display ol { padding-left: 20px; margin: 4px 0; }
+.em-rich-display li { margin: 2px 0; }
 .em-save-contenu { display: flex; align-items: center; gap: 10px; padding: 10px 16px 14px; }
 .em-contenu-readonly { padding: 12px 16px; font-size: 13px; color: #444; line-height: 1.6; border-top: 1px solid #f0f0f0; margin-top: 8px; }
 
