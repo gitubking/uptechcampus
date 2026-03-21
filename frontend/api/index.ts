@@ -723,9 +723,10 @@ app.get('/classes', requireAuth, async (c) => {
 
 app.post('/classes', requireAuth, role('dg', 'coordinateur'), async (c) => {
   const b = await c.req.json()
+  const estTronc = b.est_tronc_commun ?? false
   const { rows } = await pool.query(
     'INSERT INTO classes (nom,filiere_id,annee_academique_id,niveau,est_tronc_commun,tronc_commun_id,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-    [b.nom, b.filiere_id, b.annee_academique_id, b.niveau ?? 1, b.est_tronc_commun ?? false, b.tronc_commun_id || null, u(c).id]
+    [b.nom, estTronc ? null : b.filiere_id, b.annee_academique_id, b.niveau ?? 1, estTronc, b.tronc_commun_id || null, u(c).id]
   )
   const classe = rows[0]
   if (Array.isArray(b.parcours_ids)) {
@@ -737,9 +738,10 @@ app.post('/classes', requireAuth, role('dg', 'coordinateur'), async (c) => {
 
 app.put('/classes/:id', requireAuth, role('dg', 'coordinateur'), async (c) => {
   const b = await c.req.json()
+  const estTronc = b.est_tronc_commun ?? false
   const { rows } = await pool.query(
     'UPDATE classes SET nom=$1,filiere_id=$2,annee_academique_id=$3,niveau=$4,est_tronc_commun=$5,tronc_commun_id=$6 WHERE id=$7 RETURNING *',
-    [b.nom, b.filiere_id, b.annee_academique_id, b.niveau ?? 1, b.est_tronc_commun ?? false, b.tronc_commun_id || null, c.req.param('id')]
+    [b.nom, estTronc ? null : b.filiere_id, b.annee_academique_id, b.niveau ?? 1, estTronc, b.tronc_commun_id || null, c.req.param('id')]
   )
   await pool.query('DELETE FROM classes_parcours WHERE classe_id=$1', [c.req.param('id')])
   if (Array.isArray(b.parcours_ids)) {

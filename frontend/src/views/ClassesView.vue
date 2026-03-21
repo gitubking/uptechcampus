@@ -535,7 +535,10 @@ onMounted(load)
           </div>
         </td>
         <td>
-          <div v-if="(c as any).filiere">
+          <div v-if="(c as any).est_tronc_commun" style="display:flex;align-items:center;gap:4px;">
+            <span style="font-size:12px;color:#0369a1;background:#e0f2fe;border-radius:10px;padding:2px 8px;font-weight:600;">Multi-filières</span>
+          </div>
+          <div v-else-if="(c as any).filiere">
             <p style="font-size:13px;font-weight:500;color:#333;margin:0;">{{ (c as any).filiere.nom }}</p>
             <span style="font-size:11px;color:#aaa;font-family:monospace;">{{ (c as any).filiere.code }}</span>
           </div>
@@ -571,7 +574,7 @@ onMounted(load)
     <UcModal
       v-model="showStudents"
       :title="classeForStudents?.nom ?? ''"
-      :subtitle="`Filière : ${classeForStudents?.filiere?.nom ?? '—'}`"
+      :subtitle="classeForStudents?.est_tronc_commun ? '🏫 Tronc commun — Multi-filières' : `Filière : ${classeForStudents?.filiere?.nom ?? '—'}`"
       width="680px"
       @close="showStudents = false"
     >
@@ -807,18 +810,23 @@ onMounted(load)
             <option :value="5">5ème année</option>
           </select>
         </UcFormGroup>
-        <UcFormGroup label="Type de formation">
-          <select v-model="selectedType" @change="onTypeChange" class="cl-input" style="width:100%;box-sizing:border-box;">
-            <option :value="null">— Tous les types —</option>
-            <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }} ({{ t.code }})</option>
-          </select>
-        </UcFormGroup>
-        <UcFormGroup label="Filière" :required="true">
-          <select v-model="form.filiere_id" required class="cl-input" style="width:100%;box-sizing:border-box;">
-            <option :value="null" disabled>— Choisir une filière —</option>
-            <option v-for="f in filteredFilieres" :key="f.id" :value="f.id">{{ f.nom }}</option>
-          </select>
-        </UcFormGroup>
+        <template v-if="!form.est_tronc_commun">
+          <UcFormGroup label="Type de formation">
+            <select v-model="selectedType" @change="onTypeChange" class="cl-input" style="width:100%;box-sizing:border-box;">
+              <option :value="null">— Tous les types —</option>
+              <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }} ({{ t.code }})</option>
+            </select>
+          </UcFormGroup>
+          <UcFormGroup label="Filière" :required="true">
+            <select v-model="form.filiere_id" required class="cl-input" style="width:100%;box-sizing:border-box;">
+              <option :value="null" disabled>— Choisir une filière —</option>
+              <option v-for="f in filteredFilieres" :key="f.id" :value="f.id">{{ f.nom }}</option>
+            </select>
+          </UcFormGroup>
+        </template>
+        <div v-else style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 14px;font-size:12px;color:#0369a1;">
+          🏫 <strong>Tronc commun</strong> — Pas de filière spécifique. Les étudiants de plusieurs filières peuvent y être inscrits. Les coefficients sont ceux de leur propre filière.
+        </div>
         <UcFormGroup label="Année académique" :required="true">
           <select v-model="form.annee_academique_id" required class="cl-input" style="width:100%;box-sizing:border-box;">
             <option v-for="a in annees" :key="a.id" :value="a.id">{{ a.libelle }}</option>
@@ -827,7 +835,7 @@ onMounted(load)
         <!-- Tronc commun toggle -->
         <div style="background:#f8fafc;border:1.5px solid #e5e5e5;border-radius:8px;padding:12px 14px;">
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
-            <input type="checkbox" v-model="form.est_tronc_commun" @change="() => { if(form.est_tronc_commun) form.tronc_commun_id = null }" style="width:16px;height:16px;accent-color:#E30613;" />
+            <input type="checkbox" v-model="form.est_tronc_commun" @change="() => { if(form.est_tronc_commun) { form.tronc_commun_id = null; form.filiere_id = null } }" style="width:16px;height:16px;accent-color:#E30613;" />
             <div>
               <div style="font-size:13px;font-weight:600;color:#1e3a5f;">🏫 Cette classe est un Tronc Commun</div>
               <div style="font-size:11px;color:#64748b;margin-top:2px;">Ses UEs seront automatiquement partagées avec les classes qui lui sont liées</div>
