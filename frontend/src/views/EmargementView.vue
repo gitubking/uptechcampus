@@ -63,17 +63,34 @@ const contenuForm = ref({ contenu_seance: '', objectifs: '' })
 
 const seancesFiltrees = computed(() => {
   return seances.value.filter(s => {
-    // Prof : ne voir que ses séances — ne pas exclure si enseignant est null (déjà filtré côté backend)
-    if (isEnseignant.value && monEnseignantId.value && s.enseignant && s.enseignant.id !== monEnseignantId.value) return false
-    if (filterClasse.value && String(s.classe?.id) !== filterClasse.value) return false
+    // Prof : ne voir que ses séances
+    // Inclure aussi les séances de sa classe où enseignant_id est null (affectation de classe)
+    if (isEnseignant.value && monEnseignantId.value) {
+      const estSonProf = s.enseignant?.id === monEnseignantId.value
+      const estSaClasse = mesClasseIds.value.includes(s.classe?.id ?? -1)
+      if (!estSonProf && !estSaClasse) return false
+    }
+    if (filterClasse.value && String(s.classe?.id) !== String(filterClasse.value)) return false
     if (filterStatut.value && s.statut !== filterStatut.value) return false
     if (filterDate.value) {
-      // Comparer uniquement la partie YYYY-MM-DD du timestamp (évite les décalages UTC/local)
-      const seanceDate = s.date_debut.slice(0, 10)
+      // Comparer YYYY-MM-DD du timestamp (robuste face aux fuseaux horaires)
+      const raw = String(s.date_debut)
+      const seanceDate = raw.length >= 10 ? raw.slice(0, 10) : ''
       return seanceDate === filterDate.value
     }
     return true
   })
+})
+
+// IDs des classes du prof (pour afficher ses séances même si enseignant_id non renseigné)
+const mesClasseIds = computed<number[]>(() => {
+  if (!isEnseignant.value || !monEnseignantId.value) return []
+  return [...new Set(
+    seances.value
+      .filter(s => s.enseignant?.id === monEnseignantId.value)
+      .map(s => s.classe?.id)
+      .filter((id): id is number => id !== undefined)
+  )]
 })
 
 const compteurs = computed(() => {
@@ -199,51 +216,45 @@ async function emargerEtCloturer() {
 }
 
 async function load() {
-  // Ne pas charger si auth pas encore prête
   if (!auth.user) return
   loading.value = true
   try {
+    // Toujours charger toutes les séances + toutes les classes
+    const [sRes, cRes] = await Promise.all([
+      api.get('/seances'),
+      api.get('/classes'),
+    ])
+    seances.value = sRes.data
+    classes.value = cRes.data
+
+    // Si enseignant : récupérer son ID profil pour filtrer côté client
     if (isEnseignant.value) {
       try {
-        // 1. Récupérer le profil enseignant pour obtenir l'ID
         const { data: profil } = await api.get('/enseignants/me')
         monEnseignantId.value = profil.id ?? null
 
-        // 2. Charger uniquement les séances de ce prof
-        const sRes = await api.get('/seances', { params: { enseignant_id: profil.id } })
-        seances.value = sRes.data
-
-        // 3. Dériver la liste des classes depuis ses séances réelles
-        //    (inclut tronc commun + classes sans UE formelle)
-        const classesMap = new Map<number, { id: number; nom: string }>()
-        seances.value.forEach(s => {
-          if (s.classe) classesMap.set(s.classe.id, s.classe)
-        })
-        classes.value = [...classesMap.values()].sort((a, b) => a.nom.localeCompare(b.nom))
+        // Restreindre la liste des classes à celles de ses séances
+        const sClasseIds = new Set(
+          seances.value
+            .filter(s => s.enseignant?.id === profil.id)
+            .map(s => s.classe?.id)
+            .filter(Boolean)
+        )
+        classes.value = classes.value
+          .filter((c: any) => sClasseIds.has(c.id))
+          .sort((a: any, b: any) => a.nom.localeCompare(b.nom))
       } catch (e) {
-        console.error('Erreur chargement profil enseignant:', e)
+        console.error('[Émargement] Erreur profil enseignant:', e)
       }
-    } else {
-      // Admin/coord : toutes les séances + toutes les classes
-      const [sRes, cRes] = await Promise.all([api.get('/seances'), api.get('/classes')])
-      seances.value = sRes.data
-      classes.value = cRes.data
     }
-  } finally { loading.value = false }
+  } finally {
+    loading.value = false
+  }
 }
 
-// Lancer le chargement dès que l'utilisateur est connu (résout le race condition auth)
-// immediate:true → si auth déjà dispo au mount, charge immédiatement
-// sinon attend que auth.user soit set (première connexion, retour de navigation)
-let loaded = false
-watch(() => auth.user, (user) => {
-  if (user && !loaded) { loaded = true; load() }
-}, { immediate: true })
-
-onMounted(() => {
-  // Reload à chaque remontage de la vue (retour depuis une autre page)
-  if (auth.user) { loaded = true; load() }
-})
+// Charger dès que l'auth est disponible + à chaque remontage de la vue
+watch(() => auth.user, (user) => { if (user) load() }, { immediate: true })
+onMounted(() => { if (auth.user) load() })
 </script>
 
 <template>
