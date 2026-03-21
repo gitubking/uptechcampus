@@ -108,6 +108,7 @@ const savingUe = ref(false)
 const deletingUeId = ref<number | null>(null)
 const ueError = ref('')
 const enseignantsAll = ref<EnseignantForUE[]>([])
+const matieresGlobal = ref<MatiereSimple[]>([])
 const ueForm = ref({
   enseignant_id: null as number | null,
   matiere_id: null as number | null,
@@ -126,8 +127,13 @@ const filtered = computed(() =>
 // Tous les enseignants disponibles (l'affectation d'une matière se fait via l'UE de la classe)
 const enseignantsForUE = computed(() => enseignantsAll.value)
 
-// Matières de la filière de la classe courante
+// Matières disponibles pour le formulaire UE
+// - Tronc commun → toutes les matières globales
+// - Filière normale → matières de la filière (avec pivot coefficient/crédits)
+const isTroncCommunClasse = computed(() => !!(classeForStudents.value as any)?.est_tronc_commun)
+
 const matieresForUE = computed((): MatiereSimple[] => {
+  if (isTroncCommunClasse.value) return matieresGlobal.value
   const fId = classeForStudents.value?.filiere?.id
   if (!fId) return []
   const filiere = filieres.value.find(f => Number(f.id) === Number(fId))
@@ -300,6 +306,12 @@ async function loadEnseignants() {
   enseignantsAll.value = Array.isArray(data) ? data : (data.data ?? [])
 }
 
+async function loadMatieresGlobal() {
+  if (matieresGlobal.value.length > 0) return
+  const { data } = await api.get('/matieres')
+  matieresGlobal.value = Array.isArray(data) ? data : (data.data ?? [])
+}
+
 function openAddUe() {
   editingUe.value = null
   ueError.value = ''
@@ -330,8 +342,8 @@ function onUeIntituleChange() {
   if (mat) {
     ueForm.value.matiere_id = mat.id
     ueForm.value.code = mat.code
-    // Auto-remplir coefficient et crédits depuis le pivot filière-matière
-    if (mat.pivot) {
+    // Auto-remplir coefficient et crédits depuis le pivot filière-matière (non tronc commun seulement)
+    if (!isTroncCommunClasse.value && mat.pivot) {
       ueForm.value.coefficient  = mat.pivot.coefficient ?? 1
       ueForm.value.credits_ects = mat.pivot.credits ?? 0
     }
@@ -385,12 +397,17 @@ async function deleteUe(ue: UE) {
 async function onTabChange(tab: 'dans-classe' | 'pool' | 'enseignants') {
   studentsTab.value = tab
   if (tab === 'enseignants') {
-    // Recharger les filières pour avoir les matières fraîches (avec pivot)
-    const [, f] = await Promise.all([
+    const promises: Promise<any>[] = [
       Promise.all([loadUes(), loadEnseignants()]),
-      api.get('/filieres'),
-    ])
-    filieres.value = f.data
+    ]
+    // Tronc commun → charger matières globales ; sinon recharger filières (pivot)
+    if (isTroncCommunClasse.value) {
+      matieresGlobal.value = [] // forcer le rechargement
+      promises.push(loadMatieresGlobal())
+    } else {
+      promises.push(api.get('/filieres').then(f => { filieres.value = f.data }))
+    }
+    await Promise.all(promises)
   }
 }
 
@@ -687,6 +704,13 @@ onMounted(load)
           <!-- Formulaire ajout / édition UE -->
           <div v-if="showUeForm" class="ue-form-panel">
             <h3 class="ue-form-title">{{ editingUe ? 'Modifier l\'affectation' : 'Affecter un enseignant' }}</h3>
+
+            <!-- Bandeau tronc commun -->
+            <div v-if="isTroncCommunClasse" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:8px 12px;font-size:11px;color:#0369a1;margin-bottom:10px;line-height:1.6;">
+              🏫 <strong>Tronc commun</strong> — Indiquez seulement le prof et la matière.<br>
+              Les coefficients/crédits seront ceux de la <strong>filière de chaque étudiant</strong> au moment du calcul des notes.
+            </div>
+
             <div v-if="ueError" class="cl-error-msg" style="margin-bottom:10px;">{{ ueError }}</div>
             <UcFormGroup label="Enseignant">
               <select v-model="ueForm.enseignant_id" class="cl-input" style="width:100%;">
@@ -700,30 +724,38 @@ onMounted(load)
               <select v-if="matieresForUE.length > 0"
                 v-model="ueForm.intitule" required class="cl-input" style="width:100%;"
                 @change="onUeIntituleChange">
-                <option value="">— Choisir une matière de la filière —</option>
+                <option value="">{{ isTroncCommunClasse ? '— Choisir une matière —' : '— Choisir une matière de la filière —' }}</option>
                 <option v-for="m in matieresForUE" :key="m.id" :value="m.nom">
-                  {{ m.nom }}{{ m.pivot ? ` — Coeff. ${m.pivot.coefficient} | ${m.pivot.credits} crédits` : '' }}
+                  {{ m.nom }}{{ (!isTroncCommunClasse && m.pivot) ? ` — Coeff. ${m.pivot.coefficient} | ${m.pivot.credits} crédits` : '' }}
                 </option>
               </select>
               <input v-else v-model="ueForm.intitule" required placeholder="Ex : Algorithmique"
                 class="cl-input" style="width:100%;box-sizing:border-box;" />
-              <div v-if="matieresForUE.length === 0" style="font-size:11px;color:#e67e22;margin-top:4px;">
+              <div v-if="matieresForUE.length === 0 && !isTroncCommunClasse" style="font-size:11px;color:#e67e22;margin-top:4px;">
                 ⚠️ Aucune matière n'est assignée à cette filière. Ajoutez-en d'abord dans les Filières.
               </div>
+              <div v-if="matieresForUE.length === 0 && isTroncCommunClasse" style="font-size:11px;color:#e67e22;margin-top:4px;">
+                ⚠️ Aucune matière globale trouvée. Ajoutez-en d'abord dans Paramètres → Matières.
+              </div>
             </UcFormGroup>
-            <UcFormGrid :cols="3" style="margin-top:10px;">
+
+            <!-- Code + Coefficient/Crédits uniquement pour les classes normales (non tronc commun) -->
+            <UcFormGrid :cols="isTroncCommunClasse ? 1 : 3" style="margin-top:10px;">
               <UcFormGroup label="Code" :required="true">
                 <input v-model="ueForm.code" required placeholder="Ex : ALGO" class="cl-input" style="width:100%;box-sizing:border-box;" />
               </UcFormGroup>
-              <UcFormGroup label="Coefficient">
-                <input v-model.number="ueForm.coefficient" type="number" min="0" step="0.5" class="cl-input" style="width:100%;box-sizing:border-box;" />
-              </UcFormGroup>
-              <UcFormGroup label="Crédits ECTS">
-                <input v-model.number="ueForm.credits_ects" type="number" min="0" class="cl-input" style="width:100%;box-sizing:border-box;" />
-              </UcFormGroup>
+              <template v-if="!isTroncCommunClasse">
+                <UcFormGroup label="Coefficient">
+                  <input v-model.number="ueForm.coefficient" type="number" min="0" step="0.5" class="cl-input" style="width:100%;box-sizing:border-box;" />
+                </UcFormGroup>
+                <UcFormGroup label="Crédits ECTS">
+                  <input v-model.number="ueForm.credits_ects" type="number" min="0" class="cl-input" style="width:100%;box-sizing:border-box;" />
+                </UcFormGroup>
+              </template>
             </UcFormGrid>
-            <!-- Aide sur les deux systèmes -->
-            <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:8px 12px;font-size:11px;color:#0369a1;margin-top:8px;line-height:1.6;">
+
+            <!-- Aide sur les deux systèmes (uniquement pour les classes normales) -->
+            <div v-if="!isTroncCommunClasse" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:8px 12px;font-size:11px;color:#0369a1;margin-top:8px;line-height:1.6;">
               <strong>Coefficient</strong> → Formations professionnelles (calcul de moyenne pondérée)<br>
               <strong>Crédits ECTS</strong> → Système LMD (60 crédits = passage, &lt; 42 = redoublement)
             </div>
@@ -770,10 +802,13 @@ onMounted(load)
                 <span v-else style="font-size:11px;color:#ccc;font-style:italic;">Non assigné</span>
               </td>
               <td style="text-align:center;">
-                <span class="cl-badge-parcours">{{ (ue as any).coefficient }}</span>
+                <span v-if="isTroncCommunClasse" title="Coefficient selon la filière de l'étudiant"
+                  style="font-size:11px;color:#0369a1;background:#e0f2fe;padding:2px 6px;border-radius:4px;">⚡ filière</span>
+                <span v-else class="cl-badge-parcours">{{ (ue as any).coefficient }}</span>
               </td>
               <td style="text-align:center;">
-                <span v-if="(ue as any).credits_ects > 0" class="ue-badge-vol">{{ (ue as any).credits_ects }}h</span>
+                <span v-if="!isTroncCommunClasse && (ue as any).credits_ects > 0" class="ue-badge-vol">{{ (ue as any).credits_ects }}h</span>
+                <span v-else-if="isTroncCommunClasse" style="font-size:11px;color:#0369a1;background:#e0f2fe;padding:2px 6px;border-radius:4px;">⚡ filière</span>
                 <span v-else style="color:#ccc;">—</span>
               </td>
               <td style="text-align:right;">
