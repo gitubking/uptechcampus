@@ -23,6 +23,7 @@ interface UE {
   intitule: string
   coefficient: number
   credits_ects: number
+  volume_horaire: number
   ordre: number
   enseignant?: { id: number; nom: string; prenom: string }
 }
@@ -116,6 +117,7 @@ const ueForm = ref({
   code: '',
   coefficient: 1 as number,
   credits_ects: 0 as number,
+  volume_horaire: 0 as number,
   ordre: 0 as number,
 })
 
@@ -317,7 +319,7 @@ function openAddUe() {
   ueError.value = ''
   ueForm.value = {
     enseignant_id: null, matiere_id: null, intitule: '', code: '',
-    coefficient: 1, credits_ects: 0, ordre: uesForClasse.value.length,
+    coefficient: 1, credits_ects: 0, volume_horaire: 0, ordre: uesForClasse.value.length,
   }
   showUeForm.value = true
 }
@@ -332,6 +334,7 @@ function openEditUe(ue: UE) {
     code: ue.code,
     coefficient: ue.coefficient,
     credits_ects: ue.credits_ects,
+    volume_horaire: ue.volume_horaire ?? 0,
     ordre: ue.ordre,
   }
   showUeForm.value = true
@@ -365,6 +368,7 @@ async function saveUe() {
       intitule: ueForm.value.intitule,
       coefficient: ueForm.value.coefficient,
       credits_ects: ueForm.value.credits_ects,
+      volume_horaire: ueForm.value.volume_horaire,
       ordre: ueForm.value.ordre,
     }
     if (editingUe.value) {
@@ -739,10 +743,13 @@ onMounted(load)
               </div>
             </UcFormGroup>
 
-            <!-- Code + Coefficient/Crédits uniquement pour les classes normales (non tronc commun) -->
-            <UcFormGrid :cols="isTroncCommunClasse ? 1 : 3" style="margin-top:10px;">
+            <!-- Code + Volume horaire (toujours) + Coefficient/Crédits (classes normales seulement) -->
+            <UcFormGrid :cols="isTroncCommunClasse ? 2 : 4" style="margin-top:10px;">
               <UcFormGroup label="Code" :required="true">
                 <input v-model="ueForm.code" required placeholder="Ex : ALGO" class="cl-input" style="width:100%;box-sizing:border-box;" />
+              </UcFormGroup>
+              <UcFormGroup label="Volume horaire (h)">
+                <input v-model.number="ueForm.volume_horaire" type="number" min="0" class="cl-input" style="width:100%;box-sizing:border-box;" placeholder="Ex : 30" />
               </UcFormGroup>
               <template v-if="!isTroncCommunClasse">
                 <UcFormGroup label="Coefficient">
@@ -807,8 +814,7 @@ onMounted(load)
                 <span v-else class="cl-badge-parcours">{{ (ue as any).coefficient }}</span>
               </td>
               <td style="text-align:center;">
-                <span v-if="!isTroncCommunClasse && (ue as any).credits_ects > 0" class="ue-badge-vol">{{ (ue as any).credits_ects }}h</span>
-                <span v-else-if="isTroncCommunClasse" style="font-size:11px;color:#0369a1;background:#e0f2fe;padding:2px 6px;border-radius:4px;">⚡ filière</span>
+                <span v-if="(ue as any).volume_horaire > 0" class="ue-badge-vol">{{ (ue as any).volume_horaire }}h</span>
                 <span v-else style="color:#ccc;">—</span>
               </td>
               <td style="text-align:right;">

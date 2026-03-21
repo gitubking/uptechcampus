@@ -40,6 +40,7 @@ pool.query(`ALTER TABLE filiere_matiere ADD COLUMN IF NOT EXISTS credits INTEGER
 pool.query(`ALTER TABLE filiere_matiere ADD COLUMN IF NOT EXISTS ordre INTEGER DEFAULT 0`).catch(() => {})
 // Lien UE → matière globale (pour coefficient cross-filière en tronc commun)
 pool.query(`ALTER TABLE unites_enseignement ADD COLUMN IF NOT EXISTS matiere_id INT REFERENCES matieres(id) ON DELETE SET NULL`).catch(() => {})
+pool.query(`ALTER TABLE unites_enseignement ADD COLUMN IF NOT EXISTS volume_horaire INTEGER DEFAULT 0`).catch(() => {})
 pool.query(`DO $$ BEGIN ALTER TABLE paiements DROP CONSTRAINT IF EXISTS paiements_type_paiement_check; ALTER TABLE paiements ADD CONSTRAINT paiements_type_paiement_check CHECK (type_paiement IN ('frais_inscription','mensualite','tenue','rattrapage','autre')); EXCEPTION WHEN OTHERS THEN NULL; END $$`).catch(() => {})
 pool.query(`ALTER TABLE types_formation ADD COLUMN IF NOT EXISTS has_niveau BOOLEAN DEFAULT FALSE`).catch(() => {})
 pool.query(`ALTER TABLE types_formation ADD COLUMN IF NOT EXISTS description TEXT`).catch(() => {})
@@ -3111,8 +3112,8 @@ app.get('/ues', requireAuth, async (c) => {
 app.post('/ues', requireAuth, role('dg', 'dir_peda', 'coordinateur'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'INSERT INTO unites_enseignement (classe_id,enseignant_id,code,intitule,coefficient,credits_ects,ordre,matiere_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
-    [b.classe_id, b.enseignant_id || null, b.code, b.intitule, b.coefficient || 1, b.credits_ects || 0, b.ordre || 0, b.matiere_id || null]
+    'INSERT INTO unites_enseignement (classe_id,enseignant_id,code,intitule,coefficient,credits_ects,volume_horaire,ordre,matiere_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
+    [b.classe_id, b.enseignant_id || null, b.code, b.intitule, b.coefficient || 1, b.credits_ects || 0, b.volume_horaire || 0, b.ordre || 0, b.matiere_id || null]
   )
   return c.json(rows[0], 201)
 })
@@ -3120,8 +3121,8 @@ app.post('/ues', requireAuth, role('dg', 'dir_peda', 'coordinateur'), async (c) 
 app.put('/ues/:id', requireAuth, role('dg', 'dir_peda', 'coordinateur'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'UPDATE unites_enseignement SET classe_id=$1,enseignant_id=$2,code=$3,intitule=$4,coefficient=$5,credits_ects=$6,ordre=$7,matiere_id=$8 WHERE id=$9 RETURNING *',
-    [b.classe_id, b.enseignant_id || null, b.code, b.intitule, b.coefficient || 1, b.credits_ects || 0, b.ordre || 0, b.matiere_id || null, c.req.param('id')]
+    'UPDATE unites_enseignement SET classe_id=$1,enseignant_id=$2,code=$3,intitule=$4,coefficient=$5,credits_ects=$6,volume_horaire=$7,ordre=$8,matiere_id=$9 WHERE id=$10 RETURNING *',
+    [b.classe_id, b.enseignant_id || null, b.code, b.intitule, b.coefficient || 1, b.credits_ects || 0, b.volume_horaire || 0, b.ordre || 0, b.matiere_id || null, c.req.param('id')]
   )
   return c.json(rows[0])
 })
