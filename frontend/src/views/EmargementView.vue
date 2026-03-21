@@ -50,6 +50,13 @@ const savingContenu  = ref(false)
 const success        = ref(false)
 const successContenu = ref(false)
 
+// Avoirs enseignant
+const mesStats = ref<{
+  heures_total: number; heures_ce_mois: number
+  tarif_horaire: number; montant_du: number
+  montant_paye: number; montant_restant: number
+} | null>(null)
+
 const filterClasse = ref('')
 const filterDate   = ref(new Date().toISOString().slice(0, 10))
 const filterStatut = ref('')
@@ -234,6 +241,12 @@ async function load() {
         // Forcer en number pour éviter "1" (string) !== 1 (number)
         monEnseignantId.value = profil.id ? Number(profil.id) : null
 
+        // Charger les stats / avoirs de ce prof
+        try {
+          const { data: stats } = await api.get(`/enseignants/${profil.id}/stats`)
+          mesStats.value = stats
+        } catch {}
+
         // Restreindre la liste des classes à celles de ses séances
         const sClasseIds = new Set(
           seances.value
@@ -253,6 +266,26 @@ async function load() {
   }
 }
 
+// Historique : toutes les séances émargées du prof, triées par date desc
+const historiqueEmargements = computed(() => {
+  if (!isEnseignant.value || !monEnseignantId.value) return []
+  return seances.value
+    .filter(s => s.statut === 'effectue' && Number(s.enseignant?.id) === monEnseignantId.value)
+    .sort((a, b) => new Date(b.date_debut).getTime() - new Date(a.date_debut).getTime())
+})
+
+// Heures émargées calculées localement (depuis les séances effectuées)
+const heuresEmargeesLocales = computed(() => {
+  return historiqueEmargements.value.reduce((total, s) => {
+    const mins = (new Date(s.date_fin).getTime() - new Date(s.date_debut).getTime()) / 60000
+    return total + mins / 60
+  }, 0)
+})
+
+function fmtMontant(n: number) {
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', maximumFractionDigits: 0 }).format(n)
+}
+
 // Charger dès que l'auth est disponible + à chaque remontage de la vue
 watch(() => auth.user, (user) => { if (user) load() }, { immediate: true })
 onMounted(() => { if (auth.user) load() })
@@ -261,6 +294,35 @@ onMounted(() => { if (auth.user) load() })
 <template>
   <div class="uc-content">
     <UcPageHeader title="Émargement" subtitle="Saisie des présences et contenu des séances" />
+
+    <!-- ── Bloc Avoirs (enseignant uniquement) ── -->
+    <div v-if="isEnseignant && mesStats" class="em-avoirs-card">
+      <div class="em-avoirs-title">💰 Mes avoirs</div>
+      <div class="em-avoirs-grid">
+        <div class="em-avoir-item">
+          <span class="em-avoir-label">Heures effectuées</span>
+          <span class="em-avoir-val">{{ Math.round(heuresEmargeesLocales * 2) / 2 }}h</span>
+        </div>
+        <div class="em-avoir-item">
+          <span class="em-avoir-label">Tarif horaire</span>
+          <span class="em-avoir-val">{{ fmtMontant(mesStats.tarif_horaire) }}/h</span>
+        </div>
+        <div class="em-avoir-item">
+          <span class="em-avoir-label">Montant dû</span>
+          <span class="em-avoir-val" style="color:#16a34a;font-weight:700;">{{ fmtMontant(Math.round(heuresEmargeesLocales * mesStats.tarif_horaire)) }}</span>
+        </div>
+        <div class="em-avoir-item">
+          <span class="em-avoir-label">Déjà payé</span>
+          <span class="em-avoir-val" style="color:#2563eb;">{{ fmtMontant(mesStats.montant_paye) }}</span>
+        </div>
+        <div class="em-avoir-item" style="border-left:3px solid #E30613;padding-left:10px;">
+          <span class="em-avoir-label">Solde restant</span>
+          <span class="em-avoir-val" style="color:#E30613;font-weight:700;">
+            {{ fmtMontant(Math.max(0, Math.round(heuresEmargeesLocales * mesStats.tarif_horaire) - mesStats.montant_paye)) }}
+          </span>
+        </div>
+      </div>
+    </div>
 
     <div class="em-grid">
 
@@ -273,7 +335,14 @@ onMounted(() => { if (auth.user) load() })
               <option value="">Toutes les classes</option>
               <option v-for="c in classes" :key="c.id" :value="String(c.id)">{{ c.nom }}</option>
             </select>
-            <input v-model="filterDate" type="date" class="em-select" />
+            <div style="display:flex;gap:4px;align-items:center;">
+              <input v-model="filterDate" type="date" class="em-select" style="flex:1;" />
+              <button v-if="filterDate" @click="filterDate = ''"
+                title="Afficher toutes les dates"
+                style="padding:5px 7px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer;font-size:11px;color:#6b7280;white-space:nowrap;">
+                ✕ Tout
+              </button>
+            </div>
             <select v-model="filterStatut" class="em-select">
               <option value="">Tous les statuts</option>
               <option value="planifie">Planifiées</option>
@@ -305,6 +374,34 @@ onMounted(() => { if (auth.user) load() })
               <p class="em-item-meta">{{ s.classe?.nom }} · {{ fmtTime(s.date_debut) }}–{{ fmtTime(s.date_fin) }}</p>
               <p v-if="s.enseignant" class="em-item-prof">{{ s.enseignant.prenom }} {{ s.enseignant.nom }}</p>
             </button>
+          </div>
+        </div>
+
+        <!-- ── Historique émargements (enseignant uniquement) ── -->
+        <div v-if="isEnseignant && historiqueEmargements.length" class="em-card" style="margin-top:12px;">
+          <div class="em-card-header">✅ Mes émargements ({{ historiqueEmargements.length }})</div>
+          <div class="em-list">
+            <div v-for="s in historiqueEmargements" :key="s.id" class="em-item em-item--done"
+              style="cursor:default;border-left:3px solid #16a34a;">
+              <div class="em-item-top">
+                <span class="em-item-mat">{{ s.matiere }}</span>
+                <span style="font-size:10px;color:#16a34a;background:#f0fdf4;padding:2px 6px;border-radius:10px;font-weight:600;">
+                  {{ ((new Date(s.date_fin).getTime() - new Date(s.date_debut).getTime()) / 3600000).toFixed(1) }}h
+                </span>
+              </div>
+              <p class="em-item-meta">
+                {{ s.classe?.nom }} · {{ fmtDate(s.date_debut) }}
+                · {{ fmtTime(s.date_debut) }}–{{ fmtTime(s.date_fin) }}
+              </p>
+              <p v-if="s.signe_enseignant_at" style="font-size:10px;color:#9ca3af;margin:2px 0 0;">
+                Émargé le {{ fmtDateTime(s.signe_enseignant_at) }}
+              </p>
+            </div>
+          </div>
+          <!-- Résumé total heures émargées -->
+          <div style="padding:10px 14px;border-top:1px solid #f3f4f6;display:flex;justify-content:space-between;align-items:center;font-size:12px;">
+            <span style="color:#6b7280;">Total heures émargées</span>
+            <strong style="color:#16a34a;">{{ Math.round(heuresEmargeesLocales * 2) / 2 }}h</strong>
           </div>
         </div>
       </div>
@@ -614,4 +711,12 @@ onMounted(() => { if (auth.user) load() })
   .em-list { max-height: 280px; }
 }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ── Avoirs enseignant ── */
+.em-avoirs-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:14px 18px; margin-bottom:16px; }
+.em-avoirs-title { font-size:13px; font-weight:700; color:#111; margin-bottom:12px; }
+.em-avoirs-grid { display:flex; flex-wrap:wrap; gap:16px; }
+.em-avoir-item { display:flex; flex-direction:column; gap:2px; min-width:110px; }
+.em-avoir-label { font-size:10px; color:#9ca3af; text-transform:uppercase; letter-spacing:.4px; }
+.em-avoir-val { font-size:15px; font-weight:700; color:#111; }
 </style>
