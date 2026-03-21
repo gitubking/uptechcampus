@@ -203,18 +203,27 @@ async function emargerEtCloturer() {
 async function load() {
   loading.value = true
   try {
-    const [sRes, cRes] = await Promise.all([api.get('/seances'), api.get('/classes')])
-    seances.value = sRes.data
-    classes.value = cRes.data
-    // Si enseignant : récupérer son ID pour filtrer ses séances
     if (isEnseignant.value) {
-      try {
-        const { data } = await api.get('/enseignants/me')
-        monEnseignantId.value = data.id ?? null
-        // Filtrer les classes du prof seulement
-        const mesClasseIds = (data.mes_classes ?? []).map((c: any) => c.id)
-        classes.value = classes.value.filter((c: any) => mesClasseIds.includes(c.id))
-      } catch {}
+      // 1. Récupérer le profil enseignant pour obtenir l'ID
+      const { data: profil } = await api.get('/enseignants/me')
+      monEnseignantId.value = profil.id ?? null
+
+      // 2. Charger uniquement les séances de ce prof
+      const sRes = await api.get('/seances', { params: { enseignant_id: profil.id } })
+      seances.value = sRes.data
+
+      // 3. Dériver la liste des classes depuis ses séances réelles
+      //    (inclut tronc commun + classes sans UE formelle)
+      const classesMap = new Map<number, { id: number; nom: string }>()
+      seances.value.forEach(s => {
+        if (s.classe) classesMap.set(s.classe.id, s.classe)
+      })
+      classes.value = [...classesMap.values()].sort((a, b) => a.nom.localeCompare(b.nom))
+    } else {
+      // Admin/coord : toutes les séances + toutes les classes
+      const [sRes, cRes] = await Promise.all([api.get('/seances'), api.get('/classes')])
+      seances.value = sRes.data
+      classes.value = cRes.data
     }
   } finally { loading.value = false }
 }

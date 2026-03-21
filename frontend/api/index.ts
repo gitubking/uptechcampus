@@ -2978,6 +2978,13 @@ app.post('/depenses/calculer-vacations', requireAuth, role('dg', 'resp_fin'), as
 
 // ─── SEANCES ──────────────────────────────────────────────────────────────────
 app.get('/seances', requireAuth, async (c) => {
+  const enseignantId = c.req.query('enseignant_id')
+  const classeId     = c.req.query('classe_id')
+  const conditions: string[] = []
+  const params: any[] = []
+  if (enseignantId) { conditions.push(`s.enseignant_id = $${params.length + 1}`); params.push(Number(enseignantId)) }
+  if (classeId)     { conditions.push(`s.classe_id = $${params.length + 1}`);     params.push(Number(classeId)) }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const { rows } = await pool.query(`
     SELECT s.*,
       jsonb_build_object('id',c.id,'nom',c.nom) as classe,
@@ -2985,8 +2992,9 @@ app.get('/seances', requireAuth, async (c) => {
     FROM seances s
     LEFT JOIN classes c ON s.classe_id = c.id
     LEFT JOIN enseignants i ON s.enseignant_id = i.id
+    ${where}
     ORDER BY s.date_debut DESC
-  `)
+  `, params)
   return c.json(rows)
 })
 
