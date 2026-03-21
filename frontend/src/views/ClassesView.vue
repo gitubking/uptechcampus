@@ -743,22 +743,23 @@ onMounted(load)
               </div>
             </UcFormGroup>
 
-            <!-- Code + Volume horaire (toujours) + Coefficient/Crédits (classes normales seulement) -->
-            <UcFormGrid :cols="isTroncCommunClasse ? 2 : 4" style="margin-top:10px;">
+            <!-- Code + Volume horaire (toujours) -->
+            <UcFormGrid :cols="2" style="margin-top:10px;">
               <UcFormGroup label="Code" :required="true">
                 <input v-model="ueForm.code" required placeholder="Ex : ALGO" class="cl-input" style="width:100%;box-sizing:border-box;" />
               </UcFormGroup>
               <UcFormGroup label="Volume horaire (h)">
                 <input v-model.number="ueForm.volume_horaire" type="number" min="0" class="cl-input" style="width:100%;box-sizing:border-box;" placeholder="Ex : 30" />
               </UcFormGroup>
-              <template v-if="!isTroncCommunClasse">
-                <UcFormGroup label="Coefficient">
-                  <input v-model.number="ueForm.coefficient" type="number" min="0" step="0.5" class="cl-input" style="width:100%;box-sizing:border-box;" />
-                </UcFormGroup>
-                <UcFormGroup label="Crédits ECTS">
-                  <input v-model.number="ueForm.credits_ects" type="number" min="0" class="cl-input" style="width:100%;box-sizing:border-box;" />
-                </UcFormGroup>
-              </template>
+            </UcFormGrid>
+            <!-- Coefficient + Crédits ECTS (classes normales seulement) -->
+            <UcFormGrid v-if="!isTroncCommunClasse" :cols="2" style="margin-top:10px;">
+              <UcFormGroup label="Coefficient">
+                <input v-model.number="ueForm.coefficient" type="number" min="0" step="0.5" class="cl-input" style="width:100%;box-sizing:border-box;" />
+              </UcFormGroup>
+              <UcFormGroup label="Crédits ECTS">
+                <input v-model.number="ueForm.credits_ects" type="number" min="0" class="cl-input" style="width:100%;box-sizing:border-box;" />
+              </UcFormGroup>
             </UcFormGrid>
 
             <!-- Aide sur les deux systèmes (uniquement pour les classes normales) -->
