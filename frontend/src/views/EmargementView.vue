@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
@@ -199,24 +199,30 @@ async function emargerEtCloturer() {
 }
 
 async function load() {
+  // Ne pas charger si auth pas encore prête
+  if (!auth.user) return
   loading.value = true
   try {
     if (isEnseignant.value) {
-      // 1. Récupérer le profil enseignant pour obtenir l'ID
-      const { data: profil } = await api.get('/enseignants/me')
-      monEnseignantId.value = profil.id ?? null
+      try {
+        // 1. Récupérer le profil enseignant pour obtenir l'ID
+        const { data: profil } = await api.get('/enseignants/me')
+        monEnseignantId.value = profil.id ?? null
 
-      // 2. Charger uniquement les séances de ce prof
-      const sRes = await api.get('/seances', { params: { enseignant_id: profil.id } })
-      seances.value = sRes.data
+        // 2. Charger uniquement les séances de ce prof
+        const sRes = await api.get('/seances', { params: { enseignant_id: profil.id } })
+        seances.value = sRes.data
 
-      // 3. Dériver la liste des classes depuis ses séances réelles
-      //    (inclut tronc commun + classes sans UE formelle)
-      const classesMap = new Map<number, { id: number; nom: string }>()
-      seances.value.forEach(s => {
-        if (s.classe) classesMap.set(s.classe.id, s.classe)
-      })
-      classes.value = [...classesMap.values()].sort((a, b) => a.nom.localeCompare(b.nom))
+        // 3. Dériver la liste des classes depuis ses séances réelles
+        //    (inclut tronc commun + classes sans UE formelle)
+        const classesMap = new Map<number, { id: number; nom: string }>()
+        seances.value.forEach(s => {
+          if (s.classe) classesMap.set(s.classe.id, s.classe)
+        })
+        classes.value = [...classesMap.values()].sort((a, b) => a.nom.localeCompare(b.nom))
+      } catch (e) {
+        console.error('Erreur chargement profil enseignant:', e)
+      }
     } else {
       // Admin/coord : toutes les séances + toutes les classes
       const [sRes, cRes] = await Promise.all([api.get('/seances'), api.get('/classes')])
@@ -226,7 +232,18 @@ async function load() {
   } finally { loading.value = false }
 }
 
-onMounted(load)
+// Lancer le chargement dès que l'utilisateur est connu (résout le race condition auth)
+// immediate:true → si auth déjà dispo au mount, charge immédiatement
+// sinon attend que auth.user soit set (première connexion, retour de navigation)
+let loaded = false
+watch(() => auth.user, (user) => {
+  if (user && !loaded) { loaded = true; load() }
+}, { immediate: true })
+
+onMounted(() => {
+  // Reload à chaque remontage de la vue (retour depuis une autre page)
+  if (auth.user) { loaded = true; load() }
+})
 </script>
 
 <template>
@@ -252,6 +269,15 @@ onMounted(load)
               <option value="effectue">Émargées</option>
               <option value="annule">Annulées</option>
             </select>
+            <!-- Bouton actualiser : recharge les séances depuis le serveur -->
+            <button @click="load" :disabled="loading"
+              title="Actualiser les séances"
+              style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer;display:flex;align-items:center;gap:5px;font-size:12px;color:#374151;white-space:nowrap;flex-shrink:0;">
+              <svg :style="loading ? 'animation:spin 1s linear infinite' : ''" width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              Actualiser
+            </button>
           </div>
           <div v-if="loading" class="em-empty">Chargement…</div>
           <div v-else-if="!seancesFiltrees.length" class="em-empty">Aucune séance trouvée</div>
@@ -575,4 +601,5 @@ onMounted(load)
   .em-students { max-height: none; }
   .em-list { max-height: 280px; }
 }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>
