@@ -66,8 +66,8 @@ const seancesFiltrees = computed(() => {
     // Prof : ne voir que ses séances
     // Inclure aussi les séances de sa classe où enseignant_id est null (affectation de classe)
     if (isEnseignant.value && monEnseignantId.value) {
-      const estSonProf = s.enseignant?.id === monEnseignantId.value
-      const estSaClasse = mesClasseIds.value.includes(s.classe?.id ?? -1)
+      const estSonProf = Number(s.enseignant?.id) === monEnseignantId.value
+      const estSaClasse = mesClasseIds.value.includes(Number(s.classe?.id))
       if (!estSonProf && !estSaClasse) return false
     }
     if (filterClasse.value && String(s.classe?.id) !== String(filterClasse.value)) return false
@@ -87,9 +87,9 @@ const mesClasseIds = computed<number[]>(() => {
   if (!isEnseignant.value || !monEnseignantId.value) return []
   return [...new Set(
     seances.value
-      .filter(s => s.enseignant?.id === monEnseignantId.value)
-      .map(s => s.classe?.id)
-      .filter((id): id is number => id !== undefined)
+      .filter(s => Number(s.enseignant?.id) === monEnseignantId.value)
+      .map(s => Number(s.classe?.id))
+      .filter(id => id > 0)
   )]
 })
 
@@ -231,17 +231,18 @@ async function load() {
     if (isEnseignant.value) {
       try {
         const { data: profil } = await api.get('/enseignants/me')
-        monEnseignantId.value = profil.id ?? null
+        // Forcer en number pour éviter "1" (string) !== 1 (number)
+        monEnseignantId.value = profil.id ? Number(profil.id) : null
 
         // Restreindre la liste des classes à celles de ses séances
         const sClasseIds = new Set(
           seances.value
-            .filter(s => s.enseignant?.id === profil.id)
-            .map(s => s.classe?.id)
-            .filter(Boolean)
+            .filter(s => Number(s.enseignant?.id) === Number(profil.id))
+            .map(s => Number(s.classe?.id))
+            .filter(id => id > 0)
         )
         classes.value = classes.value
-          .filter((c: any) => sClasseIds.has(c.id))
+          .filter((c: any) => sClasseIds.has(Number(c.id)))
           .sort((a: any, b: any) => a.nom.localeCompare(b.nom))
       } catch (e) {
         console.error('[Émargement] Erreur profil enseignant:', e)
