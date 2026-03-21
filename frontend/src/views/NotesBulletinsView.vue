@@ -65,8 +65,9 @@ function getCoef(ue: UE, inscriptionId: number): number {
   if (ue.is_tronc_commun && ue.matiere_id) {
     const insc = inscriptions.value.find(i => i.id === inscriptionId)
     const fId = insc?.filiere_id ?? insc?.filiere?.id
-    if (fId && filierePivots.value[fId]?.[ue.matiere_id]) {
-      return filierePivots.value[fId][ue.matiere_id].coefficient
+    const pivot = fId ? filierePivots.value[fId]?.[ue.matiere_id] : undefined
+    if (pivot) {
+      return pivot.coefficient
     }
   }
   return parseFloat(String(ue.coefficient)) || 1
