@@ -58,6 +58,7 @@ interface NiveauBourse {
   nom: string
   pourcentage: number
   applique_inscription: boolean
+  applique_tenue: boolean
   actif: boolean
 }
 
@@ -356,7 +357,7 @@ const showModalNiveauBourse = ref(false)
 const editingNiveauBourse = ref<NiveauBourse | null>(null)
 const savingNiveauBourse = ref(false)
 const deletingNiveauBourseId = ref<number | null>(null)
-const formNiveauBourse = ref({ nom: '', pourcentage: 0, applique_inscription: false, actif: true })
+const formNiveauBourse = ref({ nom: '', pourcentage: 0, applique_inscription: false, applique_tenue: false, actif: true })
 
 async function loadNiveauxBourse() {
   loadingNiveauxBourse.value = true
@@ -370,7 +371,7 @@ async function loadNiveauxBourse() {
 
 function openNewNiveauBourse() {
   editingNiveauBourse.value = null
-  formNiveauBourse.value = { nom: '', pourcentage: 0, applique_inscription: false, actif: true }
+  formNiveauBourse.value = { nom: '', pourcentage: 0, applique_inscription: false, applique_tenue: false, actif: true }
   showModalNiveauBourse.value = true
 }
 
@@ -378,7 +379,7 @@ function openEditNiveauBourse(b: NiveauBourse) {
   editingNiveauBourse.value = b
   formNiveauBourse.value = {
     nom: b.nom, pourcentage: b.pourcentage,
-    applique_inscription: b.applique_inscription, actif: b.actif,
+    applique_inscription: b.applique_inscription, applique_tenue: b.applique_tenue ?? false, actif: b.actif,
   }
   showModalNiveauBourse.value = true
 }
@@ -1105,7 +1106,8 @@ onMounted(() => {
                 <tr>
                   <th>Nom</th>
                   <th style="text-align:center">Réduction mensualité</th>
-                  <th style="text-align:center">S'applique aux frais d'inscription</th>
+                  <th style="text-align:center">Frais inscription</th>
+                  <th style="text-align:center">Tenue</th>
                   <th style="text-align:center">Statut</th>
                   <th v-if="isDG" style="text-align:right">Actions</th>
                 </tr>
@@ -1117,6 +1119,11 @@ onMounted(() => {
                   <td style="text-align:center">
                     <span class="pm-badge-statut" :class="b.applique_inscription ? 'pm-statut-actif' : 'pm-statut-inactif'">
                       {{ b.applique_inscription ? 'Oui' : 'Non' }}
+                    </span>
+                  </td>
+                  <td style="text-align:center">
+                    <span class="pm-badge-statut" :class="b.applique_tenue ? 'pm-statut-actif' : 'pm-statut-inactif'">
+                      {{ b.applique_tenue ? 'Oui' : 'Non' }}
                     </span>
                   </td>
                   <td style="text-align:center">
@@ -1158,7 +1165,7 @@ onMounted(() => {
                       <input v-model.number="formNiveauBourse.pourcentage" type="number" min="0" max="100" step="0.01" class="pm-input" style="padding-right:28px" placeholder="Ex: 50" />
                       <span style="position:absolute;right:10px;top:8px;color:#999;font-size:13px;font-weight:600">%</span>
                     </div>
-                    <p class="pm-hint">Réduction appliquée sur la mensualité de l'étudiant.</p>
+                    <p class="pm-hint">Réduction appliquée sur la mensualité. Paramétrez indépendamment si elle s'applique aussi aux frais d'inscription et à la tenue.</p>
                   </div>
                   <div class="pm-check-row">
                     <button
@@ -1170,7 +1177,20 @@ onMounted(() => {
                     </button>
                     <div>
                       <p class="pm-check-label">Appliquer aux frais d'inscription</p>
-                      <p class="pm-hint">La même réduction s'applique aussi aux frais d'inscription.</p>
+                      <p class="pm-hint">La réduction s'applique aussi aux frais d'inscription.</p>
+                    </div>
+                  </div>
+                  <div class="pm-check-row">
+                    <button
+                      @click="formNiveauBourse.applique_tenue = !formNiveauBourse.applique_tenue"
+                      class="pm-toggle pm-toggle--sm"
+                      :class="formNiveauBourse.applique_tenue ? 'pm-toggle--on' : ''"
+                    >
+                      <span class="pm-toggle-knob pm-toggle-knob--sm" :class="formNiveauBourse.applique_tenue ? 'pm-toggle-knob--sm-on' : ''" />
+                    </button>
+                    <div>
+                      <p class="pm-check-label">Appliquer aux frais de tenue</p>
+                      <p class="pm-hint">La réduction s'applique aussi aux frais de tenue.</p>
                     </div>
                   </div>
                   <div class="pm-toggle-row">
