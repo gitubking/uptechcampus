@@ -2332,10 +2332,12 @@ async function genererEcheances(inscriptionId: number, moisDebut?: string) {
       COALESCE(f.duree_mois, 12) as duree_mois,
       COALESCE(nb.pourcentage, 0) as bourse_pct,
       COALESCE(nb.applique_inscription, false) as bourse_applique,
-      COALESCE(nb.applique_tenue, false)       as bourse_applique_tenue
+      COALESCE(nb.applique_tenue, false)       as bourse_applique_tenue,
+      aa.date_debut as annee_date_debut
     FROM inscriptions i
     LEFT JOIN filieres f ON i.filiere_id = f.id
     LEFT JOIN niveaux_bourse nb ON i.niveau_bourse_id = nb.id
+    LEFT JOIN annees_academiques aa ON i.annee_academique_id = aa.id
     WHERE i.id = $1
   `, [inscriptionId])
   if (!rows[0]) return
@@ -2350,7 +2352,7 @@ async function genererEcheances(inscriptionId: number, moisDebut?: string) {
   const duree = Math.max(1, Math.min(parseInt(insc.duree_mois) || 12, 36))
 
   // --- Déterminer le mois de départ ---
-  // Priorité : 1) première mensualité existante, 2) moisDebut paramètre, 3) maintenant
+  // Priorité : 1) première mensualité existante, 2) moisDebut paramètre, 3) date_debut année académique, 4) maintenant
   const { rows: existantes } = await pool.query(
     `SELECT id, mois, montant, statut FROM echeances WHERE inscription_id = $1 AND type_echeance = 'mensualite' ORDER BY mois ASC`,
     [inscriptionId]
@@ -2360,6 +2362,8 @@ async function genererEcheances(inscriptionId: number, moisDebut?: string) {
     startDate = new Date(existantes[0].mois.toString().substring(0, 10) + 'T00:00:00')
   } else if (moisDebut) {
     startDate = new Date(moisDebut + '-01T00:00:00')
+  } else if (insc.annee_date_debut) {
+    startDate = new Date(insc.annee_date_debut.toString().substring(0, 10) + 'T00:00:00')
   } else {
     startDate = new Date()
   }
@@ -2614,6 +2618,21 @@ app.post('/echeances/regenerer', requireAuth, role('secretariat', 'dg'), async (
   const { inscription_id, mois_debut } = await c.req.json()
   await genererEcheances(parseInt(inscription_id), mois_debut || undefined)
   return c.json({ success: true })
+})
+
+// Régénérer les échéances de TOUTES les inscriptions actives
+app.post('/echeances/regenerer-tout', requireAuth, role('secretariat', 'dg'), async (c) => {
+  const { rows: inscriptions } = await pool.query(
+    `SELECT id FROM inscriptions WHERE statut IN ('inscrit_actif','pre_inscrit')`
+  )
+  let ok = 0, erreurs = 0
+  for (const insc of inscriptions) {
+    try {
+      await genererEcheances(insc.id)
+      ok++
+    } catch { erreurs++ }
+  }
+  return c.json({ success: true, total: inscriptions.length, ok, erreurs })
 })
 
 // ─── PAIEMENTS ────────────────────────────────────────────────────────────────

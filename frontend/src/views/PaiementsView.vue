@@ -1041,6 +1041,19 @@ async function genererEcheancesManquantes(insc: Inscription) {
   openGenererModal(insc, 'generer')
 }
 
+const regenererToutLoading = ref(false)
+async function regenererTout() {
+  if (!confirm('Régénérer les échéances de TOUS les étudiants inscrits ? Les paiements existants ne seront pas touchés.')) return
+  regenererToutLoading.value = true
+  try {
+    const { data } = await api.post('/echeances/regenerer-tout')
+    showToast(`Échéances régénérées : ${data.ok}/${data.total} réussis`)
+    await load()
+  } catch (e: any) {
+    showToast(e.response?.data?.message ?? 'Erreur lors de la régénération', 'error')
+  } finally { regenererToutLoading.value = false }
+}
+
 const showTenueDetail = ref(false)
 const tenueDetail = ref<{ insc: Inscription; montant_prevu: number; tenue_paye: number; reste: number; statut: string } | null>(null)
 
@@ -1517,6 +1530,11 @@ function exportRetardsPDF() {
           class="border border-amber-300 bg-amber-50 text-amber-700 text-xs px-3 py-2 rounded-lg hover:bg-amber-100 transition disabled:opacity-50 font-medium whitespace-nowrap"
           title="Recalculer les montants des échéances selon les tarifs actuels des filières">
           {{ recalculTarifsLoading ? '…' : '⟳ Tarifs' }}
+        </button>
+        <button @click="regenererTout" :disabled="regenererToutLoading"
+          class="border border-blue-300 bg-blue-50 text-blue-700 text-xs px-3 py-2 rounded-lg hover:bg-blue-100 transition disabled:opacity-50 font-medium whitespace-nowrap"
+          title="Régénérer les échéances de tous les étudiants (crée les mois manquants, supprime le surplus, ne touche pas aux payés)">
+          {{ regenererToutLoading ? '…' : '⟳ Tout régénérer' }}
         </button>
       </div>
       <!-- Ligne 2 : mode d'affichage -->
