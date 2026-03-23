@@ -1,8 +1,8 @@
 import { Hono } from 'hono'
 import type { MiddlewareHandler } from 'hono'
 import { Pool } from 'pg'
-import jwt from 'jsonwebtoken'
-import bcrypt from 'bcryptjs'
+import * as jwt from 'jsonwebtoken'
+import * as bcrypt from 'bcryptjs'
 import type { IncomingMessage, ServerResponse } from 'http'
 
 // ─── DB ──────────────────────────────────────────────────────────────────────
@@ -3573,7 +3573,7 @@ app.get('/notes', requireAuth, async (c) => {
 
   // Pour les tronc commun : construire la map filiere_id → { matiere_id → { coefficient, credits } }
   // afin que le front puisse afficher le bon coefficient par étudiant selon sa filière
-  const filiereIds = [...new Set(inscriptions.map((i: any) => i.filiere_id).filter(Boolean))]
+  const filiereIds = Array.from(new Set(inscriptions.map((i: any) => i.filiere_id).filter(Boolean)))
   let filierePivots: Record<number, Record<number, { coefficient: number; credits: number }>> = {}
   if (filiereIds.length > 0) {
     const { rows: pivotRows } = await pool.query(
@@ -4044,7 +4044,7 @@ app.post('/conversations/groupe', requireAuth, async (c) => {
   }
 
   // Toujours inclure l'expéditeur
-  userIds = [...new Set([...userIds, Number(u(c).id)])]
+  userIds = Array.from(new Set([...userIds, Number(u(c).id)]))
 
   const type = userIds.length > 2 ? 'groupe' : 'direct'
   const { rows: convRows } = await pool.query(
@@ -4099,7 +4099,7 @@ app.delete('/messages/:id', requireAuth, async (c) => {
   if (!rows.length) return c.json({ message: 'Message introuvable.' }, 404)
   const msg = rows[0]
   // Seul l'expéditeur ou un admin/dg peut supprimer
-  if (String(msg.sender_id) !== String(userId) && !['dg','dir_peda','coordinateur'].includes(userRole)) {
+  if (String(msg.sender_id) !== String(userId) && !['dg','dir_peda','coordinateur'].includes(userRole as string)) {
     return c.json({ message: 'Non autorisé.' }, 403)
   }
   await pool.query('DELETE FROM messages WHERE id=$1', [msgId])
@@ -4114,7 +4114,7 @@ app.delete('/conversations/:id', requireAuth, async (c) => {
   const { rows } = await pool.query('SELECT * FROM conversations WHERE id=$1', [convId])
   if (!rows.length) return c.json({ message: 'Conversation introuvable.' }, 404)
   const conv = rows[0]
-  if (String(conv.created_by) !== String(userId) && !['dg','dir_peda','coordinateur'].includes(userRole)) {
+  if (String(conv.created_by) !== String(userId) && !['dg','dir_peda','coordinateur'].includes(userRole as string)) {
     return c.json({ message: 'Non autorisé.' }, 403)
   }
   await pool.query('DELETE FROM messages WHERE conversation_id=$1', [convId])
