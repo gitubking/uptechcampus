@@ -1,8 +1,10 @@
 import { Hono } from 'hono'
 import type { MiddlewareHandler } from 'hono'
 import { Pool } from 'pg'
-import * as jwt from 'jsonwebtoken'
-import * as bcrypt from 'bcryptjs'
+// @ts-ignore — CJS default export works at runtime
+import jwt from 'jsonwebtoken'
+// @ts-ignore — CJS default export works at runtime
+import bcrypt from 'bcryptjs'
 import type { IncomingMessage, ServerResponse } from 'http'
 
 // ─── DB ──────────────────────────────────────────────────────────────────────
