@@ -2325,8 +2325,6 @@ app.get('/stats', requireAuth, async (c) => {
 async function genererEcheances(inscriptionId: number, moisDebut?: string) {
   const { rows } = await pool.query(`
     SELECT
-      -- Filière = source de vérité pour les tarifs de base.
-      -- On prend f.mensualite si défini (> 0), sinon fallback sur i.mensualite
       COALESCE(NULLIF(f.mensualite, 0), i.mensualite, 0)          AS mensualite,
       COALESCE(NULLIF(f.frais_inscription, 0), i.frais_inscription, 0) AS frais_inscription,
       COALESCE(NULLIF(f.montant_tenue, 0), i.frais_tenue, 0)      AS frais_tenue,
@@ -2342,60 +2340,87 @@ async function genererEcheances(inscriptionId: number, moisDebut?: string) {
   `, [inscriptionId])
   if (!rows[0]) return
   const insc = rows[0]
-  const mensBase = parseFloat(insc.mensualite) || 0    // tarif filière (source de vérité)
+  const mensBase = parseFloat(insc.mensualite) || 0
   const fraisBase = parseFloat(insc.frais_inscription) || 0
   const tenueBase = parseFloat(insc.frais_tenue) || 0
   const pct = parseFloat(insc.bourse_pct) || 0
   const mensEff = Math.round(mensBase * (1 - pct / 100))
-  // La bourse s'applique aux frais uniques (inscription + tenue) si le flag applique_inscription est activé
   const fraisEff = insc.bourse_applique ? Math.round(fraisBase * (1 - pct / 100)) : fraisBase
   const tenueEff = insc.bourse_applique_tenue ? Math.round(tenueBase * (1 - pct / 100)) : tenueBase
   const duree = Math.max(1, Math.min(parseInt(insc.duree_mois) || 12, 36))
-  const now = moisDebut ? new Date(moisDebut + '-01T00:00:00') : new Date()
-  const moisCourant = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-  // Frais inscription
+
+  // --- Déterminer le mois de départ ---
+  // Priorité : 1) première mensualité existante, 2) moisDebut paramètre, 3) maintenant
+  const { rows: existantes } = await pool.query(
+    `SELECT id, mois, montant, statut FROM echeances WHERE inscription_id = $1 AND type_echeance = 'mensualite' ORDER BY mois ASC`,
+    [inscriptionId]
+  )
+  let startDate: Date
+  if (existantes.length > 0) {
+    startDate = new Date(existantes[0].mois.toString().substring(0, 10) + 'T00:00:00')
+  } else if (moisDebut) {
+    startDate = new Date(moisDebut + '-01T00:00:00')
+  } else {
+    startDate = new Date()
+  }
+  const moisCourant = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-01`
+
+  // --- Frais inscription (UPSERT) ---
   if (fraisBase > 0) {
     await pool.query(
-      `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ($1,$2,$3,'frais_inscription') ON CONFLICT DO NOTHING`,
+      `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ($1,$2,$3,'frais_inscription')
+       ON CONFLICT (inscription_id,mois,type_echeance) DO UPDATE SET montant=$3 WHERE echeances.statut='non_paye'`,
       [inscriptionId, moisCourant, fraisEff]
     ).catch(() => {})
   }
-  // Tenue (avec réduction bourse si applicable)
+  // --- Tenue (UPSERT) ---
   if (tenueBase > 0) {
     await pool.query(
-      `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ($1,$2,$3,'tenue') ON CONFLICT DO NOTHING`,
+      `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ($1,$2,$3,'tenue')
+       ON CONFLICT (inscription_id,mois,type_echeance) DO UPDATE SET montant=$3 WHERE echeances.statut='non_paye'`,
       [inscriptionId, moisCourant, tenueEff]
     ).catch(() => {})
   }
-  // Mensualités en batch
+
+  // --- Mensualités : construire la liste théorique de N mois ---
   if (mensBase > 0) {
-    // Compter les mensualités déjà existantes pour ne pas dépasser duree
-    const { rows: existantes } = await pool.query(
-      `SELECT mois FROM echeances WHERE inscription_id = $1 AND type_echeance = 'mensualite' ORDER BY mois DESC`,
-      [inscriptionId]
-    )
-    const nbExistantes = existantes.length
-    const nbACreer = duree - nbExistantes
-    if (nbACreer > 0) {
-      // Partir du mois suivant le dernier existant, ou depuis moisDebut si aucun
-      let startDate: Date
-      if (nbExistantes > 0) {
-        const d = new Date(existantes[0].mois.toString().substring(0, 10) + 'T00:00:00')
-        startDate = new Date(d.getFullYear(), d.getMonth() + 1, 1)
-      } else {
-        startDate = now
+    const moisTheoriques: string[] = []
+    for (let i = 0; i < duree; i++) {
+      const d = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1)
+      moisTheoriques.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`)
+    }
+
+    // Index des existantes par mois pour lookup rapide
+    const existMap = new Map(existantes.map((e: any) => [e.mois.toString().substring(0, 10), e]))
+
+    // Pour chaque mois théorique : créer ou mettre à jour
+    for (const m of moisTheoriques) {
+      const ex = existMap.get(m)
+      if (!ex) {
+        // N'existe pas → créer
+        await pool.query(
+          `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ($1,$2,$3,'mensualite')
+           ON CONFLICT (inscription_id,mois,type_echeance) DO NOTHING`,
+          [inscriptionId, m, mensEff]
+        ).catch(() => {})
+      } else if (ex.statut === 'non_paye' && parseFloat(ex.montant) !== mensEff) {
+        // Existe non payé avec mauvais montant → mettre à jour
+        await pool.query(
+          `UPDATE echeances SET montant=$1 WHERE id=$2`,
+          [mensEff, ex.id]
+        ).catch(() => {})
       }
-      const params: any[] = [inscriptionId, mensEff]
-      const vals: string[] = []
-      for (let i = 0; i < nbACreer; i++) {
-        const d = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1)
-        const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-        params.push(m)
-        vals.push(`($1,$${params.length},$2,'mensualite')`)
-      }
+      // Si payé → ne pas toucher
+    }
+
+    // Supprimer les mensualités non payées hors liste théorique (surplus)
+    const idsASupprimer = existantes
+      .filter((e: any) => e.statut === 'non_paye' && !moisTheoriques.includes(e.mois.toString().substring(0, 10)))
+      .map((e: any) => e.id)
+    if (idsASupprimer.length > 0) {
       await pool.query(
-        `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ${vals.join(',')} ON CONFLICT DO NOTHING`,
-        params
+        `DELETE FROM echeances WHERE id = ANY($1::int[])`,
+        [idsASupprimer]
       ).catch(() => {})
     }
   }
@@ -2576,46 +2601,18 @@ app.patch('/echeances/:id/mois', requireAuth, role('secretariat', 'dg'), async (
   return c.json(rows[0])
 })
 
+// Génération / régénération d'échéances — un seul endpoint idempotent
+// genererEcheances fait tout : crée les manquantes, met à jour les montants, supprime le surplus
 app.post('/echeances/generer', requireAuth, role('secretariat', 'dg'), async (c) => {
   const { inscription_id, mois_debut } = await c.req.json()
-  await pool.query(`DELETE FROM echeances WHERE inscription_id = $1 AND montant = 0`, [inscription_id]).catch(() => {})
   await genererEcheances(parseInt(inscription_id), mois_debut || undefined)
   return c.json({ success: true })
 })
 
+// Garder /regenerer comme alias pour compatibilité frontend
 app.post('/echeances/regenerer', requireAuth, role('secretariat', 'dg'), async (c) => {
   const { inscription_id, mois_debut } = await c.req.json()
-  const inscId = parseInt(inscription_id)
-
-  // Récupérer duree_mois de la filière
-  const { rows: inscRows } = await pool.query(
-    `SELECT COALESCE(f.duree_mois, 12) as duree_mois
-     FROM inscriptions i LEFT JOIN filieres f ON i.filiere_id = f.id
-     WHERE i.id = $1`, [inscId]
-  )
-  const duree = Math.max(1, Math.min(parseInt(inscRows[0]?.duree_mois) || 12, 36))
-
-  // Compter toutes les mensualités existantes
-  const { rows: toutesEch } = await pool.query(
-    `SELECT COUNT(*) as nb FROM echeances WHERE inscription_id = $1 AND type_echeance = 'mensualite'`,
-    [inscId]
-  )
-  const nbTotal = parseInt(toutesEch[0]?.nb) || 0
-  const nbSurplus = Math.max(0, nbTotal - duree)
-
-  if (nbSurplus > 0) {
-    // Supprimer les mensualités non-payées les plus récentes pour ramener au bon total
-    await pool.query(
-      `DELETE FROM echeances WHERE id IN (
-        SELECT id FROM echeances
-        WHERE inscription_id = $1 AND type_echeance = 'mensualite' AND statut = 'non_paye'
-        ORDER BY mois DESC LIMIT $2
-      )`, [inscId, nbSurplus]
-    ).catch(() => {})
-  }
-
-  // Générer les mensualités manquantes
-  await genererEcheances(inscId, mois_debut || undefined)
+  await genererEcheances(parseInt(inscription_id), mois_debut || undefined)
   return c.json({ success: true })
 })
 
