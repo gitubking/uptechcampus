@@ -982,19 +982,22 @@ function getFiche(inscId: number) {
 
 // Vérifie si une inscription a des échéances avec montant = 0 (mal générées)
 function hasZeroEcheances(inscId: number) {
-  return echeances.value.some(e => Number(e.inscription_id) === inscId && Number(e.montant) === 0)
+  const id = Number(inscId)
+  return echeances.value.some(e => Number(e.inscription_id) === id && Number(e.montant) === 0)
 }
 
 // Vérifie si une inscription n'a AUCUNE échéance du tout (jamais générées)
 function hasNoEcheances(inscId: number) {
-  return !echeances.value.some(e => Number(e.inscription_id) === inscId)
+  const id = Number(inscId)
+  return !echeances.value.some(e => Number(e.inscription_id) === id)
 }
 
 // Vérifie si le nombre de mensualités dépasse la durée prévue
 function hasTooManyEcheances(inscId: number) {
-  const insc = inscriptions.value.find(i => i.id === inscId)
+  const id = Number(inscId)
+  const insc = inscriptions.value.find(i => Number(i.id) === id)
   const duree = insc?.filiere?.duree_mois ?? 12
-  const nb = echeances.value.filter(e => Number(e.inscription_id) === inscId && e.type_echeance === 'mensualite').length
+  const nb = echeances.value.filter(e => Number(e.inscription_id) === id && e.type_echeance === 'mensualite').length
   return nb > duree
 }
 
