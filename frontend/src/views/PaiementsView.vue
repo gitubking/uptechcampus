@@ -43,6 +43,7 @@ interface Paiement {
 interface Echeance {
   id: number; inscription_id: number; mois: string
   montant: number; type_echeance: string; statut: string
+  mois_paye?: string | null
   date_paiement?: string | null
   etudiant: { id: number; nom: string; prenom: string; numero_etudiant: string }
   filiere: { id: number; nom: string }
@@ -50,7 +51,7 @@ interface Echeance {
 interface Inscription {
   id: number; statut: string
   etudiant: { id: number; nom: string; prenom: string; numero_etudiant: string }
-  filiere: { id: number; nom: string; type_formation_id?: number | null; frais_inscription?: number; mensualite?: number; montant_tenue?: number } | null
+  filiere: { id: number; nom: string; type_formation_id?: number | null; frais_inscription?: number; mensualite?: number; montant_tenue?: number; duree_mois?: number } | null
   classe: { id: number; nom: string } | null
   mensualite: number; frais_inscription: number; frais_tenue?: number
 }
@@ -830,7 +831,17 @@ async function saveMoisEcheance(echId: number, mois: string) {
   }
 }
 
-// Retourne la date de paiement confirmé pour un slot (format DD/MM/YYYY)
+// Retourne le mois concerné saisi dans le formulaire (ex: "oct. 2025")
+function getMoisPayeBySlot(inscId: number, slot: number) {
+  const ech = getEchBySlot(inscId, slot)
+  if (!ech || (ech.statut !== 'paye' && ech.statut !== 'partiellement_paye') || !ech.mois_paye) return null
+  try {
+    const d = ech.mois_paye.length >= 10 ? ech.mois_paye.substring(0, 10) : ech.mois_paye + '-01'
+    return new Date(d + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })
+  } catch { return null }
+}
+
+// Retourne la date réelle du règlement (confirmed_at) au format JJ/MM/AAAA
 function getPaiementDateBySlot(inscId: number, slot: number) {
   const ech = getEchBySlot(inscId, slot)
   if (!ech || ech.statut === 'non_paye' || !ech.date_paiement) return null
@@ -979,29 +990,52 @@ function hasNoEcheances(inscId: number) {
   return !echeances.value.some(e => Number(e.inscription_id) === inscId)
 }
 
-const regeneratingId = ref<number | null>(null)
-async function regenererEcheances(insc: Inscription) {
-  if (!confirm(`Régénérer les échéances de ${insc.etudiant.prenom} ${insc.etudiant.nom} ?\nLes échéances non payées seront recréées avec les bons montants.`)) return
-  regeneratingId.value = insc.id
-  try {
-    await api.post('/echeances/regenerer', { inscription_id: insc.id })
-    await load()
-    showToast(`Échéances régénérées pour ${insc.etudiant.prenom} ${insc.etudiant.nom}`)
-  } catch (e: any) {
-    showToast(e.response?.data?.message ?? 'Erreur lors de la régénération', 'error')
-  } finally { regeneratingId.value = null }
+// Vérifie si le nombre de mensualités dépasse la durée prévue
+function hasTooManyEcheances(inscId: number) {
+  const insc = inscriptions.value.find(i => i.id === inscId)
+  const duree = insc?.filiere?.duree_mois ?? 12
+  const nb = echeances.value.filter(e => Number(e.inscription_id) === inscId && e.type_echeance === 'mensualite').length
+  return nb > duree
 }
 
-async function genererEcheancesManquantes(insc: Inscription) {
-  if (!confirm(`Générer les échéances de ${insc.etudiant.prenom} ${insc.etudiant.nom} ?\nLes mensualités seront créées selon les tarifs de la filière.`)) return
+const regeneratingId = ref<number | null>(null)
+
+// Modal choix mois de début
+const showGenererModal = ref(false)
+const genererInsc = ref<Inscription | null>(null)
+const genererMoisDebut = ref('')
+const genererModeAction = ref<'generer' | 'regenerer'>('generer')
+
+function openGenererModal(insc: Inscription, mode: 'generer' | 'regenerer') {
+  genererInsc.value = insc
+  genererModeAction.value = mode
+  // Pré-remplir avec le mois courant
+  const now = new Date()
+  genererMoisDebut.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  showGenererModal.value = true
+}
+
+async function confirmerGenerer() {
+  const insc = genererInsc.value
+  if (!insc) return
+  showGenererModal.value = false
   regeneratingId.value = insc.id
+  const endpoint = genererModeAction.value === 'regenerer' ? '/echeances/regenerer' : '/echeances/generer'
   try {
-    await api.post('/echeances/regenerer', { inscription_id: insc.id })
+    await api.post(endpoint, { inscription_id: insc.id, mois_debut: genererMoisDebut.value || undefined })
     await load()
     showToast(`Échéances générées pour ${insc.etudiant.prenom} ${insc.etudiant.nom}`)
   } catch (e: any) {
     showToast(e.response?.data?.message ?? 'Erreur lors de la génération', 'error')
   } finally { regeneratingId.value = null }
+}
+
+async function regenererEcheances(insc: Inscription) {
+  openGenererModal(insc, 'regenerer')
+}
+
+async function genererEcheancesManquantes(insc: Inscription) {
+  openGenererModal(insc, 'generer')
 }
 
 const showTenueDetail = ref(false)
@@ -1566,12 +1600,21 @@ function exportRetardsPDF() {
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
                     {{ regeneratingId === insc.id ? '…' : 'Générer' }}
                   </button>
-                  <!-- Bouton régénérer si des échéances ont montant=0 -->
+                  <!-- Bouton corriger si des échéances ont montant=0 -->
                   <button v-else-if="hasZeroEcheances(insc.id)"
                     @click="regenererEcheances(insc)"
                     :disabled="regeneratingId === insc.id"
                     title="Échéances mal générées (0 FCFA) — Cliquer pour corriger"
                     class="flex-shrink-0 flex items-center gap-1 text-[10px] font-semibold px-1.5 py-1 rounded bg-amber-100 text-amber-700 hover:bg-amber-200 transition disabled:opacity-40 border border-amber-300">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    {{ regeneratingId === insc.id ? '…' : 'Corriger' }}
+                  </button>
+                  <!-- Bouton corriger si trop de mensualités (dépasse duree_mois) -->
+                  <button v-else-if="hasTooManyEcheances(insc.id)"
+                    @click="regenererEcheances(insc)"
+                    :disabled="regeneratingId === insc.id"
+                    title="Trop de mensualités générées — Cliquer pour corriger"
+                    class="flex-shrink-0 flex items-center gap-1 text-[10px] font-semibold px-1.5 py-1 rounded bg-orange-100 text-orange-700 hover:bg-orange-200 transition disabled:opacity-40 border border-orange-300">
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     {{ regeneratingId === insc.id ? '…' : 'Corriger' }}
                   </button>
@@ -1602,7 +1645,7 @@ function exportRetardsPDF() {
                       <span>{{ (getFiche(insc.id)?.frais_paye ?? 0) >= (getFiche(insc.id)?.frais_prevu ?? 1) ? '✓' : (getFiche(insc.id)?.frais_paye ?? 0) > 0 ? '◑' : '✗' }}</span>
                       <span>{{ (getFiche(insc.id)?.frais_paye ?? 0) >= (getFiche(insc.id)?.frais_prevu ?? 1) ? 'Payé' : (getFiche(insc.id)?.frais_paye ?? 0) > 0 ? 'Partiel' : 'En retard' }}</span>
                     </span>
-                    <span v-if="getPaiementDateForInsc(insc.id)" class="text-[9px] font-bold leading-tight">
+                    <span v-if="getPaiementDateForInsc(insc.id)" class="text-[9px] font-normal opacity-70 leading-tight">
                       {{ getPaiementDateForInsc(insc.id) }}
                     </span>
                   </span>
@@ -1617,7 +1660,7 @@ function exportRetardsPDF() {
                       <span class="block opacity-60 font-normal">/ {{ fmt(getFiche(insc.id)?.frais_prevu ?? 0) }}</span>
                     </template>
                     <span v-else>{{ fmt(getFiche(insc.id)?.frais_prevu ?? 0) }}</span>
-                    <span v-if="getPaiementDateForInsc(insc.id)" class="text-[9px] font-bold leading-tight">
+                    <span v-if="getPaiementDateForInsc(insc.id)" class="text-[9px] font-normal opacity-70 leading-tight">
                       {{ getPaiementDateForInsc(insc.id) }}
                     </span>
                   </span>
@@ -1629,7 +1672,7 @@ function exportRetardsPDF() {
                       : (getFiche(insc.id)?.frais_paye ?? 0) > 0 ? 'bg-orange-100 text-orange-500' : 'bg-red-100 text-red-500'">
                     <span>{{ (getFiche(insc.id)?.frais_paye ?? 0) >= (getFiche(insc.id)?.frais_prevu ?? 1) ? '✓' : (getFiche(insc.id)?.frais_paye ?? 0) > 0 ? '◑' : '✗' }} {{ (getFiche(insc.id)?.frais_paye ?? 0) >= (getFiche(insc.id)?.frais_prevu ?? 1) ? 'Payé' : (getFiche(insc.id)?.frais_paye ?? 0) > 0 ? 'Partiel' : 'En retard' }}</span>
                     <span class="font-normal opacity-75 text-[10px]">{{ fmt(getFiche(insc.id)?.frais_paye ?? 0) }} / {{ fmt(getFiche(insc.id)?.frais_prevu ?? 0) }}</span>
-                    <span v-if="getPaiementDateForInsc(insc.id)" class="text-[9px] font-bold leading-tight">
+                    <span v-if="getPaiementDateForInsc(insc.id)" class="text-[9px] font-normal opacity-70 leading-tight">
                       {{ getPaiementDateForInsc(insc.id) }}
                     </span>
                   </span>
@@ -1663,7 +1706,7 @@ function exportRetardsPDF() {
                       <span>{{ (getFiche(insc.id)?.tenue_paye ?? 0) >= (getFiche(insc.id)?.tenue_prevu ?? 1) ? '✓' : (getFiche(insc.id)?.tenue_paye ?? 0) > 0 ? '◑' : '✗' }}</span>
                       <span>{{ (getFiche(insc.id)?.tenue_paye ?? 0) >= (getFiche(insc.id)?.tenue_prevu ?? 1) ? 'Payé' : (getFiche(insc.id)?.tenue_paye ?? 0) > 0 ? 'Partiel' : 'En retard' }}</span>
                     </span>
-                    <span v-if="getPaiementDateForTenue(insc.id)" class="text-[9px] font-bold leading-tight">
+                    <span v-if="getPaiementDateForTenue(insc.id)" class="text-[9px] font-normal opacity-70 leading-tight">
                       {{ getPaiementDateForTenue(insc.id) }}
                     </span>
                   </button>
@@ -1679,7 +1722,7 @@ function exportRetardsPDF() {
                       <span class="block opacity-60 font-normal">/ {{ fmt(getFiche(insc.id)?.tenue_prevu ?? 0) }}</span>
                     </template>
                     <span v-else>{{ fmt(getFiche(insc.id)?.tenue_prevu ?? 0) }}</span>
-                    <span v-if="getPaiementDateForTenue(insc.id)" class="text-[9px] font-bold leading-tight">
+                    <span v-if="getPaiementDateForTenue(insc.id)" class="text-[9px] font-normal opacity-70 leading-tight">
                       {{ getPaiementDateForTenue(insc.id) }}
                     </span>
                   </button>
@@ -1692,7 +1735,7 @@ function exportRetardsPDF() {
                       : (getFiche(insc.id)?.tenue_paye ?? 0) > 0 ? 'bg-orange-100 text-orange-500' : 'bg-red-100 text-red-500'">
                     <span>{{ (getFiche(insc.id)?.tenue_paye ?? 0) >= (getFiche(insc.id)?.tenue_prevu ?? 1) ? '✓' : (getFiche(insc.id)?.tenue_paye ?? 0) > 0 ? '◑' : '✗' }} {{ (getFiche(insc.id)?.tenue_paye ?? 0) >= (getFiche(insc.id)?.tenue_prevu ?? 1) ? 'Payé' : (getFiche(insc.id)?.tenue_paye ?? 0) > 0 ? 'Partiel' : 'En retard' }}</span>
                     <span class="font-normal opacity-75 text-[10px]">{{ fmt(getFiche(insc.id)?.tenue_paye ?? 0) }} / {{ fmt(getFiche(insc.id)?.tenue_prevu ?? 0) }}</span>
-                    <span v-if="getPaiementDateForTenue(insc.id)" class="text-[9px] font-bold leading-tight">
+                    <span v-if="getPaiementDateForTenue(insc.id)" class="text-[9px] font-normal opacity-70 leading-tight">
                       {{ getPaiementDateForTenue(insc.id) }}
                     </span>
                   </button>
@@ -1737,7 +1780,9 @@ function exportRetardsPDF() {
                     @click="openCellDetailBySlot(insc, slot)"
                     class="px-2 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer mx-auto flex flex-col items-center gap-0"
                     :class="cellStatutClassBySlot(insc.id, slot)">
-                    <span v-if="getMoisLabelBySlot(insc.id, slot)"
+                    <span v-if="getMoisPayeBySlot(insc.id, slot)"
+                      class="text-[8px] font-bold capitalize leading-tight">{{ getMoisPayeBySlot(insc.id, slot) }}</span>
+                    <span v-else-if="getMoisLabelBySlot(insc.id, slot)"
                       class="text-[8px] font-normal opacity-70 capitalize leading-tight hover:opacity-100"
                       @click.stop="editingMoisEchId = getEchBySlot(insc.id, slot)?.id ?? null"
                       title="Cliquer pour changer le mois">{{ getMoisLabelBySlot(insc.id, slot) }}</span>
@@ -1745,7 +1790,7 @@ function exportRetardsPDF() {
                       <span>{{ cellIconBySlot(insc.id, slot) }}</span>
                       <span>{{ cellLabelBySlot(insc.id, slot) }}</span>
                     </span>
-                    <span v-if="getPaiementDateBySlot(insc.id, slot)" class="text-[9px] font-bold leading-tight">
+                    <span v-if="getPaiementDateBySlot(insc.id, slot)" class="text-[9px] font-normal opacity-70 leading-tight">
                       {{ getPaiementDateBySlot(insc.id, slot) }}
                     </span>
                   </button>
@@ -1756,7 +1801,9 @@ function exportRetardsPDF() {
                     @click="openCellDetailBySlot(insc, slot)"
                     class="px-2 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer mx-auto flex flex-col items-center leading-tight"
                     :class="cellStatutClassBySlot(insc.id, slot)">
-                    <span v-if="getMoisLabelBySlot(insc.id, slot)"
+                    <span v-if="getMoisPayeBySlot(insc.id, slot)"
+                      class="text-[8px] font-bold capitalize leading-tight">{{ getMoisPayeBySlot(insc.id, slot) }}</span>
+                    <span v-else-if="getMoisLabelBySlot(insc.id, slot)"
                       class="text-[8px] font-normal opacity-70 capitalize leading-tight hover:opacity-100"
                       @click.stop="editingMoisEchId = getEchBySlot(insc.id, slot)?.id ?? null"
                       title="Cliquer pour changer le mois">{{ getMoisLabelBySlot(insc.id, slot) }}</span>
@@ -1767,7 +1814,7 @@ function exportRetardsPDF() {
                     <template v-else>
                       <span>{{ fmt(getEffectiveBySlot(insc.id, slot)?.montant ?? 0) }}</span>
                     </template>
-                    <span v-if="getPaiementDateBySlot(insc.id, slot)" class="text-[9px] font-bold leading-tight">
+                    <span v-if="getPaiementDateBySlot(insc.id, slot)" class="text-[9px] font-normal opacity-70 leading-tight">
                       {{ getPaiementDateBySlot(insc.id, slot) }}
                     </span>
                   </button>
@@ -1778,7 +1825,9 @@ function exportRetardsPDF() {
                     @click="openCellDetailBySlot(insc, slot)"
                     class="px-2 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer mx-auto flex flex-col items-center gap-0.5 leading-tight"
                     :class="cellStatutClassBySlot(insc.id, slot)">
-                    <span v-if="getMoisLabelBySlot(insc.id, slot)"
+                    <span v-if="getMoisPayeBySlot(insc.id, slot)"
+                      class="text-[8px] font-bold capitalize leading-tight">{{ getMoisPayeBySlot(insc.id, slot) }}</span>
+                    <span v-else-if="getMoisLabelBySlot(insc.id, slot)"
                       class="text-[8px] font-normal opacity-70 capitalize leading-tight hover:opacity-100"
                       @click.stop="editingMoisEchId = getEchBySlot(insc.id, slot)?.id ?? null"
                       title="Cliquer pour changer le mois">{{ getMoisLabelBySlot(insc.id, slot) }}</span>
@@ -1786,7 +1835,7 @@ function exportRetardsPDF() {
                     <span class="font-normal opacity-75 text-[10px]">
                       {{ fmt(getEffectiveBySlot(insc.id, slot)?.effectif ?? 0) }} / {{ fmt(getEffectiveBySlot(insc.id, slot)?.montant ?? 0) }}
                     </span>
-                    <span v-if="getPaiementDateBySlot(insc.id, slot)" class="text-[9px] font-bold leading-tight">
+                    <span v-if="getPaiementDateBySlot(insc.id, slot)" class="text-[9px] font-normal opacity-70 leading-tight">
                       {{ getPaiementDateBySlot(insc.id, slot) }}
                     </span>
                   </button>
@@ -1932,6 +1981,33 @@ function exportRetardsPDF() {
     </div>
 
     <!-- ── Modal paiement ── -->
+    <!-- Modal choix mois de début échéancier -->
+    <UcModal v-model="showGenererModal" title="Choisir le mois de début" width="380px">
+      <div class="space-y-4 py-2">
+        <p class="text-sm text-gray-600">
+          Étudiant : <strong>{{ genererInsc?.etudiant.prenom }} {{ genererInsc?.etudiant.nom }}</strong>
+        </p>
+        <p class="text-xs text-gray-500">
+          Choisissez le mois à partir duquel démarrent les mensualités de cet étudiant.
+        </p>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Mois de début</label>
+          <input v-model="genererMoisDebut" type="month"
+            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400" />
+        </div>
+        <div class="flex gap-2 justify-end pt-2">
+          <button @click="showGenererModal = false"
+            class="px-4 py-2 rounded-lg text-sm border border-gray-200 text-gray-600 hover:bg-gray-50">
+            Annuler
+          </button>
+          <button @click="confirmerGenerer" :disabled="!genererMoisDebut"
+            class="px-4 py-2 rounded-lg text-sm bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-40">
+            {{ genererModeAction === 'regenerer' ? 'Régénérer' : 'Générer' }}
+          </button>
+        </div>
+      </div>
+    </UcModal>
+
     <UcModal v-model="showModal" title="Enregistrer un paiement" width="520px">
       <div class="space-y-4">
 

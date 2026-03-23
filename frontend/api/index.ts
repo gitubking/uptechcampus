@@ -1447,7 +1447,7 @@ app.get('/inscriptions', requireAuth, async (c) => {
     SELECT i.*,
       jsonb_build_object('id',e.id,'nom',e.nom,'prenom',e.prenom,'email',e.email,'numero_etudiant',e.numero_etudiant) as etudiant,
       CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom,'niveau',c.niveau) ELSE NULL END as classe,
-      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id,'frais_inscription',f.frais_inscription,'mensualite',f.mensualite,'montant_tenue',COALESCE(f.montant_tenue,0)) ELSE NULL END as filiere,
+      CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id,'frais_inscription',f.frais_inscription,'mensualite',f.mensualite,'montant_tenue',COALESCE(f.montant_tenue,0),'duree_mois',COALESCE(f.duree_mois,12)) ELSE NULL END as filiere,
       CASE WHEN p.id IS NOT NULL THEN jsonb_build_object('id',p.id,'nom',p.nom) ELSE NULL END as parcours,
       CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique,
       CASE WHEN ne.id IS NOT NULL THEN jsonb_build_object('id',ne.id,'nom',ne.nom) ELSE NULL END as niveau_entree,
@@ -2320,7 +2320,7 @@ app.get('/stats', requireAuth, async (c) => {
 })
 
 // ─── ÉCHEANCES ────────────────────────────────────────────────────────────────
-async function genererEcheances(inscriptionId: number) {
+async function genererEcheances(inscriptionId: number, moisDebut?: string) {
   const { rows } = await pool.query(`
     SELECT
       -- Filière = source de vérité pour les tarifs de base.
@@ -2349,7 +2349,7 @@ async function genererEcheances(inscriptionId: number) {
   const fraisEff = insc.bourse_applique ? Math.round(fraisBase * (1 - pct / 100)) : fraisBase
   const tenueEff = insc.bourse_applique_tenue ? Math.round(tenueBase * (1 - pct / 100)) : tenueBase
   const duree = Math.max(1, Math.min(parseInt(insc.duree_mois) || 12, 36))
-  const now = new Date()
+  const now = moisDebut ? new Date(moisDebut + '-01T00:00:00') : new Date()
   const moisCourant = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
   // Frais inscription
   if (fraisBase > 0) {
@@ -2367,18 +2367,35 @@ async function genererEcheances(inscriptionId: number) {
   }
   // Mensualités en batch
   if (mensBase > 0) {
-    const params: any[] = [inscriptionId, mensEff]
-    const vals: string[] = []
-    for (let i = 0; i < duree; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
-      const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-      params.push(m)
-      vals.push(`($1,$${params.length},$2,'mensualite')`)
+    // Compter les mensualités déjà existantes pour ne pas dépasser duree
+    const { rows: existantes } = await pool.query(
+      `SELECT mois FROM echeances WHERE inscription_id = $1 AND type_echeance = 'mensualite' ORDER BY mois DESC`,
+      [inscriptionId]
+    )
+    const nbExistantes = existantes.length
+    const nbACreer = duree - nbExistantes
+    if (nbACreer > 0) {
+      // Partir du mois suivant le dernier existant, ou depuis moisDebut si aucun
+      let startDate: Date
+      if (nbExistantes > 0) {
+        const d = new Date(existantes[0].mois.toString().substring(0, 10) + 'T00:00:00')
+        startDate = new Date(d.getFullYear(), d.getMonth() + 1, 1)
+      } else {
+        startDate = now
+      }
+      const params: any[] = [inscriptionId, mensEff]
+      const vals: string[] = []
+      for (let i = 0; i < nbACreer; i++) {
+        const d = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1)
+        const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+        params.push(m)
+        vals.push(`($1,$${params.length},$2,'mensualite')`)
+      }
+      await pool.query(
+        `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ${vals.join(',')} ON CONFLICT DO NOTHING`,
+        params
+      ).catch(() => {})
     }
-    await pool.query(
-      `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ${vals.join(',')} ON CONFLICT DO NOTHING`,
-      params
-    ).catch(() => {})
   }
 }
 
@@ -2394,11 +2411,12 @@ app.get('/echeances', requireAuth, async (c) => {
     SELECT e.*,
       jsonb_build_object('id',et.id,'nom',et.nom,'prenom',et.prenom,'numero_etudiant',et.numero_etudiant) as etudiant,
       jsonb_build_object('id',f.id,'nom',f.nom) as filiere,
+      -- mois_paye : le mois_concerne saisi dans le formulaire de paiement
       CASE
         WHEN e.type_echeance = 'mensualite' THEN COALESCE(
-          -- Priorité 1 : paiement ayant explicitement ce mois concerné (ex: paiement de complément)
+          -- P1 : paiement avec mois_concerne correspondant exactement à ce mois
           (
-            SELECT COALESCE(p.confirmed_at, p.created_at)::text
+            SELECT p.mois_concerne::text
             FROM paiements p
             WHERE p.inscription_id = e.inscription_id
               AND p.type_paiement = 'mensualite'
@@ -2408,9 +2426,9 @@ app.get('/echeances', requireAuth, async (c) => {
             ORDER BY COALESCE(p.confirmed_at, p.created_at) DESC
             LIMIT 1
           ),
-          -- Priorité 2 : cumul positionnel avec déduction du surplus frais inscription
+          -- P2 : positionnel → mois_concerne du paiement associé (peut être null si non saisi)
           (
-            SELECT COALESCE(p.confirmed_at, p.created_at)::text
+            SELECT p.mois_concerne::text
             FROM paiements p
             WHERE p.inscription_id = e.inscription_id
               AND p.type_paiement = 'mensualite'
@@ -2451,8 +2469,76 @@ app.get('/echeances', requireAuth, async (c) => {
             LIMIT 1
           )
         )
+        ELSE NULL
+      END AS mois_paye,
+      -- date_paiement : la date réelle du règlement (confirmed_at)
+      CASE
+        WHEN e.type_echeance = 'mensualite' THEN COALESCE(
+          -- P1 : paiement avec mois_concerne correspondant exactement
+          (
+            SELECT COALESCE(p.confirmed_at, p.created_at)::text
+            FROM paiements p
+            WHERE p.inscription_id = e.inscription_id
+              AND p.type_paiement = 'mensualite'
+              AND p.statut = 'confirme'
+              AND p.mois_concerne IS NOT NULL
+              AND DATE_TRUNC('month', p.mois_concerne::timestamptz) = DATE_TRUNC('month', e.mois::timestamptz)
+            ORDER BY COALESCE(p.confirmed_at, p.created_at) DESC
+            LIMIT 1
+          ),
+          -- P2 : positionnel
+          (
+            SELECT COALESCE(p.confirmed_at, p.created_at)::text
+            FROM paiements p
+            WHERE p.inscription_id = e.inscription_id
+              AND p.type_paiement = 'mensualite'
+              AND p.statut = 'confirme'
+              AND (
+                SELECT COALESCE(SUM(p2.montant), 0)::numeric
+                FROM paiements p2
+                WHERE p2.inscription_id = e.inscription_id
+                  AND p2.type_paiement = 'mensualite'
+                  AND p2.statut = 'confirme'
+                  AND (
+                    COALESCE(p2.confirmed_at, p2.created_at) < COALESCE(p.confirmed_at, p.created_at)
+                    OR (COALESCE(p2.confirmed_at, p2.created_at) = COALESCE(p.confirmed_at, p.created_at) AND p2.id <= p.id)
+                  )
+              ) > GREATEST(
+                (
+                  SELECT COALESCE(SUM(e2.montant), 0)::numeric
+                  FROM echeances e2
+                  WHERE e2.inscription_id = e.inscription_id
+                    AND e2.type_echeance = 'mensualite'
+                    AND e2.mois < e.mois
+                ) - (
+                  SELECT GREATEST(
+                    COALESCE((SELECT SUM(pfi.montant) FROM paiements pfi
+                              WHERE pfi.inscription_id = e.inscription_id
+                                AND pfi.type_paiement = 'frais_inscription'
+                                AND pfi.statut = 'confirme'), 0)
+                    - COALESCE((SELECT efi.montant FROM echeances efi
+                                WHERE efi.inscription_id = e.inscription_id
+                                  AND efi.type_echeance = 'frais_inscription'
+                                LIMIT 1), 0),
+                    0
+                  )
+                ),
+                0
+              )
+            ORDER BY COALESCE(p.confirmed_at, p.created_at) ASC, p.id ASC
+            LIMIT 1
+          ),
+          -- P3 : surplus FI → premier paiement confirmé de l'inscription
+          (
+            SELECT COALESCE(p.confirmed_at, p.created_at)::text
+            FROM paiements p
+            WHERE p.inscription_id = e.inscription_id
+              AND p.statut = 'confirme'
+            ORDER BY COALESCE(p.confirmed_at, p.created_at) ASC, p.id ASC
+            LIMIT 1
+          )
+        )
         ELSE (
-          -- Frais inscription / tenue : 1 seul par inscription, pas de filtre par mois
           SELECT COALESCE(p.confirmed_at, p.created_at)::text
           FROM paiements p
           WHERE p.inscription_id = e.inscription_id
@@ -2489,21 +2575,45 @@ app.patch('/echeances/:id/mois', requireAuth, role('secretariat', 'dg'), async (
 })
 
 app.post('/echeances/generer', requireAuth, role('secretariat', 'dg'), async (c) => {
-  const { inscription_id } = await c.req.json()
-  // Supprimer les échéances à 0 FCFA avant de régénérer
+  const { inscription_id, mois_debut } = await c.req.json()
   await pool.query(`DELETE FROM echeances WHERE inscription_id = $1 AND montant = 0`, [inscription_id]).catch(() => {})
-  await genererEcheances(parseInt(inscription_id))
+  await genererEcheances(parseInt(inscription_id), mois_debut || undefined)
   return c.json({ success: true })
 })
 
 app.post('/echeances/regenerer', requireAuth, role('secretariat', 'dg'), async (c) => {
-  const { inscription_id } = await c.req.json()
-  // Régénération complète : supprime TOUTES les échéances non payées et recrée
-  await pool.query(
-    `DELETE FROM echeances WHERE inscription_id = $1 AND statut = 'non_paye'`,
-    [inscription_id]
-  ).catch(() => {})
-  await genererEcheances(parseInt(inscription_id))
+  const { inscription_id, mois_debut } = await c.req.json()
+  const inscId = parseInt(inscription_id)
+
+  // Récupérer duree_mois de la filière
+  const { rows: inscRows } = await pool.query(
+    `SELECT COALESCE(f.duree_mois, 12) as duree_mois
+     FROM inscriptions i LEFT JOIN filieres f ON i.filiere_id = f.id
+     WHERE i.id = $1`, [inscId]
+  )
+  const duree = Math.max(1, Math.min(parseInt(inscRows[0]?.duree_mois) || 12, 36))
+
+  // Compter toutes les mensualités existantes
+  const { rows: toutesEch } = await pool.query(
+    `SELECT COUNT(*) as nb FROM echeances WHERE inscription_id = $1 AND type_echeance = 'mensualite'`,
+    [inscId]
+  )
+  const nbTotal = parseInt(toutesEch[0]?.nb) || 0
+  const nbSurplus = Math.max(0, nbTotal - duree)
+
+  if (nbSurplus > 0) {
+    // Supprimer les mensualités non-payées les plus récentes pour ramener au bon total
+    await pool.query(
+      `DELETE FROM echeances WHERE id IN (
+        SELECT id FROM echeances
+        WHERE inscription_id = $1 AND type_echeance = 'mensualite' AND statut = 'non_paye'
+        ORDER BY mois DESC LIMIT $2
+      )`, [inscId, nbSurplus]
+    ).catch(() => {})
+  }
+
+  // Générer les mensualités manquantes
+  await genererEcheances(inscId, mois_debut || undefined)
   return c.json({ success: true })
 })
 
