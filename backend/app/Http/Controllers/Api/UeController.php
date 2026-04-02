@@ -28,7 +28,8 @@ class UeController extends Controller
             'code'           => 'required|string|max:50',
             'intitule'       => 'required|string|max:255',
             'coefficient'    => 'required|numeric|min:0',
-            'credits_ects'   => 'integer|min:0',
+            'credits_ects'   => 'numeric|min:0',
+            'volume_horaire' => 'integer|min:0',
             'ordre'          => 'integer|min:0',
         ]);
 
@@ -46,6 +47,7 @@ class UeController extends Controller
             'intitule'       => 'sometimes|string|max:255',
             'coefficient'    => 'sometimes|numeric|min:0',
             'credits_ects'   => 'sometimes|integer|min:0',
+            'volume_horaire' => 'sometimes|integer|min:0',
             'ordre'          => 'sometimes|integer|min:0',
         ]);
 

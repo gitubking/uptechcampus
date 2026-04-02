@@ -11,13 +11,14 @@ class UniteEnseignement extends Model
     protected $table = 'unites_enseignement';
 
     protected $fillable = [
-        'classe_id', 'intervenant_id', 'code', 'intitule', 'coefficient', 'credits_ects', 'ordre',
+        'classe_id', 'intervenant_id', 'code', 'intitule', 'coefficient', 'credits_ects', 'volume_horaire', 'ordre',
     ];
 
     protected $casts = [
-        'coefficient'  => 'decimal:2',
-        'credits_ects' => 'integer',
-        'ordre'        => 'integer',
+        'coefficient'    => 'decimal:2',
+        'credits_ects'   => 'decimal:1',
+        'volume_horaire' => 'integer',
+        'ordre'          => 'integer',
     ];
 
     public function classe(): BelongsTo { return $this->belongsTo(Classe::class); }
