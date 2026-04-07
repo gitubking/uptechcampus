@@ -6,7 +6,7 @@ import api from '@/services/api'
 const auth = useAuthStore()
 const canSee = computed(() => ['dg', 'resp_fin', 'dir_peda'].includes(auth.user?.role ?? ''))
 
-type Tab = 'financier' | 'pedagogique' | 'rh' | 'etudiants'
+type Tab = 'financier' | 'pedagogique' | 'rh' | 'etudiants' | 'ministeriel'
 const activeTab = ref<Tab>('financier')
 const loading = ref(true)
 
@@ -102,6 +102,24 @@ function exportCSV() {
       ['Mode', 'Pourcentage'],
       ...Object.entries(data.value.rh.repartition_mode).map(([k, v]) => [modeLabels[k] ?? k, pct(v)]),
     ]
+  } else if (tab === 'ministeriel') {
+    filename = 'rapport_ministeriel.csv'
+    rows = [
+      ['RAPPORT STATISTIQUE ANNUEL', String(new Date().getFullYear())],
+      [],
+      ['Indicateur', 'Valeur'],
+      ['Enseignants actifs', String(data.value.rh.enseignants_actifs)],
+      ['Volume horaire', `${data.value.rh.volume_horaire}h`],
+      ['Séances réalisées', String(data.value.pedagogique.nb_seances_realisees)],
+      ['Taux de présence', pct(data.value.pedagogique.taux_presence)],
+      ['Étudiants notés', String(data.value.pedagogique.nb_etudiants_notes)],
+      [],
+      ['Filière', 'Effectif', '%'],
+      ...data.value.etudiants.par_filiere.map(f => [f.nom, String(f.count), pct(f.pct)]),
+      [],
+      ['Statut', 'Nombre'],
+      ...(data.value.etudiants.par_statut as any[]).map((s: any) => [statutLabels[s.statut] ?? s.statut, String(s.total)]),
+    ]
   } else {
     filename = 'rapport_etudiants.csv'
     rows = [
@@ -145,10 +163,10 @@ onMounted(load)
 
     <!-- Tabs -->
     <div class="rp-tabs">
-      <button v-for="tab in ['financier', 'pedagogique', 'rh', 'etudiants']" :key="tab"
+      <button v-for="tab in ['financier', 'pedagogique', 'rh', 'etudiants', 'ministeriel']" :key="tab"
         @click="activeTab = tab as Tab"
         class="rp-tab" :class="activeTab === tab ? 'rp-tab--active' : ''">
-        {{ tab === 'financier' ? 'Financier' : tab === 'pedagogique' ? 'Pédagogique' : tab === 'rh' ? 'RH' : 'Étudiants' }}
+        {{ tab === 'financier' ? 'Financier' : tab === 'pedagogique' ? 'Pédagogique' : tab === 'rh' ? 'RH' : tab === 'etudiants' ? 'Étudiants' : 'Ministériel' }}
       </button>
     </div>
 
@@ -284,6 +302,106 @@ onMounted(load)
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- MINISTÉRIEL -->
+      <div v-else-if="activeTab === 'ministeriel'" style="display:flex;flex-direction:column;gap:16px;">
+
+        <!-- En-tête officiel -->
+        <div class="rp-card" style="background:linear-gradient(135deg,#111 0%,#2d0007 100%);color:#fff;padding:20px 24px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <div>
+              <div style="font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,0.45);margin-bottom:4px;">République du Sénégal</div>
+              <div style="font-size:14px;font-weight:700;">Rapport Statistique Annuel {{ new Date().getFullYear() }}</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;">Ministère de l'Enseignement Supérieur, de la Recherche et de l'Innovation</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:10px;color:rgba(255,255,255,0.4);">Établissement d'Enseignement Supérieur Privé</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:2px;">Généré le {{ new Date().toLocaleDateString('fr-FR') }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- KPIs synthèse -->
+        <div class="uc-kpi-grid" style="grid-template-columns:repeat(4,1fr);">
+          <div class="uc-kpi-card blue">
+            <div class="uc-kpi-icon">🎓</div>
+            <div class="uc-kpi-label">Étudiants inscrits</div>
+            <div class="uc-kpi-value">{{ data.etudiants.par_filiere.reduce((s, f) => s + f.count, 0) }}</div>
+          </div>
+          <div class="uc-kpi-card green">
+            <div class="uc-kpi-icon">📚</div>
+            <div class="uc-kpi-label">Filières actives</div>
+            <div class="uc-kpi-value">{{ data.etudiants.par_filiere.length }}</div>
+          </div>
+          <div class="uc-kpi-card orange">
+            <div class="uc-kpi-icon">👨‍🏫</div>
+            <div class="uc-kpi-label">Corps enseignant</div>
+            <div class="uc-kpi-value">{{ data.rh.enseignants_actifs }}</div>
+          </div>
+          <div class="uc-kpi-card purple">
+            <div class="uc-kpi-icon">📋</div>
+            <div class="uc-kpi-label">Taux de présence</div>
+            <div class="uc-kpi-value">{{ pct(data.pedagogique.taux_presence) }}</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+          <!-- Effectifs par filière -->
+          <div class="rp-card">
+            <h3 class="rp-card-title">Effectifs par filière</h3>
+            <div v-if="!data.etudiants.par_filiere.length" style="text-align:center;padding:16px;color:#aaa;font-size:13px;">Aucune donnée.</div>
+            <div v-else style="display:flex;flex-direction:column;gap:0;">
+              <div style="display:grid;grid-template-columns:1fr auto auto;gap:4px 10px;font-size:10px;font-weight:600;color:#bbb;border-bottom:1px solid #f0f0f0;padding-bottom:6px;margin-bottom:6px;">
+                <span>Filière</span><span style="text-align:right;">Effectif</span><span style="text-align:right;">%</span>
+              </div>
+              <div v-for="f in data.etudiants.par_filiere" :key="f.nom"
+                style="display:grid;grid-template-columns:1fr auto auto;gap:4px 10px;padding:5px 0;border-bottom:1px solid #f9f9f9;align-items:center;">
+                <span style="font-size:12px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ f.nom }}</span>
+                <span style="font-size:13px;font-weight:800;color:#E30613;text-align:right;">{{ f.count }}</span>
+                <span style="font-size:11px;color:#aaa;text-align:right;">{{ f.pct }}%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Répartition par statut -->
+          <div class="rp-card">
+            <h3 class="rp-card-title">Situation académique des étudiants</h3>
+            <div v-if="!data.etudiants.par_statut.length" style="text-align:center;padding:16px;color:#aaa;font-size:13px;">Aucune donnée.</div>
+            <div v-else style="display:flex;flex-direction:column;">
+              <div v-for="s in data.etudiants.par_statut" :key="(s as any).statut"
+                style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f4f4f4;">
+                <span style="font-size:12px;color:#555;">{{ statutLabels[(s as any).statut] ?? (s as any).statut }}</span>
+                <span style="font-size:13px;font-weight:800;color:#333;">{{ (s as any).total }}</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Bilan pédagogique -->
+        <div class="rp-card">
+          <h3 class="rp-card-title">Bilan pédagogique de l'année</h3>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+            <div style="text-align:center;padding:12px;background:#f8f8f8;border-radius:8px;">
+              <div style="font-size:24px;font-weight:800;color:#3b82f6;">{{ data.pedagogique.nb_seances_realisees }}</div>
+              <div style="font-size:11px;color:#888;margin-top:4px;">Séances réalisées</div>
+              <div style="font-size:10px;color:#bbb;">sur {{ data.pedagogique.nb_seances }} planifiées</div>
+            </div>
+            <div style="text-align:center;padding:12px;background:#f8f8f8;border-radius:8px;">
+              <div style="font-size:24px;font-weight:800;color:#22c55e;">{{ data.rh.volume_horaire }}h</div>
+              <div style="font-size:11px;color:#888;margin-top:4px;">Volume horaire</div>
+              <div style="font-size:10px;color:#bbb;">total enseignement</div>
+            </div>
+            <div style="text-align:center;padding:12px;background:#f8f8f8;border-radius:8px;">
+              <div style="font-size:24px;font-weight:800;color:#f97316;">{{ data.pedagogique.nb_etudiants_notes }}</div>
+              <div style="font-size:11px;color:#888;margin-top:4px;">Étudiants évalués</div>
+              <div style="font-size:10px;color:#bbb;">{{ data.pedagogique.nb_ues }} UEs au total</div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
     </div>
