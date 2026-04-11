@@ -1120,7 +1120,17 @@ app.put('/filieres/:id/ligne-maquette/:matiere_id', requireAuth, role('dg', 'dir
   try {
     await client.query('BEGIN')
     if (b.nom_matiere) {
-      await client.query('UPDATE matieres SET nom=$1 WHERE id=$2', [b.nom_matiere.trim(), matiereId])
+      // Vérifier si la matière est utilisée dans d'autres filières
+      const { rows: usages } = await client.query(
+        `SELECT COUNT(DISTINCT filiere_id)::int as nb FROM filiere_matiere WHERE matiere_id=$1`, [matiereId]
+      )
+      const nbFilieres = usages[0]?.nb || 0
+      if (nbFilieres <= 1) {
+        // Utilisée dans 1 seule filière (celle-ci) → renommage sécurisé
+        await client.query('UPDATE matieres SET nom=$1 WHERE id=$2', [b.nom_matiere.trim(), matiereId])
+      }
+      // Si utilisée dans plusieurs filières → on ne renomme pas le nom global
+      // L'intitulé EC dans la maquette est géré via intitule_ue / code_ue sur filiere_matiere
     }
     await client.query(
       `UPDATE filiere_matiere SET
