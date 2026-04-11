@@ -44,7 +44,35 @@ async function load() {
     ])
     const all = (fRes.data as any[])
     filiere.value = all.find((f: any) => f.id === filiereId.value) || null
-    lignes.value  = Array.isArray(mRes.data) ? mRes.data : []
+
+    // L'API retourne une structure imbriquée : [{numero, ues:[{code, intitule_ue, ecs:[{matiere_id,...}]}]}]
+    // On aplatit en LigneMaquette[]
+    const data = Array.isArray(mRes.data) ? mRes.data : []
+    const flat: LigneMaquette[] = []
+    for (const sem of data) {
+      for (const ue of (sem.ues || [])) {
+        for (const ec of (ue.ecs || [])) {
+          flat.push({
+            filiere_id: filiereId.value,
+            matiere_id: ec.matiere_id,
+            matiere_nom: ec.intitule || '',
+            matiere_code: ec.matiere_code || null,
+            semestre:    sem.numero || 1,
+            code_ue:     ue.code || '',
+            intitule_ue: ue.intitule_ue || '',
+            coefficient: parseFloat(ec.coefficient) || 0,
+            credits:     ec.credits || 0,
+            vht:         ec.vht || 0,
+            cm:          ec.cm  || 0,
+            td:          ec.td  || 0,
+            tp:          ec.tp  || 0,
+            tpe:         ec.tpe || 0,
+            ordre:       ec.ordre || 0,
+          })
+        }
+      }
+    }
+    lignes.value = flat
   } finally {
     loading.value = false
   }
