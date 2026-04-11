@@ -1099,8 +1099,10 @@ app.post('/filieres/:id/ligne-maquette', requireAuth, role('dg', 'dir_peda', 'co
        b.coefficient??1, b.credits??0, b.vht??0, b.cm??0, b.td??0, b.tp??0, b.tpe??0, b.ordre??0]
     )
     await client.query('COMMIT')
-    const { rows } = await pool.query(
-      `SELECT fm.*, m.nom as matiere_nom, m.code as matiere_code
+    const { rows } = await client.query(
+      `SELECT fm.filiere_id, fm.matiere_id, fm.semestre, fm.code_ue, fm.intitule_ue,
+              fm.coefficient, fm.credits, fm.vht, fm.cm, fm.td, fm.tp, fm.tpe, fm.ordre,
+              m.nom as matiere_nom, m.code as matiere_code
        FROM filiere_matiere fm JOIN matieres m ON fm.matiere_id = m.id
        WHERE fm.filiere_id=$1 AND fm.matiere_id=$2`, [filiereId, matiereId]
     )
@@ -1141,8 +1143,10 @@ app.put('/filieres/:id/ligne-maquette/:matiere_id', requireAuth, role('dg', 'dir
        b.coefficient??1, b.credits??0, b.vht??0, b.cm??0, b.td??0, b.tp??0, b.tpe??0, b.ordre??0]
     )
     await client.query('COMMIT')
-    const { rows } = await pool.query(
-      `SELECT fm.*, m.nom as matiere_nom, m.code as matiere_code
+    const { rows } = await client.query(
+      `SELECT fm.filiere_id, fm.matiere_id, fm.semestre, fm.code_ue, fm.intitule_ue,
+              fm.coefficient, fm.credits, fm.vht, fm.cm, fm.td, fm.tp, fm.tpe, fm.ordre,
+              m.nom as matiere_nom, m.code as matiere_code
        FROM filiere_matiere fm JOIN matieres m ON fm.matiere_id = m.id
        WHERE fm.filiere_id=$1 AND fm.matiere_id=$2`, [filiereId, matiereId]
     )
