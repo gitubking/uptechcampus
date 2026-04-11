@@ -111,8 +111,9 @@ const form = ref({
 
 const semestresListe = computed(() => {
   const existing = [...new Set(lignes.value.map(l => l.semestre))].sort((a, b) => a - b)
-  if (!existing.length) return [1, 2]
-  return existing
+  const next = existing.length ? Math.max(...existing) + 1 : 2
+  // Toujours inclure le prochain semestre disponible dans la liste
+  return existing.length ? [...existing, next] : [1, 2]
 })
 
 function openAdd(semestre: number) {
@@ -327,9 +328,8 @@ async function confirmDelete() {
               <div class="mq-field">
                 <label class="mq-lbl">Semestre <span class="req">*</span></label>
                 <select v-model.number="form.semestre" class="mq-inp">
-                  <option v-for="s in semestresListe" :key="s" :value="s">Semestre {{ s }}</option>
-                  <option :value="(semestresListe[semestresListe.length - 1] || 0) + 1">
-                    + Nouveau (Semestre {{ (semestresListe[semestresListe.length - 1] || 0) + 1 }})
+                  <option v-for="s in semestresListe" :key="s" :value="s">
+                    Semestre {{ s }}{{ s === semestresListe[semestresListe.length - 1] && lignes.filter(l => l.semestre === s).length === 0 ? ' (nouveau)' : '' }}
                   </option>
                 </select>
               </div>
