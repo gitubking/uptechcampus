@@ -16,8 +16,21 @@
     {
       "name": "Frontend Vue",
       "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "npm --prefix frontend run dev"],
-      "port": 5173
+      "runtimeArgs": ["/c", "npm --prefix frontend run dev -- --port 5174"],
+      "port": 5174
+    },
+    {
+      "name": "mockup",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "npx serve mockup -p 3099 -L"],
+      "port": 3099
+    },
+    {
+      "name": "mockup-html",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "npx serve . -L --no-clipboard"],
+      "port": 4445,
+      "autoPort": true
     }
   ]
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import * as XLSX from 'xlsx'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader, UcTable } from '@/components/ui'
@@ -228,6 +229,210 @@ async function detachMatiere(matiereId: number) {
   }
 }
 
+// ── Import / Export maquette ─────────────────────────────────────────
+const importFileInput = ref<HTMLInputElement | null>(null)
+const importingMaquette = ref(false)
+const importTarget = ref<Filiere | null>(null)
+const importResult = ref('')
+const showImportResult = ref(false)
+
+function exportModele() {
+  // Créer un fichier Excel modèle vide avec les bonnes colonnes et un exemple
+  const header = ['Semestre', 'Code UE', 'Intitulé UE', 'Catégorie UE', 'Intitulé EC (Matière)', 'CM', 'TD', 'TP', 'TPE', 'VHT', 'Coefficient']
+  const exemple = [1, 'InfM111', 'Informatique', 'majeure', 'Bureautique', 0, 0, 20, 20, 40, 3]
+  const exemple2 = [1, 'InfM111', 'Informatique', 'majeure', 'Systèmes d\'exploitation', 0, 0, 10, 10, 20, 2]
+  const exemple3 = [2, 'WebM121', 'Webmaster 1', 'majeure', 'Conception de site statique', 0, 0, 15, 15, 30, 5]
+
+  const ws = XLSX.utils.aoa_to_sheet([header, exemple, exemple2, exemple3])
+
+  // Largeurs de colonnes
+  ws['!cols'] = [
+    { wch: 10 }, // Semestre
+    { wch: 12 }, // Code UE
+    { wch: 30 }, // Intitulé UE
+    { wch: 15 }, // Catégorie
+    { wch: 40 }, // Intitulé EC
+    { wch: 6 },  // CM
+    { wch: 6 },  // TD
+    { wch: 6 },  // TP
+    { wch: 6 },  // TPE
+    { wch: 8 },  // VHT
+    { wch: 12 }, // Coefficient
+  ]
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Maquette')
+
+  // Ajouter une feuille d'instructions
+  const instrWs = XLSX.utils.aoa_to_sheet([
+    ['INSTRUCTIONS - Modèle de maquette pédagogique'],
+    [''],
+    ['Colonnes obligatoires :'],
+    ['- Semestre : numéro du semestre (1, 2, 3...)'],
+    ['- Code UE : code de l\'unité d\'enseignement (ex: InfM111)'],
+    ['- Intitulé UE : nom de l\'unité d\'enseignement'],
+    ['- Catégorie UE : majeure, mineure, ou renforcement'],
+    ['- Intitulé EC : nom de l\'élément constitutif (matière)'],
+    ['- CM, TD, TP, TPE : volumes horaires en heures'],
+    ['- VHT : volume horaire total (CM + TD + TP + TPE)'],
+    ['- Coefficient : coefficient de la matière (0 = LMD uniquement)'],
+    [''],
+    ['Règles :'],
+    ['- Plusieurs EC peuvent appartenir à la même UE (même Code UE)'],
+    ['- Les crédits sont calculés automatiquement : VHT / 20 = crédits'],
+    ['- Si coefficient = 0, seuls les étudiants LMD suivent cette matière'],
+    ['- Supprimez les lignes d\'exemple avant d\'importer'],
+  ])
+  instrWs['!cols'] = [{ wch: 70 }]
+  XLSX.utils.book_append_sheet(wb, instrWs, 'Instructions')
+
+  XLSX.writeFile(wb, 'modele_maquette.xlsx')
+}
+
+function triggerImportMaquette(f: Filiere) {
+  importTarget.value = f
+  importResult.value = ''
+  importFileInput.value?.click()
+}
+
+async function handleImportFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || !importTarget.value) return
+
+  importingMaquette.value = true
+  importResult.value = ''
+  try {
+    const data = await file.arrayBuffer()
+    const wb = XLSX.read(data)
+    const sheetName = wb.SheetNames[0]
+    if (!sheetName) throw new Error('Feuille vide')
+    const ws = wb.Sheets[sheetName]
+    if (!ws) throw new Error('Feuille vide')
+
+    const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
+    if (rows.length < 2) throw new Error('Le fichier ne contient aucune donnée (seulement l\'en-tête)')
+
+    // Détecter l'en-tête (première ligne)
+    const headerRow = (rows[0] || []).map((h: any) => String(h ?? '').toLowerCase().trim())
+    const colIdx = {
+      semestre: headerRow.findIndex((h: string) => h.includes('semestre')),
+      codeUe: headerRow.findIndex((h: string) => h.includes('code')),
+      intituleUe: headerRow.findIndex((h: string) => h.includes('intitul') && h.includes('ue')),
+      categorie: headerRow.findIndex((h: string) => h.includes('cat')),
+      intituleEc: headerRow.findIndex((h: string) => (h.includes('intitul') && (h.includes('ec') || h.includes('mati'))) || h === 'intitulé ec (matière)'),
+      cm: headerRow.findIndex((h: string) => h === 'cm'),
+      td: headerRow.findIndex((h: string) => h === 'td'),
+      tp: headerRow.findIndex((h: string) => h === 'tp'),
+      tpe: headerRow.findIndex((h: string) => h === 'tpe'),
+      vht: headerRow.findIndex((h: string) => h === 'vht'),
+      coefficient: headerRow.findIndex((h: string) => h.includes('coef')),
+    }
+
+    // Vérifier les colonnes essentielles
+    if (colIdx.intituleEc === -1) {
+      // Essayer une détection plus souple
+      colIdx.intituleEc = headerRow.findIndex((h: string) => h.includes('ec') || h.includes('mati'))
+    }
+    if (colIdx.intituleEc === -1) throw new Error('Colonne "Intitulé EC" introuvable dans l\'en-tête')
+
+    // Construire la structure semestres > UE > EC
+    const semestresMap: Record<number, Record<string, { code: string; intitule_ue: string; categorie: string; ecs: any[] }>> = {}
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i]
+      if (!row || row.length === 0) continue
+
+      const ecNom = String(row[colIdx.intituleEc] ?? '').trim()
+      if (!ecNom) continue
+
+      const sem = parseInt(row[colIdx.semestre] ?? 1) || 1
+      const codeUe = String(row[colIdx.codeUe] ?? '').trim() || 'UE'
+      const intituleUe = String(row[colIdx.intituleUe] ?? '').trim() || codeUe
+      const categorie = String(row[colIdx.categorie] ?? 'majeure').trim().toLowerCase()
+      const cm = parseInt(row[colIdx.cm] ?? 0) || 0
+      const td = parseInt(row[colIdx.td] ?? 0) || 0
+      const tp = parseInt(row[colIdx.tp] ?? 0) || 0
+      const tpe = parseInt(row[colIdx.tpe] ?? 0) || 0
+      const vht = parseInt(row[colIdx.vht] ?? 0) || (cm + td + tp + tpe)
+      const coefficient = parseFloat(row[colIdx.coefficient] ?? 1) || 0
+
+      if (!semestresMap[sem]) semestresMap[sem] = {}
+      if (!semestresMap[sem][codeUe]) {
+        semestresMap[sem][codeUe] = { code: codeUe, intitule_ue: intituleUe, categorie, ecs: [] }
+      }
+      semestresMap[sem][codeUe].ecs.push({ intitule: ecNom, cm, td, tp, tpe, vht, coefficient })
+    }
+
+    // Convertir en format attendu par l'API
+    const semestres = Object.entries(semestresMap).map(([num, uesMap]) => ({
+      numero: parseInt(num),
+      ues: Object.values(uesMap),
+    }))
+
+    if (semestres.length === 0) throw new Error('Aucune donnée valide trouvée dans le fichier')
+
+    // Appel API
+    const { data: result } = await api.post(`/filieres/${importTarget.value.id}/maquette`, { semestres })
+    importResult.value = result.message || `Import réussi: ${result.total_filiere_matiere} matière(s) importée(s)`
+    showImportResult.value = true
+
+    // Recharger les filières
+    await load()
+  } catch (e: any) {
+    importResult.value = e?.response?.data?.error || e.message || 'Erreur lors de l\'import'
+    showImportResult.value = true
+  } finally {
+    importingMaquette.value = false
+    input.value = '' // Reset file input
+  }
+}
+
+async function exportMaquetteFiliere(f: Filiere) {
+  try {
+    const { data } = await api.get(`/filieres/${f.id}/maquette`)
+    const semestres = Array.isArray(data) ? data : (data.semestres || [])
+
+    const rows: any[][] = [['Semestre', 'Code UE', 'Intitulé UE', 'Catégorie UE', 'Intitulé EC (Matière)', 'CM', 'TD', 'TP', 'TPE', 'VHT', 'Coefficient']]
+
+    for (const sem of semestres) {
+      for (const ue of (sem.ues || [])) {
+        for (const ec of (ue.ecs || [])) {
+          rows.push([
+            sem.numero,
+            ue.code || '',
+            ue.intitule_ue || '',
+            ue.categorie || '',
+            ec.intitule || '',
+            ec.cm || 0,
+            ec.td || 0,
+            ec.tp || 0,
+            ec.tpe || 0,
+            ec.vht || 0,
+            ec.coefficient ?? 0,
+          ])
+        }
+      }
+    }
+
+    if (rows.length <= 1) {
+      alert('Aucune maquette à exporter pour cette filière.')
+      return
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(rows)
+    ws['!cols'] = [
+      { wch: 10 }, { wch: 12 }, { wch: 30 }, { wch: 15 }, { wch: 40 },
+      { wch: 6 }, { wch: 6 }, { wch: 6 }, { wch: 6 }, { wch: 8 }, { wch: 12 },
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Maquette')
+    XLSX.writeFile(wb, `maquette_${f.code || f.nom}.xlsx`)
+  } catch (e: any) {
+    alert(e?.response?.data?.error || 'Erreur lors de l\'export')
+  }
+}
+
 // ── Formatage ─────────────────────────────────────────────────────────
 function formatMontant(val: number | null): string {
   if (val == null || val === 0) return '—'
@@ -246,6 +451,11 @@ onMounted(load)
       subtitle="Gestion des filières et programmes de formation"
     >
       <template #actions>
+        <a href="/parcours" style="display:inline-flex;align-items:center;gap:7px;padding:8px 16px;background:#E30613;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+          Parcours
+        </a>
+        <button @click="exportModele" class="fl-btn-modele" title="Télécharger le modèle Excel vide">📥 Modèle Excel</button>
         <button v-if="canWrite" @click="openCreate" class="uc-btn-primary">+ Nouvelle filière</button>
       </template>
     </UcPageHeader>
@@ -290,6 +500,9 @@ onMounted(load)
         </td>
         <td style="text-align:right;">
           <div style="display:flex;justify-content:flex-end;gap:4px;">
+            <button v-if="canWrite" @click="triggerImportMaquette(f as any)" :disabled="importingMaquette" class="fl-btn-action" title="Importer maquette Excel">📤</button>
+            <button @click="exportMaquetteFiliere(f as any)" class="fl-btn-action" title="Exporter maquette Excel">📥</button>
+            <button @click="$router.push(`/filieres/${(f as any).id}/maquette`)" class="fl-btn-action" title="Voir maquette pédagogique" style="background:#f0fdf4;border-color:#86efac;color:#15803d;">📋</button>
             <button @click="openMatieres(f as any)" class="fl-btn-action" title="Matières">📚</button>
             <button v-if="canWrite" @click="openEdit(f as any)" class="fl-btn-action" title="Modifier">✏️</button>
             <button v-if="canWrite" @click="deleteTarget = (f as any); confirmMsg = ''" class="fl-btn-action fl-btn-danger" title="Supprimer">🗑️</button>
@@ -366,6 +579,17 @@ onMounted(load)
         <button @click="confirmDelete" :disabled="deleting" class="fl-btn-save" :style="deleting ? 'opacity:0.6;cursor:not-allowed;' : ''">
           {{ deleting ? 'Suppression…' : 'Supprimer' }}
         </button>
+      </template>
+    </UcModal>
+
+    <!-- Input file caché pour import maquette -->
+    <input type="file" ref="importFileInput" accept=".xlsx,.xls,.csv" @change="handleImportFile" style="display:none" />
+
+    <!-- Modal résultat import -->
+    <UcModal v-model="showImportResult" title="Import maquette" width="480px" @close="showImportResult = false">
+      <p style="font-size:13px;color:#333;margin:0;font-family:'Poppins',sans-serif;white-space:pre-line;">{{ importResult }}</p>
+      <template #footer>
+        <button @click="showImportResult = false" class="fl-btn-save">OK</button>
       </template>
     </UcModal>
 
@@ -557,6 +781,27 @@ onMounted(load)
 }
 .fl-btn-matieres:hover {
   background: #ede9fe;
+}
+
+/* ── Bouton modèle Excel ── */
+.fl-btn-modele {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  border-radius: 5px;
+  font-family: 'Poppins', sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.fl-btn-modele:hover {
+  background: #dcfce7;
 }
 
 /* ── Boutons modal ── */

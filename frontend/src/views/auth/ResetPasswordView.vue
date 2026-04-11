@@ -5,16 +5,23 @@ import api from '@/services/api'
 
 const router = useRouter()
 
-const step = ref<1 | 2 | 3 | 4 | 'success'>(1)
+const step = ref<1 | 2 | 3 | 'success'>(1)
 const loading = ref(false)
 const error = ref('')
 
 const email = ref('')
-const selectedChannel = ref<'email' | 'sms'>('sms')
 const otp = ref(['', '', '', '', '', ''])
 const otpInputs = ref<HTMLInputElement[]>([])
 const password = ref('')
 const passwordConfirm = ref('')
+const showPassword = ref(false)
+const showConfirm = ref(false)
+
+const emailMasked = computed(() => {
+  const parts = email.value.split('@')
+  if (parts.length < 2) return email.value
+  return `${parts[0]!.slice(0, 2)}***@${parts[1]}`
+})
 
 const passwordStrength = computed(() => {
   const p = password.value
@@ -39,8 +46,10 @@ async function submitEmail() {
   if (!email.value) { error.value = 'Veuillez saisir votre adresse email.'; return }
   loading.value = true
   try {
-    await api.post('/auth/forgot-password', { email: email.value })
+    await api.post('/auth/forgot-password', { email: email.value, channel: 'email' })
     step.value = 2
+    await nextTick()
+    otpInputs.value[0]?.focus()
   } catch (e: any) {
     error.value = e.response?.data?.message ?? 'Aucun compte trouvé avec cet email.'
   } finally {
@@ -48,30 +57,43 @@ async function submitEmail() {
   }
 }
 
-async function sendCode() {
-  error.value = ''
-  step.value = 3
-  await nextTick()
-  otpInputs.value[0]?.focus()
-}
-
 function onOtpInput(index: number, e: Event) {
   const input = e.target as HTMLInputElement
-  const val = input.value.replace(/\D/g, '')
-  otp.value[index] = val.slice(-1)
-  if (val && index < 5) otpInputs.value[index + 1]?.focus()
+  const digit = input.value.replace(/\D/g, '').slice(-1)
+  otp.value[index] = digit
+  input.value = digit
+  if (digit && index < 5) {
+    otpInputs.value[index + 1]?.focus()
+    otpInputs.value[index + 1]?.select()
+  }
 }
 
 function onOtpKeydown(index: number, e: KeyboardEvent) {
-  if (e.key === 'Backspace' && !otp.value[index] && index > 0) {
+  if (e.key === 'Backspace') {
+    if (otp.value[index]) {
+      otp.value[index] = ''
+      ;(e.target as HTMLInputElement).value = ''
+    } else if (index > 0) {
+      otp.value[index - 1] = ''
+      const prev = otpInputs.value[index - 1]
+      if (prev) { prev.value = ''; prev.focus() }
+    }
+    e.preventDefault()
+  } else if (e.key === 'ArrowLeft' && index > 0) {
     otpInputs.value[index - 1]?.focus()
+  } else if (e.key === 'ArrowRight' && index < 5) {
+    otpInputs.value[index + 1]?.focus()
   }
 }
 
 function onOtpPaste(e: ClipboardEvent) {
   const text = e.clipboardData?.getData('text')?.replace(/\D/g, '') ?? ''
-  if (text.length === 6) {
-    for (let i = 0; i < 6; i++) otp.value[i] = text[i] ?? ''
+  if (text.length >= 6) {
+    for (let i = 0; i < 6; i++) {
+      otp.value[i] = text[i] ?? ''
+      const box = otpInputs.value[i]
+      if (box) box.value = text[i] ?? ''
+    }
     otpInputs.value[5]?.focus()
     e.preventDefault()
   }
@@ -85,9 +107,13 @@ async function verifyOtp() {
   loading.value = true
   try {
     await api.post('/auth/verify-otp', { email: email.value, otp: otp.value.join('') })
-    step.value = 4
+    step.value = 3
   } catch (e: any) {
     error.value = e.response?.data?.message ?? 'Code incorrect ou expiré.'
+    otp.value = ['', '', '', '', '', '']
+    for (let i = 0; i < 6; i++) { const b = otpInputs.value[i]; if (b) b.value = '' }
+    await nextTick()
+    otpInputs.value[0]?.focus()
   } finally {
     loading.value = false
   }
@@ -122,7 +148,8 @@ async function resetPassword() {
 async function resendCode() {
   error.value = ''
   otp.value = ['', '', '', '', '', '']
-  await api.post('/auth/forgot-password', { email: email.value })
+  for (let i = 0; i < 6; i++) { const b = otpInputs.value[i]; if (b) b.value = '' }
+  await api.post('/auth/forgot-password', { email: email.value, channel: 'email' }).catch(() => {})
   await nextTick()
   otpInputs.value[0]?.focus()
 }
@@ -135,9 +162,8 @@ function stepStatus(n: number) {
 
 const steps = [
   { num: 1, label: 'Saisir votre email', desc: 'Identification du compte' },
-  { num: 2, label: 'Choisir un canal', desc: 'SMS ou Email' },
-  { num: 3, label: 'Saisir le code', desc: 'Code à 6 chiffres' },
-  { num: 4, label: 'Nouveau mot de passe', desc: 'Sécuriser votre compte' },
+  { num: 2, label: 'Code de vérification', desc: 'Code à 6 chiffres' },
+  { num: 3, label: 'Nouveau mot de passe', desc: 'Sécuriser votre compte' },
 ]
 </script>
 
@@ -183,10 +209,10 @@ const steps = [
         <a href="/login" class="rp-back-link">← Retour à la connexion</a>
 
         <!-- SUCCÈS -->
-        <div v-if="step === 'success'" style="text-align:center;">
+        <div v-if="step === 'success'" class="rp-success-wrap">
           <div class="rp-success-icon">✓</div>
-          <h2 style="text-align:center;">Mot de passe réinitialisé !</h2>
-          <p class="rp-subtitle" style="text-align:center;margin-top:8px;">
+          <h2>Mot de passe réinitialisé !</h2>
+          <p class="rp-subtitle">
             Votre mot de passe a été mis à jour avec succès.<br>
             Vous pouvez maintenant vous connecter.
           </p>
@@ -204,75 +230,63 @@ const steps = [
             <label class="rp-label">Adresse email</label>
             <div class="rp-input-wrap">
               <span class="rp-ico">✉</span>
-              <input v-model="email" type="email" required placeholder="prenom.nom@uptechformation.com" class="rp-input" />
+              <input
+                v-model="email"
+                type="email"
+                required
+                placeholder="prenom.nom@uptechformation.com"
+                class="rp-input"
+                @keydown.enter="submitEmail"
+              />
             </div>
           </div>
 
-          <button class="rp-btn" :disabled="loading" @click="submitEmail">
-            {{ loading ? 'Envoi en cours…' : 'Continuer' }}
+          <button class="rp-btn" :disabled="loading || !email" @click="submitEmail">
+            {{ loading ? 'Envoi en cours…' : 'Recevoir le code' }}
           </button>
         </div>
 
-        <!-- ÉTAPE 2 : Canal -->
+        <!-- ÉTAPE 2 : OTP -->
         <div v-else-if="step === 2">
-          <h2>Choisir un canal</h2>
-          <p class="rp-subtitle">Comment souhaitez-vous recevoir votre code de vérification ?</p>
-
-          <div class="rp-canal-choice">
-            <div class="rp-canal-card" :class="{ selected: selectedChannel === 'sms' }"
-              @click="selectedChannel = 'sms'">
-              <div class="rp-canal-icon">📱</div>
-              <div class="rp-canal-name">SMS</div>
-              <div class="rp-canal-desc">+221 77 *** ** 44</div>
-            </div>
-            <div class="rp-canal-card" :class="{ selected: selectedChannel === 'email' }"
-              @click="selectedChannel = 'email'">
-              <div class="rp-canal-icon">✉</div>
-              <div class="rp-canal-name">Email</div>
-              <div class="rp-canal-desc">pr***@uptech.com</div>
-            </div>
-          </div>
-
-          <button class="rp-btn" @click="sendCode">Envoyer le code</button>
-        </div>
-
-        <!-- ÉTAPE 3 : OTP -->
-        <div v-else-if="step === 3">
-          <h2>Saisir le code</h2>
+          <h2>Code de vérification</h2>
           <p class="rp-subtitle">
-            Un code à 6 chiffres a été envoyé. Il expire dans
-            <strong style="color:#E30613;">10 minutes</strong>.
+            Un code à 6 chiffres a été envoyé à<br>
+            <strong style="color:#111;">{{ emailMasked }}</strong><br>
+            <span style="font-size:11px;">Il expire dans <strong style="color:#E30613;">10 minutes</strong>.</span>
           </p>
 
           <div v-if="error" class="rp-alert rp-alert-error">{{ error }}</div>
 
-          <div class="rp-otp-inputs" @paste="onOtpPaste">
+          <div class="rp-otp-wrap" @paste="onOtpPaste">
             <input
               v-for="(_, i) in otp"
               :key="i"
               :ref="el => { if (el) otpInputs[i] = el as HTMLInputElement }"
-              v-model="otp[i]"
-              type="text"
+              type="tel"
               inputmode="numeric"
               maxlength="1"
               class="rp-otp-box"
+              autocomplete="one-time-code"
               @input="onOtpInput(i, $event)"
               @keydown="onOtpKeydown(i, $event)"
+              @focus="($event.target as HTMLInputElement).select()"
             />
           </div>
 
           <p class="rp-otp-hint">
-            Vous n'avez pas reçu le code ?
-            <a @click="resendCode" style="color:#E30613;font-weight:500;cursor:pointer;">Renvoyer</a>
+            Pas reçu ?
+            <a @click="resendCode" class="rp-resend-link">Renvoyer le code</a>
+            &nbsp;·&nbsp;
+            <a @click="step = 1; error = ''" class="rp-resend-link">Changer d'email</a>
           </p>
 
           <button class="rp-btn" :disabled="!otpComplete || loading" @click="verifyOtp">
-            {{ loading ? 'Vérification…' : 'Vérifier le code' }}
+            {{ loading ? 'Vérification…' : 'Confirmer le code' }}
           </button>
         </div>
 
-        <!-- ÉTAPE 4 : Nouveau mot de passe -->
-        <div v-else-if="step === 4">
+        <!-- ÉTAPE 3 : Nouveau mot de passe -->
+        <div v-else-if="step === 3">
           <h2>Nouveau mot de passe</h2>
           <p class="rp-subtitle">Choisissez un mot de passe solide pour sécuriser votre compte.</p>
 
@@ -282,7 +296,10 @@ const steps = [
             <label class="rp-label">Nouveau mot de passe</label>
             <div class="rp-input-wrap">
               <span class="rp-ico">🔒</span>
-              <input v-model="password" type="password" placeholder="Minimum 8 caractères" class="rp-input" />
+              <input v-model="password" :type="showPassword ? 'text' : 'password'" placeholder="Minimum 8 caractères" class="rp-input rp-input-pwd" />
+              <button type="button" class="rp-eye" @click="showPassword = !showPassword">
+                {{ showPassword ? '🙈' : '👁' }}
+              </button>
             </div>
             <div v-if="password" class="rp-strength">
               <div class="rp-strength-bar">
@@ -297,11 +314,17 @@ const steps = [
             <label class="rp-label">Confirmer le mot de passe</label>
             <div class="rp-input-wrap">
               <span class="rp-ico">🔒</span>
-              <input v-model="passwordConfirm" type="password" placeholder="Répétez votre mot de passe" class="rp-input" />
+              <input v-model="passwordConfirm" :type="showConfirm ? 'text' : 'password'" placeholder="Répétez votre mot de passe" class="rp-input rp-input-pwd" />
+              <button type="button" class="rp-eye" @click="showConfirm = !showConfirm">
+                {{ showConfirm ? '🙈' : '👁' }}
+              </button>
+            </div>
+            <div v-if="passwordConfirm && password !== passwordConfirm" class="rp-mismatch">
+              Les mots de passe ne correspondent pas.
             </div>
           </div>
 
-          <button class="rp-btn" :disabled="loading || !password || password !== passwordConfirm" @click="resetPassword">
+          <button class="rp-btn" :disabled="loading || !password || password !== passwordConfirm || password.length < 8" @click="resetPassword">
             {{ loading ? 'Enregistrement…' : 'Enregistrer le mot de passe' }}
           </button>
         </div>
@@ -403,11 +426,10 @@ const steps = [
 .rp-back-link:hover { color: #E30613; }
 
 .rp-right h2 { color: #111111; font-size: 21px; font-weight: 700; margin-bottom: 4px; }
-.rp-subtitle { color: #888888; font-size: 13px; margin-bottom: 28px; line-height: 1.6; }
+.rp-subtitle { color: #888888; font-size: 13px; margin-bottom: 28px; line-height: 1.7; }
 
 .rp-alert { border-radius: 4px; padding: 11px 14px; font-size: 12.5px; font-weight: 500; margin-bottom: 18px; }
 .rp-alert-error { background: #fff0f0; border-left: 3px solid #E30613; color: #b91c1c; }
-.rp-alert-success { background: #f0fdf4; border-left: 3px solid #22c55e; color: #15803d; }
 
 .rp-form-group { margin-bottom: 18px; }
 .rp-label { display: block; color: #222; font-size: 12px; font-weight: 600; margin-bottom: 7px; text-transform: uppercase; letter-spacing: 0.4px; }
@@ -417,33 +439,50 @@ const steps = [
   width: 100%; border: 1.5px solid #e5e5e5; border-radius: 4px;
   padding: 12px 13px 12px 40px; color: #111; font-family: 'Poppins', sans-serif;
   font-size: 13.5px; outline: none; transition: border-color 0.2s; background: #fafafa;
+  box-sizing: border-box;
 }
 .rp-input:focus { border-color: #E30613; background: #fff; }
 .rp-input::placeholder { color: #ccc; font-size: 12.5px; }
+.rp-input-pwd { padding-right: 42px; }
 
-/* Canal */
-.rp-canal-choice { display: flex; gap: 10px; margin-bottom: 22px; }
-.rp-canal-card {
-  flex: 1; border: 1.5px solid #e5e5e5; border-radius: 4px;
-  padding: 14px 12px; text-align: center; cursor: pointer;
-  transition: all 0.2s; background: #fafafa;
+.rp-eye {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; font-size: 16px; line-height: 1; padding: 0;
 }
-.rp-canal-card:hover { border-color: #E30613; }
-.rp-canal-card.selected { border-color: #E30613; background: #fff5f5; }
-.rp-canal-icon { font-size: 22px; margin-bottom: 6px; }
-.rp-canal-name { font-size: 12px; font-weight: 600; color: #222; }
-.rp-canal-desc { font-size: 10.5px; color: #aaa; margin-top: 2px; }
+
+.rp-mismatch { font-size: 11.5px; color: #E30613; margin-top: 5px; }
 
 /* OTP */
-.rp-otp-inputs { display: flex; gap: 10px; margin-bottom: 22px; }
-.rp-otp-box {
-  flex: 1; border: 1.5px solid #e5e5e5; border-radius: 4px;
-  padding: 14px 0; text-align: center; font-family: 'Poppins', sans-serif;
-  font-size: 20px; font-weight: 700; color: #111;
-  background: #fafafa; outline: none; transition: border-color 0.2s;
+.rp-otp-wrap {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  justify-content: center;
 }
-.rp-otp-box:focus { border-color: #E30613; background: #fff; }
-.rp-otp-hint { font-size: 12px; color: #aaa; margin-top: -14px; margin-bottom: 20px; }
+.rp-otp-box {
+  width: 52px;
+  height: 60px;
+  border: 2px solid #e5e5e5;
+  border-radius: 8px;
+  text-align: center;
+  font-family: 'Poppins', sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  color: #111;
+  background: #fafafa;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+  caret-color: transparent;
+}
+.rp-otp-box:focus {
+  border-color: #E30613;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(227,6,19,0.12);
+}
+
+.rp-otp-hint { font-size: 12px; color: #aaa; margin-bottom: 20px; text-align: center; }
+.rp-resend-link { color: #E30613; font-weight: 500; cursor: pointer; text-decoration: none; }
+.rp-resend-link:hover { text-decoration: underline; }
 
 /* Strength */
 .rp-strength { margin-top: 6px; margin-bottom: 8px; }
@@ -456,15 +495,17 @@ const steps = [
   width: 100%; background: #E30613; color: #fff; border: none;
   border-radius: 4px; padding: 13px; font-family: 'Poppins', sans-serif;
   font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.2s;
+  margin-top: 4px;
 }
 .rp-btn:hover:not(:disabled) { background: #c0000e; }
-.rp-btn:disabled { background: #888; cursor: not-allowed; }
+.rp-btn:disabled { background: #bbb; cursor: not-allowed; }
 
 /* Succès */
+.rp-success-wrap { text-align: center; }
 .rp-success-icon {
   width: 64px; height: 64px; background: #f0fdf4; border: 2px solid #22c55e;
   border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  font-size: 28px; margin: 0 auto 20px;
+  font-size: 28px; color: #22c55e; margin: 0 auto 20px;
 }
 
 .rp-version { position: absolute; bottom: 12px; right: 16px; color: #ddd; font-size: 10px; }
@@ -483,8 +524,8 @@ const steps = [
   .rp-back-link { margin-bottom: 18px; }
   .rp-right h2 { font-size: 18px; }
   .rp-subtitle { font-size: 12px; margin-bottom: 20px; }
-  .rp-otp-box { padding: 12px 0; font-size: 18px; }
-  .rp-canal-choice { gap: 8px; }
+  .rp-otp-box { width: 44px; height: 52px; font-size: 20px; }
+  .rp-otp-wrap { gap: 8px; }
   .rp-version { display: none; }
 }
 </style>

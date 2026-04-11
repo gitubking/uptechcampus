@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import api from '@/services/api'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -10,6 +11,18 @@ const router = useRouter()
 // ── Mobile sidebar toggle ──────────────────────────────────────────
 const sidebarOpen = ref(false)
 watch(() => route.path, () => { sidebarOpen.value = false })
+
+// ── Dashboard étudiant (provide pour EspaceEtudiantView) ────────────
+const dashboardData = ref<any>(null)
+provide('dashboardData', dashboardData)
+watch(() => auth.user?.role, async (role) => {
+  if (role === 'etudiant') {
+    try {
+      const { data } = await api.get('/espace-etudiant/dashboard')
+      dashboardData.value = data
+    } catch {}
+  }
+}, { immediate: true })
 
 const roleLabel: Record<string, string> = {
   dg: 'Directeur Général',
@@ -93,18 +106,6 @@ const navSections: NavSection[] = [
         roles: ['dg', 'dir_peda', 'resp_fin', 'coordinateur', 'secretariat'],
       },
       {
-        path: '/filieres',
-        label: 'Filières',
-        icon: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z',
-        roles: ['dg', 'dir_peda'],
-      },
-      {
-        path: '/parcours',
-        label: 'Parcours',
-        icon: 'M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7',
-        roles: ['dg', 'dir_peda'],
-      },
-      {
         path: '/classes',
         label: 'Classes',
         icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
@@ -117,10 +118,10 @@ const navSections: NavSection[] = [
         roles: ['dg', 'dir_peda', 'coordinateur', 'secretariat', 'enseignant'],
       },
       {
-        path: '/emargement',
-        label: 'Émargement',
-        icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
-        roles: ['dg', 'dir_peda', 'coordinateur', 'secretariat', 'enseignant'],
+        path: '/absences',
+        label: 'Absences',
+        icon: 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636',
+        roles: ['dg', 'dir_peda', 'coordinateur', 'secretariat', 'resp_fin'],
       },
       {
         path: '/notes-bulletins',
@@ -147,7 +148,7 @@ const navSections: NavSection[] = [
       },
       {
         path: '/paiements',
-        label: 'Recettes',
+        label: 'Paiements',
         icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z',
         roles: ['dg', 'resp_fin', 'secretariat'],
       },
@@ -171,26 +172,49 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    label: 'Administration',
+    label: 'Mon espace',
     items: [
       {
-        path: '/annees-academiques',
-        label: 'Années acad.',
+        path: '/espace-etudiant',
+        label: 'Mon tableau de bord',
+        icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
+        roles: ['etudiant'],
+      },
+      {
+        path: '/emplois-du-temps',
+        label: 'Mon emploi du temps',
         icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
-        roles: ['dg'],
+        roles: ['etudiant'],
       },
       {
-        path: '/tarifs',
-        label: 'Tarifs',
-        icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z',
-        roles: ['dg'],
+        path: '/espace-etudiant#notes',
+        label: 'Mes notes',
+        icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+        roles: ['etudiant'],
       },
       {
-        path: '/users',
-        label: 'Utilisateurs',
-        icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z',
-        roles: ['dg'],
+        path: '/espace-etudiant#assiduite',
+        label: 'Assiduité',
+        icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+        roles: ['etudiant'],
       },
+      {
+        path: '/espace-etudiant#finances',
+        label: 'Mes paiements',
+        icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z',
+        roles: ['etudiant'],
+      },
+      {
+        path: '/espace-etudiant#messages',
+        label: 'Messages',
+        icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z',
+        roles: ['etudiant'],
+      },
+    ],
+  },
+  {
+    label: 'Administration',
+    items: [
       {
         path: '/parametres',
         label: 'Paramètres',
@@ -211,7 +235,43 @@ const visibleSections = computed(() =>
 )
 
 function isActive(path: string) {
-  return route.path === path || (path !== '/dashboard' && route.path.startsWith(path))
+  const basePath = path.split('#')[0] ?? path
+  return route.path === basePath || (basePath !== '/dashboard' && route.path.startsWith(basePath))
+}
+
+// Navigation avec gestion des ancres (#section) pour l'espace étudiant
+function handleNavClick(e: Event, path: string) {
+  const hashIdx = path.indexOf('#')
+  if (hashIdx === -1) {
+    e.preventDefault()
+    sidebarOpen.value = false
+    router.push(path)
+    return
+  }
+  e.preventDefault()
+  const basePath = path.substring(0, hashIdx)
+  const anchor = path.substring(hashIdx + 1)
+  sidebarOpen.value = false
+
+  // Mobile : émettre un événement custom pour que EspaceEtudiantView change d'onglet
+  const tabMap: Record<string, string> = {
+    planning: 'planning', notes: 'notes', finances: 'finances',
+    assiduite: 'plus', messages: 'plus', documents: 'plus'
+  }
+  if (tabMap[anchor]) {
+    window.dispatchEvent(new CustomEvent('espace-etudiant-tab', { detail: { tab: tabMap[anchor], activeTab: anchor === 'assiduite' || anchor === 'messages' || anchor === 'documents' ? null : anchor } }))
+  }
+
+  const doScroll = () => {
+    const el = document.getElementById(anchor)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  if (route.path !== basePath) {
+    router.push(basePath).then(() => setTimeout(doScroll, 350))
+  } else {
+    doScroll()
+  }
 }
 
 async function logout() {
@@ -228,10 +288,17 @@ const pageTitleMap: Record<string, string> = {
   '/finance': 'Tableau financier',
   '/paiements': 'Recettes',
   '/depenses': 'Dépenses',
+  '/caisse': 'Journal de caisse',
+  '/formations-individuelles': 'Formations individuelles',
   '/emplois-du-temps': 'Emplois du temps',
   '/emargement': 'Émargement',
+  '/suivi-emargements': 'Suivi Émargements',
+  '/cahier-de-textes': 'Cahier de textes',
+  '/absences': 'Suivi des absences',
   '/notes-bulletins': 'Notes & Bulletins',
   '/rapports': 'Rapports',
+  '/rapports-ministere': 'Rapports Ministère',
+  '/notifications': 'Notifications',
   '/communication': 'Communication',
   '/enseignants': 'Enseignants',
   '/annees-academiques': 'Années académiques',
@@ -280,18 +347,19 @@ const userInitials = computed(() => {
       <!-- Navigation sections -->
       <div v-for="section in visibleSections" :key="section.label" class="uc-nav-section">
         <div class="uc-nav-section-label">{{ section.label }}</div>
-        <RouterLink
+        <a
           v-for="item in section.items"
           :key="item.path"
-          :to="item.path"
+          :href="item.path"
           class="uc-nav-item"
           :class="{ active: isActive(item.path) }"
+          @click="handleNavClick($event, item.path)"
         >
           <svg class="uc-nav-ico" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="item.icon" />
           </svg>
           {{ item.label }}
-        </RouterLink>
+        </a>
       </div>
 
       <!-- Footer utilisateur -->

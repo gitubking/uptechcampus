@@ -39,8 +39,6 @@ async function openDeleteEtudiant(etudiant: Etudiant) {
 
 async function confirmDeleteEtudiant() {
   if (!deleteTargetEtudiant.value) return
-  const fullName = `${deleteTargetEtudiant.value.prenom.trim()} ${deleteTargetEtudiant.value.nom.trim()}`
-  if (confirmDeleteName.value.trim().toLowerCase() !== fullName.toLowerCase()) return
   deletingEtudiant.value = true
   try {
     await api.delete(`/etudiants/${deleteTargetEtudiant.value.id}`)
@@ -94,7 +92,7 @@ interface Pagination {
   total: number
 }
 
-interface TypeFormation { id: number; nom: string; code: string }
+interface TypeFormation { id: number; nom: string; code: string; est_individuel?: boolean }
 interface Filiere {
   id: number; nom: string; code: string
   type_formation_id: number | null
@@ -156,6 +154,7 @@ const page = ref(1)
 const filterTypeId    = ref<number | ''>('')
 const filterFiliereId = ref<number | ''>('')
 const filterClasseId  = ref<number | ''>('')
+const filterAnneeId   = ref<number | ''>('')
 
 async function fetchEtudiants() {
   loading.value = true
@@ -167,6 +166,7 @@ async function fetchEtudiants() {
         type_formation_id: filterTypeId.value || undefined,
         filiere_id: filterFiliereId.value || undefined,
         classe_id: filterClasseId.value || undefined,
+        annee_academique_id: filterAnneeId.value || undefined,
       },
     })
     pagination.value = data
@@ -181,13 +181,24 @@ watch(search, () => {
   searchTimer = setTimeout(() => { page.value = 1; fetchEtudiants() }, 350)
 })
 watch(page, fetchEtudiants)
-watch([filterTypeId, filterFiliereId, filterClasseId], () => { page.value = 1; fetchEtudiants() })
+watch([filterTypeId, filterFiliereId, filterClasseId, filterAnneeId], () => { page.value = 1; fetchEtudiants() })
 
 // ── Statuts ───────────────────────────────────────────────────────────
 const statutLabel: Record<string, string> = {
   inscrit_actif: 'Actif', pre_inscrit: 'Pré-inscrit', en_examen: 'En examen',
   diplome: 'Diplômé', abandonne: 'Abandonné', suspendu: 'Suspendu',
 }
+const motifAbandonLabels: Record<string, string> = {
+  raisons_financieres: 'Raisons financières',
+  raisons_personnelles: 'Raisons personnelles',
+  reorientation: 'Réorientation',
+  demenagement: 'Déménagement',
+  sante: 'Problème de santé',
+  emploi: 'Reprise d\'emploi',
+  exclusion: 'Exclusion disciplinaire',
+  autre: 'Autre',
+}
+function motifAbandonLabel(motif: string) { return motifAbandonLabels[motif] ?? motif }
 const statutClass: Record<string, string> = {
   inscrit_actif: 'bg-green-100 text-green-700',
   pre_inscrit: 'bg-amber-100 text-amber-700',
@@ -222,13 +233,15 @@ function onFilterFiliereChange() { filterClasseId.value = '' }
 
 async function loadRefs() {
   if (refsLoaded.value) return
-  const [f, ne, nb, a, t, cl] = await Promise.all([
+  const [f, ne, nb, a, t, cl, matRes, ensRes] = await Promise.all([
     api.get('/filieres'),
     api.get('/niveaux-entree'),
     api.get('/niveaux-bourse'),
     api.get('/annees-academiques'),
     api.get('/types-formation'),
     api.get('/classes'),
+    api.get('/matieres'),
+    api.get('/enseignants'),
   ])
   filieres.value = f.data
   niveauxEntree.value = (ne.data ?? []).filter((n: NiveauEntree) => n.actif)
@@ -236,7 +249,320 @@ async function loadRefs() {
   annees.value = a.data
   typesFormation.value = t.data
   allClasses.value = cl.data
+  fiMatieres.value = matRes.data
+  fiEnseignants.value = ensRes.data?.data ?? ensRes.data
   refsLoaded.value = true
+}
+
+// ── Tirage de cartes étudiants ────────────────────────────────────────
+const showCartes = ref(false)
+const carteFiliereId = ref<number | ''>('')
+const carteClasseId = ref<number | ''>('')
+const carteSearch = ref('')
+const cartesLoading = ref(false)
+const cartesEtudiants = ref<Etudiant[]>([])
+const cartesSelected = ref<Set<number>>(new Set())
+const cartesPrinting = ref(false)
+const cartesPrintProgress = ref(0)
+
+const carteFilteredFilieres = computed(() => filieres.value)
+const carteFilteredClasses = computed(() => {
+  if (!carteFiliereId.value) return allClasses.value
+  return allClasses.value.filter(c => c.filiere?.id === carteFiliereId.value)
+})
+
+function onCarteFiliereChange() { carteClasseId.value = '' }
+
+async function openCartes() {
+  showCartes.value = true
+  carteFiliereId.value = ''
+  carteClasseId.value = ''
+  carteSearch.value = ''
+  cartesSelected.value = new Set()
+  await fetchCartesEtudiants()
+}
+
+async function fetchCartesEtudiants() {
+  cartesLoading.value = true
+  try {
+    const params: any = { per_page: 200 }
+    if (carteSearch.value) params.search = carteSearch.value
+    if (carteFiliereId.value) params.filiere_id = carteFiliereId.value
+    if (carteClasseId.value) params.classe_id = carteClasseId.value
+    const { data } = await api.get('/etudiants', { params })
+    // Ne garder que les étudiants actifs avec une classe affectée
+    cartesEtudiants.value = data.data.filter((e: Etudiant) =>
+      e.inscription_active?.statut === 'inscrit_actif' && e.inscription_active?.classe?.id
+    )
+  } finally {
+    cartesLoading.value = false
+  }
+}
+
+let carteSearchTimer: ReturnType<typeof setTimeout>
+watch([carteSearch], () => {
+  clearTimeout(carteSearchTimer)
+  carteSearchTimer = setTimeout(fetchCartesEtudiants, 350)
+})
+watch([carteFiliereId, carteClasseId], fetchCartesEtudiants)
+
+const cartesATirer = computed(() => {
+  if (cartesSelected.value.size === 0) return cartesEtudiants.value
+  return cartesEtudiants.value.filter(e => cartesSelected.value.has(e.id))
+})
+
+function toggleCarteSelect(id: number) {
+  const s = new Set(cartesSelected.value)
+  if (s.has(id)) s.delete(id)
+  else s.add(id)
+  cartesSelected.value = s
+}
+
+function selectAllCartes() {
+  if (cartesSelected.value.size === cartesEtudiants.value.length) {
+    cartesSelected.value = new Set()
+  } else {
+    cartesSelected.value = new Set(cartesEtudiants.value.map(e => e.id))
+  }
+}
+
+// ── Logo UPTECH (même base64 que EtudiantDetailView) ──
+const UPTECH_LOGO = 'data:image/png;base64,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'
+
+// Fonctions de dessin carte (identiques à EtudiantDetailView)
+function cardDrawImage(ctx: CanvasRenderingContext2D, src: string, x: number, y: number, w: number, h: number): Promise<void> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      const ratio = Math.max(w / img.width, h / img.height)
+      const sw = img.width * ratio, sh = img.height * ratio
+      ctx.drawImage(img, x + (w - sw) / 2, y + (h - sh) / 2, sw, sh)
+      resolve()
+    }
+    img.onerror = () => resolve()
+    img.src = src
+  })
+}
+
+function cardLoadLogo(ctx: CanvasRenderingContext2D, x: number, y: number, height: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      const ratio = height / img.height
+      ctx.drawImage(img, x, y, img.width * ratio, height)
+      resolve(true)
+    }
+    img.onerror = () => resolve(false)
+    img.src = UPTECH_LOGO
+  })
+}
+
+function cardDrawUptechLogo(ctx: CanvasRenderingContext2D, x: number, y: number, size: number) {
+  const lw = Math.round(size * 0.075)
+  const r = (size - lw * 2) / 2 - 2
+  const cx = x + size / 2, cy = y + size / 2
+  const rr = Math.round(size * 0.18)
+  ctx.strokeStyle = '#E30613'; ctx.lineWidth = lw
+  const half = lw / 2
+  ctx.beginPath()
+  ctx.moveTo(x + rr, y + half); ctx.lineTo(x + size - rr, y + half)
+  ctx.quadraticCurveTo(x + size - half, y + half, x + size - half, y + rr)
+  ctx.lineTo(x + size - half, y + size - rr)
+  ctx.quadraticCurveTo(x + size - half, y + size - half, x + size - rr, y + size - half)
+  ctx.lineTo(x + rr, y + size - half)
+  ctx.quadraticCurveTo(x + half, y + size - half, x + half, y + size - rr)
+  ctx.lineTo(x + half, y + rr)
+  ctx.quadraticCurveTo(x + half, y + half, x + rr, y + half)
+  ctx.closePath(); ctx.stroke()
+  // Quadrants
+  ctx.fillStyle = '#E30613'; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, Math.PI, -Math.PI / 2, false); ctx.closePath(); ctx.fill()
+  ctx.fillStyle = '#111111'; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, -Math.PI / 2, 0, false); ctx.closePath(); ctx.fill()
+  ctx.fillStyle = '#E30613'; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, 0, Math.PI / 2, false); ctx.closePath(); ctx.fill()
+  ctx.fillStyle = '#111111'; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, Math.PI / 2, Math.PI, false); ctx.closePath(); ctx.fill()
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r * 0.52, Math.PI / 2, Math.PI, false); ctx.closePath(); ctx.fill()
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip()
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = size * 0.04
+  ctx.beginPath(); ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r); ctx.stroke()
+  ctx.restore()
+}
+
+function cardRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r)
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h)
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r)
+  ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath()
+}
+
+async function generateOneCard(etudiantDetail: any): Promise<string> {
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')!
+  const W = 856, H = 540, PW = 1010, PH = 638
+  canvas.width = PW; canvas.height = PH
+  ctx.scale(PW / W, PH / H)
+
+  const insc0 = etudiantDetail.inscriptions?.[0]
+  const filiere = insc0?.filiere?.nom ?? insc0?.classe?.filiere?.nom ?? ''
+  const classe = insc0?.classe
+  const classeNom = classe?.nom ?? '—'
+  const classeNiveau = classe?.niveau ?? 1
+  const hasNiveau0 = !!((insc0?.filiere as any)?.type_has_niveau ?? (insc0?.classe?.filiere as any)?.type_has_niveau ?? false)
+
+  // 1. Fond blanc
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H)
+
+  // 2. Barre noire en bas
+  const barH = 55
+  ctx.fillStyle = '#111111'; ctx.fillRect(0, H - barH, W, barH)
+  ctx.fillStyle = '#ffffff'
+  const barText = "Institut supérieur de formation aux nouveaux métiers de l'Informatique et de la Communication"
+  let barFontSize = 22
+  ctx.font = `${barFontSize}px Arial`
+  while (ctx.measureText(barText).width > W - 24 && barFontSize > 10) { barFontSize--; ctx.font = `${barFontSize}px Arial` }
+  ctx.textAlign = 'center'
+  ctx.fillText(barText, W / 2, H - barH + Math.round(barH / 2) + barFontSize / 3)
+  ctx.textAlign = 'left'
+
+  // 3. Colonne gauche
+  const mainH = H - barH, pad = 18, leftColW = 278
+  ctx.fillStyle = '#111111'; ctx.font = 'bold 24px Arial'
+  ctx.fillText("CARTE D'ETUDIANT", pad, 45)
+
+  const annee = insc0?.annee_academique?.libelle ?? ''
+  ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center'
+  ctx.fillText(annee, pad + leftColW / 2, 80); ctx.textAlign = 'left'
+
+  const leftCenterX = pad + leftColW / 2
+  ctx.strokeStyle = '#cccccc'; ctx.lineWidth = 1.5
+  ctx.beginPath(); ctx.moveTo(leftCenterX - 80, 92); ctx.lineTo(leftCenterX + 80, 92); ctx.stroke()
+
+  // Photo
+  const photoX = pad, photoY = 100, photoW = 206, photoH = mainH - 110
+  ctx.strokeStyle = '#444444'; ctx.lineWidth = 1.5; ctx.strokeRect(photoX, photoY, photoW, photoH)
+  if (etudiantDetail.photo_path?.startsWith('data:')) {
+    await cardDrawImage(ctx, etudiantDetail.photo_path, photoX + 1, photoY + 1, photoW - 2, photoH - 2)
+  } else {
+    ctx.fillStyle = '#e0e0e0'; ctx.fillRect(photoX + 1, photoY + 1, photoW - 2, photoH - 2)
+    ctx.fillStyle = '#999'; ctx.font = 'bold 60px Arial'; ctx.textAlign = 'center'
+    ctx.fillText(`${etudiantDetail.prenom[0]}${etudiantDetail.nom[0]}`.toUpperCase(), photoX + photoW / 2, photoY + photoH / 2 + 22)
+    ctx.textAlign = 'left'
+  }
+
+  // 4. Bande verticale diagonale
+  const stripeX = leftColW + pad + 4, stripeW = 44, sh = 15
+  ctx.save(); ctx.beginPath(); ctx.rect(stripeX, 0, stripeW, mainH); ctx.clip()
+  for (let y = -(stripeW * 2); y < mainH + stripeW * 2; y += sh * 2) {
+    ctx.fillStyle = '#E30613'; ctx.beginPath()
+    ctx.moveTo(stripeX, y + stripeW); ctx.lineTo(stripeX + stripeW, y); ctx.lineTo(stripeX + stripeW, y + sh); ctx.lineTo(stripeX, y + stripeW + sh)
+    ctx.closePath(); ctx.fill()
+    ctx.fillStyle = '#111111'; ctx.beginPath()
+    ctx.moveTo(stripeX, y + stripeW + sh); ctx.lineTo(stripeX + stripeW, y + sh); ctx.lineTo(stripeX + stripeW, y + sh * 2); ctx.lineTo(stripeX, y + stripeW + sh * 2)
+    ctx.closePath(); ctx.fill()
+  }
+  ctx.restore()
+
+  // 5. Colonne droite
+  const rightX = stripeX + stripeW + 14
+  const logoH = 84
+  const logoLoaded = await cardLoadLogo(ctx, rightX, pad, logoH)
+  if (!logoLoaded) {
+    const logoSize = 78
+    cardDrawUptechLogo(ctx, rightX, pad, logoSize)
+    ctx.fillStyle = '#111111'; ctx.font = 'bold 34px Arial'
+    const uptechW2 = ctx.measureText("UP'TECH").width
+    ctx.fillText("UP'TECH", rightX + logoSize + 10, pad + logoSize * 0.68)
+    ctx.fillStyle = '#E30613'; ctx.fillRect(rightX, pad + logoSize + 6, logoSize + 12 + uptechW2, 4)
+  }
+
+  // Infos étudiant
+  let iy = pad + logoH + 32
+  const ifields = [
+    { label: 'Prénom (s) : ', value: etudiantDetail.prenom },
+    { label: 'Nom : ', value: etudiantDetail.nom.toUpperCase() },
+    { label: 'Filière : ', value: filiere || '—' },
+    ...(hasNiveau0 ? [{ label: "Niveau d'études : ", value: classeNiveau === 1 ? '1ère Année' : `${classeNiveau}ème Année` }] : []),
+    { label: 'Classe : ', value: classeNom },
+    { label: 'Matricule : ', value: etudiantDetail.numero_etudiant },
+  ]
+  ifields.forEach((f) => {
+    ctx.font = 'bold 18px Arial'; ctx.fillStyle = '#111111'
+    const lw2 = ctx.measureText(f.label).width
+    ctx.fillText(f.label, rightX, iy)
+    ctx.font = '18px Arial'; ctx.fillText(f.value, rightX + lw2, iy)
+    iy += 26
+  })
+
+  // Coordonnées
+  const contacts = [
+    { icon: '◦', text: ' Sicap Amitié 1, Villa N° 3031' },
+    { icon: '◦', text: ' 33 821 34 25 / 77 841 50 44' },
+    { icon: '✉', text: ' uptechformation@gmail.com' },
+    { icon: '◦', text: ' www.uptechformation.com' },
+  ]
+  const cY = mainH - (contacts.length * 26) - 10
+  contacts.forEach((c, i) => {
+    ctx.font = '18px Arial'; ctx.fillStyle = '#333333'
+    ctx.fillText(c.icon + c.text, rightX, cY + i * 26)
+  })
+
+  // Séparateur
+  ctx.strokeStyle = '#bbbbbb'; ctx.lineWidth = 1
+  ctx.beginPath(); ctx.moveTo(rightX, cY - 24); ctx.lineTo(W - pad, cY - 24); ctx.stroke()
+
+  // QR Code
+  try {
+    const QRCode = (await import('qrcode')).default
+    const verifyUrl = `${window.location.origin}/verify/${etudiantDetail.numero_etudiant}`
+    const qrDataUrl = await QRCode.toDataURL(verifyUrl, { width: 120, margin: 1, color: { dark: '#111111', light: '#ffffff' } })
+    const qrSize = 102, qrX = W - pad - qrSize - 6, qrY = cY - 4
+    await cardDrawImage(ctx, qrDataUrl, qrX, qrY, qrSize, qrSize)
+    ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.strokeRect(qrX, qrY, qrSize, qrSize)
+    ctx.fillStyle = '#999999'; ctx.font = '11px Arial'; ctx.textAlign = 'center'
+    ctx.fillText('Scanner pour vérifier', qrX + qrSize / 2, qrY + qrSize + 14); ctx.textAlign = 'left'
+  } catch { /* QR optionnel */ }
+
+  // Bordure arrondie
+  ctx.strokeStyle = '#cccccc'; ctx.lineWidth = 2
+  cardRoundRect(ctx, 1, 1, W - 2, H - 2, 18); ctx.stroke()
+
+  return canvas.toDataURL('image/png')
+}
+
+async function imprimerCartes() {
+  const list = cartesATirer.value
+  if (!list.length) return
+  cartesPrinting.value = true
+  cartesPrintProgress.value = 0
+
+  const images: string[] = []
+  for (let i = 0; i < list.length; i++) {
+    cartesPrintProgress.value = i + 1
+    try {
+      const { data: detail } = await api.get(`/etudiants/${list[i]!.id}`)
+      const dataUrl = await generateOneCard(detail)
+      images.push(dataUrl)
+    } catch { /* skip si erreur */ }
+  }
+
+  cartesPrinting.value = false
+
+  const printWin = window.open('', '_blank')
+  if (!printWin) return
+  const imgsHtml = images.map(src => `<img src="${src}" class="card-img" />`).join('')
+  printWin.document.write(`<!DOCTYPE html><html><head><title>Cartes Étudiants</title><style>
+    @page { margin: 8mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #f5f5f5; }
+    .cards { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; padding: 10px; }
+    .card-img { width: 85.6mm; height: auto; page-break-inside: avoid; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+    @media print {
+      body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .card-img { box-shadow: none; }
+    }
+  </style></head><body><div class="cards">${imgsHtml}</div><script>window.onload=function(){window.print()}<\/script></body></html>`)
+  printWin.document.close()
 }
 
 // ── Modal (popup centré) ───────────────────────────────────────────────
@@ -280,7 +606,29 @@ const inscriptionForm = ref({
   annee_academique_id: null as number | null,
   frais_tenue: 0,
   statut: 'inscrit_actif',
+  mois_debut: '',
 })
+
+// ── Formation individuelle (à la carte) ──────────────────────────────
+const isSelectedTypeIndividuel = computed(() => {
+  if (!selectedType.value) return false
+  return typesFormation.value.find(t => t.id === selectedType.value)?.est_individuel ?? false
+})
+const fiForm = ref({
+  cout_total: 0,
+  pct_inscription: 50,
+  pct_formateur: 50,
+  date_debut: '',
+  date_fin: '',
+  modules: [{ matiere_id: null as number | null, volume_horaire: 0, enseignant_id: null as number | null }] as { matiere_id: number | null; volume_horaire: number; enseignant_id: number | null }[]
+})
+const fiMontantInscription = computed(() => Math.round(fiForm.value.cout_total * fiForm.value.pct_inscription / 100))
+const fiMontantSolde = computed(() => fiForm.value.cout_total - fiMontantInscription.value)
+const fiTotalHeures = computed(() => fiForm.value.modules.reduce((s, m) => s + (m.volume_horaire || 0), 0))
+function fiAddModule() { fiForm.value.modules.push({ matiere_id: null, volume_horaire: 0, enseignant_id: null }) }
+function fiRemoveModule(i: number) { if (fiForm.value.modules.length > 1) fiForm.value.modules.splice(i, 1) }
+const fiEnseignants = ref<{ id: number; nom: string; prenom: string }[]>([])
+const fiMatieres = ref<{ id: number; nom: string }[]>([])
 
 const filteredFilieres = computed(() =>
   selectedType.value
@@ -329,6 +677,7 @@ const inscriptionEditForm = ref({
   frais_tenue: 0,
   mensualite: 0,
   frais_inscription: 0,
+  mois_debut: '',
 })
 const filteredFilieresForEdit = computed(() =>
   inscriptionEditType.value
@@ -349,7 +698,12 @@ async function openInscrire() {
   inscriptionForm.value = {
     filiere_id: null, niveau_entree_id: null, niveau_bourse_id: null,
     annee_academique_id: anneeActive?.id ?? annees.value[0]?.id ?? null,
-    frais_tenue: 0, statut: 'inscrit_actif',
+    frais_tenue: 0, statut: 'inscrit_actif', mois_debut: '',
+  }
+  fiForm.value = {
+    cout_total: 0, pct_inscription: 50, pct_formateur: 50,
+    date_debut: new Date().toISOString().slice(0, 10), date_fin: '',
+    modules: [{ matiere_id: null, volume_horaire: 0, enseignant_id: null }]
   }
   await loadRefs()
   showPanel.value = true
@@ -400,29 +754,59 @@ async function submitInscrire() {
     )
     const { data: etudiant } = await api.post('/etudiants', studentPayload)
 
-    // 2. Créer l'inscription
-    const { data: inscription } = await api.post('/inscriptions', {
-      etudiant_id: etudiant.id,
-      filiere_id: inscriptionForm.value.filiere_id,
-      niveau_entree_id: inscriptionForm.value.niveau_entree_id,
-      niveau_bourse_id: inscriptionForm.value.niveau_bourse_id || null,
-      annee_academique_id: inscriptionForm.value.annee_academique_id,
-      frais_inscription: fraisInscriptionPrevu.value ?? 0,
-      mensualite: mensualitePrevu.value ?? 0,
-      frais_tenue: inscriptionForm.value.frais_tenue || 0,
-      statut: inscriptionForm.value.statut,
-    })
+    // 2. Créer l'inscription (classique ou individuelle)
+    let inscription: any
+    if (isSelectedTypeIndividuel.value) {
+      // Formation individuelle → créer via /formations-individuelles
+      const { data: fi } = await api.post('/formations-individuelles', {
+        etudiant_id: etudiant.id,
+        type_formation_id: selectedType.value,
+        annee_academique_id: inscriptionForm.value.annee_academique_id,
+        cout_total: fiForm.value.cout_total,
+        pct_inscription: fiForm.value.pct_inscription,
+        pct_formateur: fiForm.value.pct_formateur,
+        date_debut: fiForm.value.date_debut || undefined,
+        date_fin: fiForm.value.date_fin || undefined,
+        modules: fiForm.value.modules.filter(m => m.matiere_id),
+      })
+      inscription = {
+        ...fi,
+        type: 'individuelle',
+        filiere: { nom: 'Formation individuelle' },
+        frais_inscription: fiMontantInscription.value,
+        mensualite: 0,
+        frais_tenue: 0,
+        statut: inscriptionForm.value.statut,
+      }
+    } else {
+      // Inscription classique
+      const { data } = await api.post('/inscriptions', {
+        etudiant_id: etudiant.id,
+        filiere_id: inscriptionForm.value.filiere_id,
+        niveau_entree_id: inscriptionForm.value.niveau_entree_id,
+        niveau_bourse_id: inscriptionForm.value.niveau_bourse_id || null,
+        annee_academique_id: inscriptionForm.value.annee_academique_id,
+        frais_inscription: fraisInscriptionPrevu.value ?? 0,
+        mensualite: mensualitePrevu.value ?? 0,
+        frais_tenue: inscriptionForm.value.frais_tenue || 0,
+        statut: inscriptionForm.value.statut,
+        mois_debut: inscriptionForm.value.mois_debut || undefined,
+      })
+      inscription = data
+    }
 
     // 3. Stocker les données pour la fiche + passer à l'étape succès
     lastCreatedData.value = {
       etudiant: { ...studentForm.value, ...etudiant },
       insc: {
         ...inscription,
-        filiere: selectedFiliereObj.value ? { nom: selectedFiliereObj.value.nom } : inscription?.filiere,
+        filiere: isSelectedTypeIndividuel.value
+          ? { nom: 'Formation individuelle' }
+          : (selectedFiliereObj.value ? { nom: selectedFiliereObj.value.nom } : inscription?.filiere),
         niveau_entree: niveauxEntree.value.find(n => n.id === inscriptionForm.value.niveau_entree_id) ?? inscription?.niveau_entree,
         niveau_bourse: niveauxBourse.value.find(b => b.id === inscriptionForm.value.niveau_bourse_id) ?? null,
-        frais_inscription: fraisInscriptionPrevu.value ?? inscription?.frais_inscription,
-        mensualite: mensualitePrevu.value ?? inscription?.mensualite,
+        frais_inscription: isSelectedTypeIndividuel.value ? fiMontantInscription.value : (fraisInscriptionPrevu.value ?? inscription?.frais_inscription),
+        mensualite: isSelectedTypeIndividuel.value ? 0 : (mensualitePrevu.value ?? inscription?.mensualite),
         frais_tenue: inscriptionForm.value.frais_tenue || 0,
         statut: inscriptionForm.value.statut,
       },
@@ -457,12 +841,46 @@ async function submitEditEtudiant() {
   }
 }
 
+// ── Abandon workflow ─────────────────────────────────────────────────────
+const showAbandonForm = ref(false)
+const abandonForm = ref({
+  date_abandon: new Date().toISOString().substring(0, 10),
+  motif_abandon: '',
+})
+
 async function changerStatut(statut: string) {
   if (!currentInscription.value) return
+  // Si abandon → afficher le formulaire de motif
+  if (statut === 'abandonne') {
+    showAbandonForm.value = true
+    return
+  }
   updatingStatut.value = true
   try {
     await api.put(`/inscriptions/${currentInscription.value.id}/statut`, { statut })
     currentInscription.value.statut = statut
+    showAbandonForm.value = false
+    fetchEtudiants()
+  } catch (err: any) {
+    panelError.value = err.response?.data?.message ?? 'Erreur lors du changement de statut.'
+  } finally {
+    updatingStatut.value = false
+  }
+}
+
+async function confirmerAbandon() {
+  if (!currentInscription.value) return
+  if (!confirm('Confirmer l\'abandon de cet étudiant ? Son inscription sera marquée comme abandonnée.')) return
+  updatingStatut.value = true
+  try {
+    await api.put(`/inscriptions/${currentInscription.value.id}/statut`, {
+      statut: 'abandonne',
+      date_abandon: abandonForm.value.date_abandon,
+      motif_abandon: abandonForm.value.motif_abandon || null,
+    })
+    currentInscription.value.statut = 'abandonne'
+    showAbandonForm.value = false
+    panelError.value = '' // clear error
     fetchEtudiants()
   } catch (err: any) {
     panelError.value = err.response?.data?.message ?? 'Erreur lors du changement de statut.'
@@ -521,6 +939,7 @@ function openEditInscription() {
     frais_tenue: insc.frais_tenue ?? 0,
     mensualite: Number(f?.mensualite ?? insc.mensualite ?? 0),
     frais_inscription: Number(f?.frais_inscription ?? insc.frais_inscription ?? 0),
+    mois_debut: insc.mois_debut ? insc.mois_debut.substring(0, 7) : '',
   }
   editingInscription.value = true
 }
@@ -539,6 +958,7 @@ async function submitEditInscription() {
     const newFraisInsc = Number(inscriptionEditForm.value.frais_inscription)
     const { data } = await api.put(`/inscriptions/${cur.id}`, {
       ...inscriptionEditForm.value,
+      mois_debut: inscriptionEditForm.value.mois_debut || undefined,
       statut: cur.statut,
       frais_inscription: newFraisInsc,
       mensualite: newMensualite,
@@ -985,6 +1405,20 @@ function avatarColor(prenom: string, nom: string): string {
   return avatarColors[idx] ?? '#E30613'
 }
 
+// ── Vue mode (table / cartes) ─────────────────────────────────────────
+const viewMode = ref<'table' | 'card'>('table')
+
+// ── Stats rapides ─────────────────────────────────────────────────────
+const quickStats = computed(() => {
+  const all = pagination.value.data
+  return {
+    actifs:      all.filter(e => e.inscription_active?.statut === 'inscrit_actif').length,
+    preInscrits: all.filter(e => e.inscription_active?.statut === 'pre_inscrit').length,
+    enExamen:    all.filter(e => e.inscription_active?.statut === 'en_examen').length,
+    nonInscrits: all.filter(e => !e.inscription_active).length,
+  }
+})
+
 function statutBadgeClass(statut: string): string {
   const map: Record<string, string> = {
     inscrit_actif: 'uc-badge-active',
@@ -1014,6 +1448,7 @@ const tableCols = [
   { key: 'etudiant', label: 'Étudiant' },
   { key: 'type_formation', label: 'Type de formation' },
   { key: 'filiere', label: 'Filière / Parcours' },
+  { key: 'niveau_entree', label: 'Niveau d\'entrée' },
   { key: 'classe', label: 'Classe' },
   { key: 'statut', label: 'Statut' },
   { key: 'actions', label: 'Actions' },
@@ -1036,62 +1471,105 @@ onMounted(() => {
 <template>
   <div class="uc-content">
 
-    <!-- En-tête -->
-    <UcPageHeader
-      title="Étudiants"
-      :subtitle="`${pagination.total} étudiant${pagination.total !== 1 ? 's' : ''} au total`"
-    >
-      <template #actions>
-        <button @click="$router.push('/dossiers-etudiants')" class="uc-btn-secondary" style="display:flex;align-items:center;gap:6px;padding:9px 14px;font-size:12.5px;">
-          <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
-          </svg>
-          État des dossiers
-        </button>
-        <button v-if="canWrite" @click="openInscrire" class="uc-btn-primary" style="display:flex;align-items:center;gap:6px;padding:9px 16px;font-size:12.5px;">
-          <span style="font-size:16px;line-height:1;">+</span> Nouvel étudiant
-        </button>
-      </template>
-    </UcPageHeader>
-
-    <!-- Toolbar : Recherche + Filtres -->
-    <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
-      <div style="position:relative;flex:1;min-width:200px;">
-        <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#bbb;font-size:14px;">🔍</span>
-        <input v-model="search" type="text" placeholder="Rechercher par nom, prénom ou N° étudiant…" class="uc-search-input" />
+    <!-- ══ HERO ══ -->
+    <div class="et-hero">
+      <div class="et-hero-glow"></div>
+      <div class="et-hero-content">
+        <div class="et-hero-left">
+          <div class="et-hero-icon">🎓</div>
+          <div>
+            <h1 class="et-hero-title">Étudiants</h1>
+            <p class="et-hero-sub">{{ loading ? '…' : `${pagination.total} étudiant${pagination.total !== 1 ? 's' : ''} enregistrés` }}</p>
+          </div>
+        </div>
+        <div class="et-hero-kpis">
+          <div class="et-hkpi et-hkpi--green" @click="risqueFiltre='';filterTypeId='';filterFiliereId='';filterClasseId=''">
+            <div class="et-hkpi-val">{{ loading ? '…' : quickStats.actifs }}</div>
+            <div class="et-hkpi-lbl">Actifs</div>
+          </div>
+          <div class="et-hkpi et-hkpi--blue">
+            <div class="et-hkpi-val">{{ loading ? '…' : quickStats.preInscrits }}</div>
+            <div class="et-hkpi-lbl">Pré-inscrits</div>
+          </div>
+          <div class="et-hkpi et-hkpi--yellow">
+            <div class="et-hkpi-val">{{ loading ? '…' : quickStats.enExamen }}</div>
+            <div class="et-hkpi-lbl">En examen</div>
+          </div>
+          <div class="et-hkpi et-hkpi--red" @click="risqueFiltre='red'">
+            <div class="et-hkpi-val">{{ risqueCounts.red }}</div>
+            <div class="et-hkpi-lbl">À risque</div>
+          </div>
+        </div>
+        <div class="et-hero-actions">
+          <button @click="openCartes" class="et-action-btn et-action-btn--ghost">
+            🪪 Cartes étudiants
+          </button>
+          <button @click="$router.push('/dossiers-etudiants')" class="et-action-btn et-action-btn--ghost">
+            📋 Dossiers
+          </button>
+          <a href="/formations-individuelles" class="et-action-btn et-action-btn--ghost" style="text-decoration:none;">
+            🎓 Formations individuelles
+          </a>
+          <button v-if="canWrite" @click="openInscrire" class="et-action-btn et-action-btn--primary">
+            + Nouvel étudiant
+          </button>
+        </div>
       </div>
-      <!-- Filtres Type / Filière / Classe -->
-      <select v-model="filterTypeId" @change="onFilterTypeChange" class="uc-filter-select">
-        <option value="">Tous les types</option>
-        <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }}</option>
-      </select>
-      <select v-model="filterFiliereId" @change="onFilterFiliereChange" class="uc-filter-select">
-        <option value="">Toutes les filières</option>
-        <option v-for="f in filteredFilieresList" :key="f.id" :value="f.id">{{ f.nom }}</option>
-      </select>
-      <select v-model="filterClasseId" class="uc-filter-select">
-        <option value="">Toutes les classes</option>
-        <option v-for="c in filteredClassesList" :key="c.id" :value="c.id">{{ c.nom }}</option>
-      </select>
-      <!-- Bouton reset filtres -->
-      <button v-if="filterTypeId || filterFiliereId || filterClasseId"
-        @click="filterTypeId=''; filterFiliereId=''; filterClasseId=''"
-        style="padding:7px 12px;border:1px solid #e5e5e5;border-radius:6px;background:#fff;font-size:12px;color:#888;cursor:pointer;white-space:nowrap;">
-        ✕ Effacer
-      </button>
-      <!-- Filtres risque -->
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-        <button @click="risqueFiltre = ''" :class="risqueFiltre === '' ? 'rq-btn rq-btn--active' : 'rq-btn'">Tous</button>
-        <button @click="risqueFiltre = 'red'" :class="risqueFiltre === 'red' ? 'rq-btn rq-btn--red rq-btn--active' : 'rq-btn rq-btn--red'">
-          🔴 À risque <span v-if="risqueCounts.red" class="rq-count">{{ risqueCounts.red }}</span>
-        </button>
-        <button @click="risqueFiltre = 'yellow'" :class="risqueFiltre === 'yellow' ? 'rq-btn rq-btn--yellow rq-btn--active' : 'rq-btn rq-btn--yellow'">
-          🟡 À surveiller <span v-if="risqueCounts.yellow" class="rq-count">{{ risqueCounts.yellow }}</span>
-        </button>
-        <button @click="risqueFiltre = 'green'" :class="risqueFiltre === 'green' ? 'rq-btn rq-btn--green rq-btn--active' : 'rq-btn rq-btn--green'">
-          🟢 OK <span v-if="risqueCounts.green" class="rq-count">{{ risqueCounts.green }}</span>
-        </button>
+    </div>
+
+    <!-- ══ TOOLBAR ══ -->
+    <div class="et-toolbar">
+      <div class="et-toolbar-search">
+        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:#bbb;flex-shrink:0;">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+        </svg>
+        <input v-model="search" type="text" placeholder="Rechercher par nom, prénom ou N°…" class="et-search-input" />
+        <button v-if="search" @click="search=''" class="et-search-clear">✕</button>
+      </div>
+      <div class="et-toolbar-filters">
+        <select v-model="filterAnneeId" class="et-select" style="font-weight:600;color:#E30613;">
+          <option value="">Toutes les années</option>
+          <option v-for="a in annees" :key="a.id" :value="a.id">{{ a.libelle }}{{ a.actif ? ' ✓' : '' }}</option>
+        </select>
+        <select v-model="filterTypeId" @change="onFilterTypeChange" class="et-select">
+          <option value="">Tous les types</option>
+          <option v-for="t in typesFormation" :key="t.id" :value="t.id">{{ t.nom }}</option>
+        </select>
+        <select v-model="filterFiliereId" @change="onFilterFiliereChange" class="et-select">
+          <option value="">Toutes les filières</option>
+          <option v-for="f in filteredFilieresList" :key="f.id" :value="f.id">{{ f.nom }}</option>
+        </select>
+        <select v-model="filterClasseId" class="et-select">
+          <option value="">Toutes les classes</option>
+          <option v-for="c in filteredClassesList" :key="c.id" :value="c.id">{{ c.nom }}</option>
+        </select>
+        <button v-if="filterAnneeId || filterTypeId || filterFiliereId || filterClasseId"
+          @click="filterAnneeId=''; filterTypeId=''; filterFiliereId=''; filterClasseId=''"
+          class="et-btn-clear">✕ Effacer</button>
+      </div>
+      <div class="et-toolbar-right">
+        <!-- Filtres risque -->
+        <div class="et-rq-pills">
+          <button @click="risqueFiltre = ''" :class="['rq-btn', risqueFiltre === '' && 'rq-btn--active']">Tous</button>
+          <button @click="risqueFiltre = 'red'" :class="['rq-btn','rq-btn--red', risqueFiltre === 'red' && 'rq-btn--active']">
+            🔴 <span v-if="risqueCounts.red" class="rq-count">{{ risqueCounts.red }}</span>
+          </button>
+          <button @click="risqueFiltre = 'yellow'" :class="['rq-btn','rq-btn--yellow', risqueFiltre === 'yellow' && 'rq-btn--active']">
+            🟡 <span v-if="risqueCounts.yellow" class="rq-count">{{ risqueCounts.yellow }}</span>
+          </button>
+          <button @click="risqueFiltre = 'green'" :class="['rq-btn','rq-btn--green', risqueFiltre === 'green' && 'rq-btn--active']">
+            🟢 <span v-if="risqueCounts.green" class="rq-count">{{ risqueCounts.green }}</span>
+          </button>
+        </div>
+        <!-- Toggle vue -->
+        <div class="et-view-toggle">
+          <button :class="['et-view-btn', viewMode==='table' && 'et-view-btn--active']" @click="viewMode='table'" title="Vue tableau">
+            ☰
+          </button>
+          <button :class="['et-view-btn', viewMode==='card' && 'et-view-btn--active']" @click="viewMode='card'" title="Vue cartes">
+            ⊞
+          </button>
+        </div>
       </div>
     </div>
 
@@ -1102,8 +1580,69 @@ onMounted(() => {
       <button @click="risqueFiltre = 'red'" class="rq-banner-link">Voir</button>
     </div>
 
-    <!-- Tableau -->
-    <UcTable :cols="tableCols" :data="etudiantsFiltres" empty-text="Aucun étudiant trouvé">
+    <!-- ══ VUE CARTES ══ -->
+    <div v-if="viewMode === 'card'" class="et-cards-grid">
+      <div v-if="loading" class="et-cards-loading">Chargement…</div>
+      <div v-else-if="!etudiantsFiltres.length" class="et-cards-empty">
+        <span style="font-size:36px;">📭</span>
+        <p>Aucun étudiant trouvé</p>
+      </div>
+      <template v-else>
+        <div v-for="etudiant in etudiantsFiltres" :key="(etudiant as any).id"
+          class="et-card"
+          @click="router.push(`/etudiants/${(etudiant as any).id}`)">
+          <!-- Risk ring -->
+          <div class="et-card-top">
+            <div class="et-card-avatar"
+              :style="{ background: avatarColor((etudiant as any).prenom, (etudiant as any).nom) }"
+              :class="{
+                'et-card-av--red':    risques[(etudiant as any).id]?.risque_global === 'red',
+                'et-card-av--yellow': risques[(etudiant as any).id]?.risque_global === 'yellow',
+              }">
+              {{ ((etudiant as any).prenom[0] ?? '') + ((etudiant as any).nom[0] ?? '') }}
+              <span v-if="risques[(etudiant as any).id]"
+                class="rq-dot"
+                :class="`rq-dot--${risques[(etudiant as any).id]?.risque_global}`"></span>
+            </div>
+            <div class="et-card-info">
+              <div class="et-card-name">{{ (etudiant as any).prenom }} {{ (etudiant as any).nom }}</div>
+              <div class="et-card-num">{{ (etudiant as any).numero_etudiant }}</div>
+              <div class="et-card-email">{{ (etudiant as any).email }}</div>
+            </div>
+          </div>
+          <div class="et-card-body">
+            <div v-if="(etudiant as any).inscription_active?.filiere" class="et-card-filiere">
+              📚 {{ (etudiant as any).inscription_active.filiere.nom }}
+            </div>
+            <div class="et-card-meta">
+              <span v-if="(etudiant as any).inscription_active?.classe">🏫 {{ (etudiant as any).inscription_active.classe.nom }}</span>
+              <span v-if="(etudiant as any).inscription_active?.niveau_entree"
+                class="niveau-badge"
+                :class="(etudiant as any).inscription_active.niveau_entree.est_superieur_bac ? 'niveau-badge--lmd' : 'niveau-badge--classic'">
+                {{ (etudiant as any).inscription_active.niveau_entree.nom }}
+                <span class="niveau-badge-sys">{{ (etudiant as any).inscription_active.niveau_entree.est_superieur_bac ? 'LMD' : 'Coef.' }}</span>
+              </span>
+            </div>
+          </div>
+          <div class="et-card-footer">
+            <span v-if="(etudiant as any).inscription_active" class="uc-badge" :class="statutBadgeClass((etudiant as any).inscription_active.statut)">
+              <span class="badge-dot" :class="statutDotClass((etudiant as any).inscription_active.statut)"></span>
+              {{ statutLabel[(etudiant as any).inscription_active.statut] ?? (etudiant as any).inscription_active.statut }}
+            </span>
+            <span v-else class="uc-badge uc-badge-gray">Non inscrit</span>
+            <div class="et-card-actions" @click.stop>
+              <button v-if="canWrite" @click.stop="openEditEtudiant(etudiant as any)" class="row-btn" title="Modifier">✏️</button>
+              <button v-if="canWrite && (etudiant as any).inscription_active" @click.stop="openGererInscription(etudiant as any)" class="row-btn" title="Inscription">📋</button>
+              <button v-if="canWrite && (etudiant as any).formation_individuelle_active" @click.stop="$router.push('/formations-individuelles')" class="row-btn" title="Formation individuelle" style="color:#3b82f6;">🎓</button>
+              <button v-if="canDelete" @click.stop="openDeleteEtudiant(etudiant as any)" class="row-btn row-btn--danger" title="Supprimer">🗑</button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ══ VUE TABLEAU ══ -->
+    <UcTable v-if="viewMode === 'table'" :cols="tableCols" :data="etudiantsFiltres" empty-text="Aucun étudiant trouvé">
       <template #row="{ item: etudiant }">
         <td class="td-num">{{ (etudiant as any).numero_etudiant }}</td>
         <td>
@@ -1143,6 +1682,15 @@ onMounted(() => {
           <span v-else style="color:#aaa;">—</span>
         </td>
         <td @click="router.push(`/etudiants/${(etudiant as any).id}`)">
+          <span v-if="(etudiant as any).inscription_active?.niveau_entree"
+            class="niveau-badge"
+            :class="(etudiant as any).inscription_active.niveau_entree.est_superieur_bac ? 'niveau-badge--lmd' : 'niveau-badge--classic'">
+            {{ (etudiant as any).inscription_active.niveau_entree.nom }}
+            <span class="niveau-badge-sys">{{ (etudiant as any).inscription_active.niveau_entree.est_superieur_bac ? 'LMD' : 'Coef.' }}</span>
+          </span>
+          <span v-else style="color:#aaa;font-size:12px;">—</span>
+        </td>
+        <td @click="router.push(`/etudiants/${(etudiant as any).id}`)">
           <span v-if="(etudiant as any).inscription_active?.classe" style="font-size:13px;font-weight:600;color:#374151;">
             {{ (etudiant as any).inscription_active.classe.nom }}
           </span>
@@ -1153,13 +1701,17 @@ onMounted(() => {
             <span class="badge-dot" :class="statutDotClass((etudiant as any).inscription_active.statut)"></span>
             {{ statutLabel[(etudiant as any).inscription_active.statut] ?? (etudiant as any).inscription_active.statut }}
           </span>
+          <span v-else-if="(etudiant as any).formation_individuelle_active" class="uc-badge" style="background:#eff6ff;color:#1e40af;">
+            🎓 Indiv. — {{ (etudiant as any).formation_individuelle_active.statut }}
+          </span>
           <span v-else class="uc-badge uc-badge-gray">Non inscrit</span>
         </td>
-        <td>
+        <td style="min-width: 260px;">
           <div class="row-actions">
-            <button v-if="canWrite" @click="openEditEtudiant(etudiant as any)" class="row-btn" title="Modifier">Modifier</button>
-            <button v-if="canWrite && (etudiant as any).inscription_active" @click="openGererInscription(etudiant as any)" class="row-btn" title="Gérer inscription">Inscription</button>
-            <button v-if="canDelete" @click="openDeleteEtudiant(etudiant as any)" class="row-btn row-btn--danger" title="Supprimer définitivement">Supprimer</button>
+            <button v-if="canWrite" @click="openEditEtudiant(etudiant as any)" class="row-btn" title="Modifier">✏️ Modifier</button>
+            <button v-if="canWrite && (etudiant as any).inscription_active" @click="openGererInscription(etudiant as any)" class="row-btn" title="Gérer inscription">📋 Inscription</button>
+            <button v-if="canWrite && (etudiant as any).formation_individuelle_active" @click="$router.push('/formations-individuelles')" class="row-btn" title="Formation individuelle" style="color:#3b82f6;">🎓 Formation indiv.</button>
+            <button v-if="canDelete" @click="openDeleteEtudiant(etudiant as any)" class="row-btn row-btn--danger" title="Supprimer définitivement">🗑 Supprimer</button>
           </div>
         </td>
       </template>
@@ -1301,49 +1853,127 @@ onMounted(() => {
                     </select>
                   </div>
                 </div>
-                <div class="form-row full">
-                  <div class="form-group">
-                    <label>Filière <span class="req">*</span></label>
-                    <select v-model="inscriptionForm.filiere_id" @change="onFiliereChange" required>
-                      <option :value="null">— Sélectionner une filière —</option>
-                      <option v-for="f in filteredFilieres" :key="f.id" :value="f.id">{{ f.nom }} ({{ f.code }})</option>
-                    </select>
-                    <div v-if="selectedFiliereObj" class="filiere-preview">
-                      <span>Insc. : <strong>{{ new Intl.NumberFormat('fr-FR').format(selectedFiliereObj.frais_inscription) }} F</strong></span>
-                      <span>Mens. : <strong>{{ new Intl.NumberFormat('fr-FR').format(selectedFiliereObj.mensualite) }} F</strong></span>
-                      <span v-if="selectedFiliereObj.duree_mois">Durée : <strong>{{ selectedFiliereObj.duree_mois }} mois</strong></span>
+                <!-- ═══ MODE CLASSIQUE (filière) ═══ -->
+                <template v-if="!isSelectedTypeIndividuel">
+                  <div class="form-row full">
+                    <div class="form-group">
+                      <label>Filière <span class="req">*</span></label>
+                      <select v-model="inscriptionForm.filiere_id" @change="onFiliereChange" required>
+                        <option :value="null">— Sélectionner une filière —</option>
+                        <option v-for="f in filteredFilieres" :key="f.id" :value="f.id">{{ f.nom }} ({{ f.code }})</option>
+                      </select>
+                      <div v-if="selectedFiliereObj" class="filiere-preview">
+                        <span>Insc. : <strong>{{ new Intl.NumberFormat('fr-FR').format(selectedFiliereObj.frais_inscription) }} F</strong></span>
+                        <span>Mens. : <strong>{{ new Intl.NumberFormat('fr-FR').format(selectedFiliereObj.mensualite) }} F</strong></span>
+                        <span v-if="selectedFiliereObj.duree_mois">Durée : <strong>{{ selectedFiliereObj.duree_mois }} mois</strong></span>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label>Niveau d'entrée <span class="req">*</span></label>
-                    <select v-model="inscriptionForm.niveau_entree_id" required>
-                      <option :value="null">— Sélectionner —</option>
-                      <option v-for="n in niveauxEntree" :key="n.id" :value="n.id">{{ n.nom }}</option>
-                    </select>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Niveau d'entrée <span class="req">*</span></label>
+                      <select v-model="inscriptionForm.niveau_entree_id" required>
+                        <option :value="null">— Sélectionner —</option>
+                        <option v-for="n in niveauxEntree" :key="n.id" :value="n.id">{{ n.nom }}</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label>Bourse</label>
+                      <select v-model="inscriptionForm.niveau_bourse_id">
+                        <option :value="null">— Aucune bourse —</option>
+                        <option v-for="b in niveauxBourse" :key="b.id" :value="b.id">{{ b.nom }} ({{ b.pourcentage }}%)</option>
+                      </select>
+                    </div>
                   </div>
-                  <div class="form-group">
-                    <label>Bourse</label>
-                    <select v-model="inscriptionForm.niveau_bourse_id">
-                      <option :value="null">— Aucune bourse —</option>
-                      <option v-for="b in niveauxBourse" :key="b.id" :value="b.id">{{ b.nom }} ({{ b.pourcentage }}%)</option>
-                    </select>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Frais de tenue (FCFA)</label>
+                      <input v-model.number="inscriptionForm.frais_tenue" type="number" min="0" placeholder="0" />
+                    </div>
+                    <div class="form-group">
+                      <label>Mois de début des paiements</label>
+                      <input v-model="inscriptionForm.mois_debut" type="month" />
+                    </div>
                   </div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label>Frais de tenue (FCFA)</label>
-                    <input v-model.number="inscriptionForm.frais_tenue" type="number" min="0" placeholder="0" />
+                  <!-- Bourse info -->
+                  <div v-if="selectedBourse && selectedFiliereObj" class="bourse-info">
+                    <span>Mensualité après bourse : <strong>{{ formatAmount(mensualitePrevu) }}</strong></span>
+                    <span v-if="selectedBourse.applique_inscription"> — Frais insc. après bourse : <strong>{{ formatAmount(fraisInscriptionPrevu) }}</strong></span>
                   </div>
-                  <div class="form-group"></div>
-                </div>
+                </template>
 
-                <!-- Bourse info -->
-                <div v-if="selectedBourse && selectedFiliereObj" class="bourse-info">
-                  <span>Mensualité après bourse : <strong>{{ formatAmount(mensualitePrevu) }}</strong></span>
-                  <span v-if="selectedBourse.applique_inscription"> — Frais insc. après bourse : <strong>{{ formatAmount(fraisInscriptionPrevu) }}</strong></span>
-                </div>
+                <!-- ═══ MODE INDIVIDUEL (à la carte) ═══ -->
+                <template v-else>
+                  <div class="fi-indiv-banner">
+                    <strong>Formation individuelle</strong> — Modules à la carte, paiement 50/50
+                  </div>
+
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Coût total de la formation (FCFA) <span class="req">*</span></label>
+                      <input v-model.number="fiForm.cout_total" type="number" min="0" placeholder="Ex: 500000" />
+                    </div>
+                    <div class="form-group">
+                      <label>Niveau d'entrée</label>
+                      <select v-model="inscriptionForm.niveau_entree_id">
+                        <option :value="null">— Sélectionner —</option>
+                        <option v-for="n in niveauxEntree" :key="n.id" :value="n.id">{{ n.nom }}</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>% Inscription (versement initial)</label>
+                      <input v-model.number="fiForm.pct_inscription" type="number" min="0" max="100" />
+                    </div>
+                    <div class="form-group">
+                      <label>% Rémunération formateurs</label>
+                      <input v-model.number="fiForm.pct_formateur" type="number" min="0" max="100" />
+                    </div>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Date début</label>
+                      <input v-model="fiForm.date_debut" type="date" />
+                    </div>
+                    <div class="form-group">
+                      <label>Date fin</label>
+                      <div style="padding:8px 0;font-size:12px;color:#64748b;font-style:italic;">
+                        Calculée automatiquement quand tous les modules sont terminés
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Aperçu paiement -->
+                  <div v-if="fiForm.cout_total > 0" class="fi-indiv-preview">
+                    <div><strong>Inscription :</strong> {{ new Intl.NumberFormat('fr-FR').format(fiMontantInscription) }} FCFA ({{ fiForm.pct_inscription }}%)</div>
+                    <div><strong>Solde :</strong> {{ new Intl.NumberFormat('fr-FR').format(fiMontantSolde) }} FCFA</div>
+                    <div><strong>Part formateurs :</strong> {{ new Intl.NumberFormat('fr-FR').format(Math.round(fiForm.cout_total * fiForm.pct_formateur / 100)) }} FCFA</div>
+                  </div>
+
+                  <!-- Modules à la carte -->
+                  <div class="fi-indiv-modules">
+                    <div class="fi-indiv-modules-head">
+                      <strong>Modules à la carte</strong>
+                      <span style="font-size:12px;color:#64748b;background:#f1f5f9;padding:2px 8px;border-radius:10px;">{{ fiTotalHeures }}h total</span>
+                      <button type="button" @click="fiAddModule" class="fi-indiv-add-btn">+ Module</button>
+                    </div>
+                    <div v-for="(mod, i) in fiForm.modules" :key="i" class="fi-indiv-module-row">
+                      <select v-model="mod.matiere_id" style="flex:2;">
+                        <option :value="null">— Matière —</option>
+                        <option v-for="m in fiMatieres" :key="m.id" :value="m.id">{{ m.nom }}</option>
+                      </select>
+                      <input v-model.number="mod.volume_horaire" type="number" min="0" placeholder="Heures" style="width:80px;flex:none;" />
+                      <select v-model="mod.enseignant_id" style="flex:2;">
+                        <option :value="null">— Formateur —</option>
+                        <option v-for="e in fiEnseignants" :key="e.id" :value="e.id">{{ e.prenom }} {{ e.nom }}</option>
+                      </select>
+                      <button type="button" @click="fiRemoveModule(i)" :disabled="fiForm.modules.length <= 1" class="fi-indiv-remove-btn">&times;</button>
+                    </div>
+                  </div>
+                </template>
 
                 <!-- Résumé financier -->
                 <div v-if="selectedFiliereObj" class="fin-recap">
@@ -1356,21 +1986,50 @@ onMounted(() => {
 
               <!-- ══ INSCRIRE — ÉTAPE 3 : Succès ══ -->
               <template v-else-if="panelMode === 'inscrire' && currentStep === 3">
-                <div style="text-align:center;padding:28px 0 16px;">
+                <div style="text-align:center;padding:28px 0 10px;">
                   <div style="font-size:52px;line-height:1;">✅</div>
                   <h3 style="margin:14px 0 8px;font-size:16px;font-weight:700;color:#111;">Inscription créée avec succès !</h3>
-                  <p style="color:#888;font-size:12px;margin-bottom:28px;">
+                  <p style="color:#888;font-size:12px;margin-bottom:20px;">
                     <strong>{{ lastCreatedData?.etudiant.prenom }} {{ lastCreatedData?.etudiant.nom }}</strong>
                     a été inscrit(e).
                   </p>
-                  <button
-                    @click="lastCreatedData && printFiche(lastCreatedData.etudiant, lastCreatedData.insc, lastCreatedData.anneeLabel)"
-                    class="uc-btn-primary"
-                    style="padding:11px 24px;font-size:13px;display:inline-flex;align-items:center;gap:8px;">
-                    🖨️ Imprimer la fiche d'inscription
-                  </button>
-                  <p style="font-size:10.5px;color:#bbb;margin-top:12px;">La fiche s'ouvre dans un nouvel onglet pour impression ou enregistrement en PDF.</p>
                 </div>
+
+                <!-- Étapes de disponibilité des documents -->
+                <div style="text-align:left;background:#f8f9fa;border-radius:10px;padding:16px 18px;margin-bottom:18px;">
+                  <p style="font-size:12px;font-weight:700;color:#333;margin-bottom:12px;">Prochaines étapes</p>
+
+                  <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;">
+                    <span style="font-size:18px;line-height:1;">🎓</span>
+                    <div>
+                      <p style="font-size:12px;font-weight:600;color:#111;margin:0 0 2px;">1. Affecter à une classe</p>
+                      <p style="font-size:11px;color:#888;margin:0;">La <strong>carte étudiant</strong> sera disponible après affectation.</p>
+                    </div>
+                  </div>
+
+                  <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;">
+                    <span style="font-size:18px;line-height:1;">💳</span>
+                    <div>
+                      <p style="font-size:12px;font-weight:600;color:#111;margin:0 0 2px;">2. Payer les frais d'inscription</p>
+                      <p style="font-size:11px;color:#888;margin:0;">La <strong>fiche d'inscription</strong> sera disponible après ce paiement.</p>
+                    </div>
+                  </div>
+
+                  <div style="display:flex;align-items:flex-start;gap:10px;">
+                    <span style="font-size:18px;line-height:1;">📄</span>
+                    <div>
+                      <p style="font-size:12px;font-weight:600;color:#111;margin:0 0 2px;">3. Payer la 1ère mensualité</p>
+                      <p style="font-size:11px;color:#888;margin:0;">Le <strong>certificat d'inscription</strong> sera disponible après ce paiement.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  @click="router.push('/classes')"
+                  class="uc-btn-primary"
+                  style="padding:11px 24px;font-size:13px;display:inline-flex;align-items:center;gap:8px;width:100%;justify-content:center;">
+                  🎓 Affecter à une classe
+                </button>
               </template>
 
               <!-- ══ EDIT ÉTUDIANT ══ -->
@@ -1508,6 +2167,12 @@ onMounted(() => {
                         <input v-model.number="inscriptionEditForm.frais_tenue" type="number" min="0" placeholder="0" />
                       </div>
                     </div>
+                    <div class="form-row full">
+                      <div class="form-group">
+                        <label>Mois de début des paiements</label>
+                        <input v-model="inscriptionEditForm.mois_debut" type="month" />
+                      </div>
+                    </div>
                     <div style="display:flex;gap:8px;margin-top:4px;">
                       <button @click="editingInscription = false" class="btn-ghost" style="flex:1;">Annuler</button>
                       <button @click="submitEditInscription" :disabled="savingInscription || !inscriptionEditForm.filiere_id || !inscriptionEditForm.niveau_entree_id"
@@ -1542,15 +2207,59 @@ onMounted(() => {
                     <button v-else-if="currentInscription.statut === 'en_examen'" @click="validerInscription" :disabled="updatingStatut" class="action-btn action-btn-green">
                       {{ updatingStatut ? 'Validation…' : '✓ Valider le dossier' }}
                     </button>
-                    <div v-else-if="['inscrit_actif', 'suspendu', 'abandonne'].includes(currentInscription.statut)" class="form-group">
-                      <label>Changer le statut</label>
-                      <select :value="currentInscription.statut" :disabled="updatingStatut"
-                        @change="changerStatut(($event.target as HTMLSelectElement).value)">
-                        <option value="inscrit_actif">Actif</option>
-                        <option value="suspendu">Suspendu</option>
-                        <option value="abandonne">Abandonné</option>
-                        <option value="diplome">Diplômé</option>
-                      </select>
+                    <div v-else-if="['inscrit_actif', 'suspendu', 'abandonne'].includes(currentInscription.statut)">
+                      <div class="form-group">
+                        <label>Changer le statut</label>
+                        <select :value="currentInscription.statut" :disabled="updatingStatut"
+                          @change="changerStatut(($event.target as HTMLSelectElement).value)">
+                          <option value="inscrit_actif">Actif</option>
+                          <option value="suspendu">Suspendu</option>
+                          <option value="abandonne">Abandonné</option>
+                          <option value="diplome">Diplômé</option>
+                        </select>
+                      </div>
+
+                      <!-- Formulaire abandon avec date + motif -->
+                      <div v-if="showAbandonForm" style="margin-top:12px;padding:14px;background:#fff0f0;border:1px solid #fecaca;border-radius:8px;">
+                        <p style="font-size:11px;font-weight:700;color:#E30613;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">
+                          🚫 Déclarer un abandon
+                        </p>
+                        <div class="form-group" style="margin-bottom:10px;">
+                          <label style="font-size:11px;font-weight:600;color:#555;">Date d'abandon</label>
+                          <input v-model="abandonForm.date_abandon" type="date" style="width:100%;padding:8px;border:1px solid #e5e5e5;border-radius:6px;font-size:12px;" />
+                        </div>
+                        <div class="form-group" style="margin-bottom:10px;">
+                          <label style="font-size:11px;font-weight:600;color:#555;">Motif de l'abandon <span style="color:#aaa;font-weight:400;">(facultatif)</span></label>
+                          <select v-model="abandonForm.motif_abandon" style="width:100%;padding:8px;border:1px solid #e5e5e5;border-radius:6px;font-size:12px;">
+                            <option value="">— Sélectionner un motif —</option>
+                            <option value="raisons_financieres">Raisons financières</option>
+                            <option value="raisons_personnelles">Raisons personnelles</option>
+                            <option value="reorientation">Réorientation</option>
+                            <option value="demenagement">Déménagement</option>
+                            <option value="sante">Problème de santé</option>
+                            <option value="emploi">Reprise d'emploi</option>
+                            <option value="exclusion">Exclusion disciplinaire</option>
+                            <option value="autre">Autre</option>
+                          </select>
+                        </div>
+                        <div style="display:flex;gap:8px;">
+                          <button @click="showAbandonForm = false" class="btn-ghost" style="flex:1;padding:8px;font-size:12px;">Annuler</button>
+                          <button @click="confirmerAbandon" :disabled="updatingStatut"
+                            style="flex:1;padding:8px;font-size:12px;background:#E30613;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer;"
+                            :style="{ opacity: updatingStatut ? '0.5' : '1' }">
+                            {{ updatingStatut ? 'En cours…' : 'Confirmer l\'abandon' }}
+                          </button>
+                        </div>
+                      </div>
+
+                      <!-- Info si déjà abandonné -->
+                      <div v-if="currentInscription.statut === 'abandonne' && (currentInscription as any).date_abandon"
+                        style="margin-top:10px;padding:10px;background:#fff5f5;border-radius:6px;font-size:11px;color:#b91c1c;">
+                        <strong>Abandon le :</strong> {{ new Date((currentInscription as any).date_abandon).toLocaleDateString('fr-FR') }}
+                        <span v-if="(currentInscription as any).motif_abandon" style="display:block;margin-top:4px;">
+                          <strong>Motif :</strong> {{ motifAbandonLabel((currentInscription as any).motif_abandon) }}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1577,9 +2286,9 @@ onMounted(() => {
               <!-- Inscrire étape 2 → Retour + Créer -->
               <template v-if="panelMode === 'inscrire' && currentStep === 2">
                 <button @click="goToStep1" class="btn-ghost">← Retour</button>
-                <button @click="submitInscrire" :disabled="panelLoading || !inscriptionForm.filiere_id || !inscriptionForm.niveau_entree_id"
+                <button @click="submitInscrire" :disabled="panelLoading || (!isSelectedTypeIndividuel && (!inscriptionForm.filiere_id || !inscriptionForm.niveau_entree_id)) || (isSelectedTypeIndividuel && (!fiForm.cout_total || fiForm.modules.every(m => !m.matiere_id)))"
                   class="uc-btn-primary"
-                  :style="{ opacity: (panelLoading || !inscriptionForm.filiere_id || !inscriptionForm.niveau_entree_id) ? '0.55' : '1' }">
+                  :style="{ opacity: (panelLoading || (!isSelectedTypeIndividuel && (!inscriptionForm.filiere_id || !inscriptionForm.niveau_entree_id)) || (isSelectedTypeIndividuel && (!fiForm.cout_total || fiForm.modules.every(m => !m.matiere_id)))) ? '0.55' : '1' }">
                   {{ panelLoading ? 'Création…' : 'Créer & Inscrire' }}
                 </button>
               </template>
@@ -1591,6 +2300,93 @@ onMounted(() => {
               </button>
             </div>
 
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         MODAL TIRAGE CARTES ÉTUDIANTS
+         ═══════════════════════════════════════════════════════════ -->
+    <Teleport to="body">
+      <Transition name="modal-fade">
+        <div v-if="showCartes" class="carte-overlay" @click.self="showCartes = false">
+          <div class="carte-modal">
+            <!-- Header -->
+            <div class="carte-modal-header">
+              <div>
+                <h2 class="carte-modal-title">🪪 Tirage de cartes étudiants</h2>
+                <p class="carte-modal-sub">Sélectionnez les étudiants et imprimez leurs cartes</p>
+              </div>
+              <button @click="showCartes = false" class="carte-close">✕</button>
+            </div>
+
+            <!-- Filtres -->
+            <div class="carte-filters">
+              <div class="carte-filter-row">
+                <div class="carte-search">
+                  <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:#bbb;flex-shrink:0;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                  </svg>
+                  <input v-model="carteSearch" type="text" placeholder="Rechercher par nom…" class="carte-search-input" />
+                </div>
+                <select v-model="carteFiliereId" @change="onCarteFiliereChange" class="carte-select">
+                  <option value="">Toutes les filières</option>
+                  <option v-for="f in carteFilteredFilieres" :key="f.id" :value="f.id">{{ f.nom }}</option>
+                </select>
+                <select v-model="carteClasseId" class="carte-select">
+                  <option value="">Toutes les classes</option>
+                  <option v-for="c in carteFilteredClasses" :key="c.id" :value="c.id">{{ c.nom }}</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Liste étudiants -->
+            <div class="carte-body">
+              <div v-if="cartesLoading" class="carte-loading">Chargement…</div>
+              <div v-else-if="!cartesEtudiants.length" class="carte-empty">
+                <span style="font-size:32px;">📭</span>
+                <p>Aucun étudiant actif trouvé</p>
+              </div>
+              <template v-else>
+                <div class="carte-select-all">
+                  <label class="carte-checkbox-label">
+                    <input type="checkbox" :checked="cartesSelected.size === cartesEtudiants.length && cartesEtudiants.length > 0" @change="selectAllCartes" />
+                    <span>{{ cartesSelected.size === cartesEtudiants.length ? 'Tout désélectionner' : 'Tout sélectionner' }}</span>
+                  </label>
+                  <span class="carte-count">{{ cartesEtudiants.length }} étudiant{{ cartesEtudiants.length > 1 ? 's' : '' }}</span>
+                </div>
+                <div class="carte-list">
+                  <div v-for="e in cartesEtudiants" :key="e.id"
+                    class="carte-item"
+                    :class="{ 'carte-item--selected': cartesSelected.has(e.id) }"
+                    @click="toggleCarteSelect(e.id)">
+                    <input type="checkbox" :checked="cartesSelected.has(e.id)" @click.stop="toggleCarteSelect(e.id)" />
+                    <div class="carte-item-avatar" :style="{ background: avatarColor(e.prenom, e.nom) }">
+                      {{ (e.prenom[0] ?? '') + (e.nom[0] ?? '') }}
+                    </div>
+                    <div class="carte-item-info">
+                      <div class="carte-item-name">{{ e.prenom }} {{ e.nom }}</div>
+                      <div class="carte-item-details">
+                        {{ e.numero_etudiant }}
+                        <span v-if="e.inscription_active?.filiere"> · {{ e.inscription_active.filiere.nom }}</span>
+                        <span v-if="e.inscription_active?.classe"> · {{ e.inscription_active.classe.nom }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Footer -->
+            <div class="carte-footer">
+              <span class="carte-footer-info">
+                {{ cartesSelected.size > 0 ? `${cartesSelected.size} sélectionné${cartesSelected.size > 1 ? 's' : ''}` : `${cartesEtudiants.length} carte${cartesEtudiants.length > 1 ? 's' : ''} à imprimer` }}
+              </span>
+              <button @click="imprimerCartes" :disabled="!cartesEtudiants.length" class="carte-btn-print">
+                🖨️ Imprimer {{ cartesSelected.size > 0 ? cartesSelected.size : cartesEtudiants.length }} carte{{ (cartesSelected.size > 0 ? cartesSelected.size : cartesEtudiants.length) > 1 ? 's' : '' }}
+              </button>
+            </div>
           </div>
         </div>
       </Transition>
@@ -1664,27 +2460,17 @@ onMounted(() => {
             <div class="del-icon">🗑️</div>
             <h2 class="del-title">Confirmation finale</h2>
             <p class="del-warning">
-              Cette action est <strong>irréversible</strong>. Toutes les données listées à l'étape précédente seront définitivement effacées.
+              Vous allez supprimer définitivement <strong>{{ deleteTargetEtudiant.prenom.trim() }} {{ deleteTargetEtudiant.nom.trim() }}</strong> et toutes ses données associées.<br/>
+              Cette action est <strong>irréversible</strong>.
             </p>
-            <p class="del-confirm-label">
-              Tapez <strong>{{ deleteTargetEtudiant.prenom.trim() }} {{ deleteTargetEtudiant.nom.trim() }}</strong> pour confirmer :
-            </p>
-            <input
-              v-model="confirmDeleteName"
-              type="text"
-              class="del-input"
-              placeholder="Nom complet de l'étudiant"
-              @keyup.enter="confirmDeleteEtudiant"
-              autofocus
-            />
             <div class="del-actions">
               <button @click="deleteStep = 1" class="del-btn-cancel">← Retour</button>
               <button
                 @click="confirmDeleteEtudiant"
-                :disabled="deletingEtudiant || confirmDeleteName.trim().toLowerCase() !== `${deleteTargetEtudiant.prenom.trim()} ${deleteTargetEtudiant.nom.trim()}`.toLowerCase()"
+                :disabled="deletingEtudiant"
                 class="del-btn-confirm"
               >
-                {{ deletingEtudiant ? 'Suppression…' : 'Supprimer définitivement' }}
+                {{ deletingEtudiant ? 'Suppression…' : 'Oui, supprimer définitivement' }}
               </button>
             </div>
           </template>
@@ -1790,6 +2576,39 @@ onMounted(() => {
   background: #f0fdf4; border-radius: 4px;
   font-size: 11px; color: #15803d;
 }
+
+/* ── Formation individuelle (mode à la carte) ── */
+.fi-indiv-banner {
+  background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;
+  padding: 10px 14px; margin-bottom: 14px; font-size: 13px; color: #1e40af;
+}
+.fi-indiv-preview {
+  background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;
+  padding: 10px 14px; margin: 10px 0; font-size: 12px; color: #166534;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.fi-indiv-modules { margin-top: 14px; }
+.fi-indiv-modules-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.fi-indiv-modules-head strong { font-size: 13px; }
+.fi-indiv-add-btn {
+  padding: 3px 10px; font-size: 11px; font-weight: 600; border: 1px solid #e2e8f0;
+  border-radius: 6px; background: #fff; color: #3b82f6; cursor: pointer;
+}
+.fi-indiv-add-btn:hover { background: #eff6ff; }
+.fi-indiv-module-row {
+  display: flex; gap: 6px; align-items: center; margin-bottom: 6px;
+}
+.fi-indiv-module-row select, .fi-indiv-module-row input {
+  padding: 7px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px;
+}
+.fi-indiv-remove-btn {
+  width: 26px; height: 26px; border: 1px solid #fecaca; border-radius: 6px;
+  background: #fff; color: #ef4444; font-size: 15px; cursor: pointer; flex-shrink: 0;
+}
+.fi-indiv-remove-btn:hover { background: #fef2f2; }
+.fi-indiv-remove-btn:disabled { opacity: .3; cursor: not-allowed; }
 
 /* ── Résumé financier ── */
 .fin-recap {
@@ -1903,8 +2722,8 @@ onMounted(() => {
 }
 
 /* Row actions */
-.row-actions { display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s; }
-.uc-table tbody tr:hover .row-actions { opacity: 1; }
+.row-actions { display: flex; gap: 6px; flex-wrap: nowrap; align-items: center; }
+/* Toujours visible, pas besoin de hover */
 .row-btn {
   border: 1px solid #e5e5e5;
   background: #fff;
@@ -1916,6 +2735,8 @@ onMounted(() => {
   cursor: pointer;
   transition: all 0.15s;
   font-family: 'Poppins', sans-serif;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .row-btn:hover { border-color: #E30613; color: #E30613; }
 .row-btn--danger { border-color: #fecaca; color: #E30613; }
@@ -2127,7 +2948,45 @@ onMounted(() => {
 
 .hidden { display: none; }
 
-.td-num { font-size: 11px; font-weight: 600; color: #888; font-family: monospace; }
+/* ── Tableau : scroll horizontal à toutes les tailles ── */
+:deep(.uc-table-wrap) { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+:deep(.uc-table) {
+  min-width: 860px;
+  table-layout: fixed;
+  width: 100%;
+}
+/* Largeurs fixes des colonnes pour éviter le débordement */
+:deep(.uc-table thead th:nth-child(1)) { width: 110px; } /* N° étudiant */
+:deep(.uc-table thead th:nth-child(2)) { width: 200px; } /* Étudiant */
+:deep(.uc-table thead th:nth-child(3)) { width: 120px; } /* Type formation */
+:deep(.uc-table thead th:nth-child(4)) { width: 160px; } /* Filière */
+:deep(.uc-table thead th:nth-child(5)) { width: 110px; } /* Niveau */
+:deep(.uc-table thead th:nth-child(6)) { width: 80px;  } /* Classe */
+:deep(.uc-table thead th:nth-child(7)) { width: 120px; } /* Statut */
+:deep(.uc-table thead th:nth-child(8)) { width: 160px; } /* Actions */
+/* Tronquer le contenu long dans les cellules */
+:deep(.uc-table td) { overflow: hidden; }
+
+.td-num { font-size: 11px; font-weight: 600; color: #888; font-family: monospace; white-space: nowrap; }
+.niveau-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600;
+  background: #f1f5f9; color: #475569;
+  border-radius: 6px; padding: 3px 8px;
+  white-space: nowrap;
+}
+.niveau-badge--lmd {
+  background: #eff6ff; color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+.niveau-badge--classic {
+  background: #fff7ed; color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+.niveau-badge-sys {
+  font-size: 9px; font-weight: 700; letter-spacing: .5px;
+  opacity: .65; text-transform: uppercase;
+}
 
 /* ═══════════════════════════════════════════════════════
    RESPONSIVE — MOBILE
@@ -2136,9 +2995,8 @@ onMounted(() => {
   /* Row actions : toujours visibles sur mobile (pas de hover) */
   .row-actions { opacity: 1; }
 
-  /* Tableau : scroll horizontal */
-  .uc-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .uc-table { min-width: 520px; }
+  /* Tableau : actions toujours visibles sur touch */
+  :deep(.uc-table) { min-width: 700px; }
 
   /* Masquer colonne N° sur mobile pour gagner de la place */
   .td-num { display: none; }
@@ -2177,5 +3035,262 @@ onMounted(() => {
   .del-tree { margin: 0 16px 16px; }
   .del-warning { margin: 0 16px 16px; }
   .del-input { width: calc(100% - 32px); margin: 0 16px 16px; }
+}
+
+/* ══════════════════════════════════════════════════════
+   HERO ÉTUDIANTS
+══════════════════════════════════════════════════════ */
+.et-hero {
+  position: relative; overflow: hidden;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0a0a1a 100%);
+  border-radius: 16px; margin-bottom: 16px; color: #fff;
+}
+.et-hero-glow {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 20% 50%, rgba(227,6,19,.15) 0%, transparent 60%);
+  pointer-events: none;
+}
+.et-hero-content {
+  position: relative; display: flex; align-items: center;
+  gap: 20px; padding: 20px 24px; flex-wrap: wrap;
+}
+.et-hero-left { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 180px; }
+.et-hero-icon { font-size: 36px; flex-shrink: 0; }
+.et-hero-title { font-size: 22px; font-weight: 800; color: #fff; margin: 0; }
+.et-hero-sub { font-size: 12px; color: rgba(255,255,255,.45); margin: 4px 0 0; }
+.et-hero-kpis { display: flex; gap: 8px; flex-wrap: wrap; }
+.et-hkpi {
+  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px; padding: 10px 16px; text-align: center; min-width: 58px;
+  cursor: pointer; transition: background .15s;
+}
+.et-hkpi:hover { background: rgba(255,255,255,.12); }
+.et-hkpi-val { font-size: 18px; font-weight: 800; color: #fff; }
+.et-hkpi-lbl { font-size: 9.5px; color: rgba(255,255,255,.4); margin-top: 3px; white-space: nowrap; }
+.et-hkpi--green .et-hkpi-val { color: #4ade80; }
+.et-hkpi--blue  .et-hkpi-val { color: #60a5fa; }
+.et-hkpi--yellow .et-hkpi-val { color: #fbbf24; }
+.et-hkpi--red   .et-hkpi-val { color: #f87171; }
+.et-hero-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.et-action-btn {
+  padding: 9px 16px; border-radius: 8px; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; font-family: 'Poppins', sans-serif; border: none; white-space: nowrap;
+}
+.et-action-btn--ghost {
+  background: rgba(255,255,255,.1); color: rgba(255,255,255,.8);
+  border: 1px solid rgba(255,255,255,.2);
+}
+.et-action-btn--ghost:hover { background: rgba(255,255,255,.18); }
+.et-action-btn--primary { background: #E30613; color: #fff; }
+.et-action-btn--primary:hover { background: #c00510; }
+
+/* ══════════════════════════════════════════════════════
+   TOOLBAR AMÉLIORÉE
+══════════════════════════════════════════════════════ */
+.et-toolbar {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.et-toolbar-search {
+  display: flex; align-items: center; gap: 8px;
+  border: 1.5px solid #e5e5e5; border-radius: 8px;
+  padding: 0 12px; background: #fff; flex: 1; min-width: 200px; max-width: 320px;
+  transition: border-color .15s;
+}
+.et-toolbar-search:focus-within { border-color: #E30613; }
+.et-search-input {
+  border: none; outline: none; font-size: 12.5px; color: #111;
+  font-family: 'Poppins', sans-serif; flex: 1; padding: 9px 0; background: none;
+}
+.et-search-input::placeholder { color: #ccc; }
+.et-search-clear { border: none; background: none; cursor: pointer; color: #bbb; font-size: 11px; padding: 2px; }
+.et-toolbar-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.et-select {
+  height: 38px; padding: 0 10px; border: 1.5px solid #e5e5e5; border-radius: 8px;
+  font-size: 12.5px; color: #374151; background: #fff; cursor: pointer; min-width: 130px;
+  transition: border-color .15s;
+}
+.et-select:focus { border-color: #E30613; outline: none; }
+.et-btn-clear {
+  padding: 7px 12px; border: 1.5px solid #e5e5e5; border-radius: 8px;
+  background: #fff; font-size: 12px; color: #888; cursor: pointer; white-space: nowrap;
+  font-family: 'Poppins', sans-serif;
+}
+.et-btn-clear:hover { background: #f9fafb; }
+.et-toolbar-right { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+.et-rq-pills { display: flex; gap: 5px; align-items: center; }
+
+/* View toggle */
+.et-view-toggle { display: flex; border: 1.5px solid #e5e5e5; border-radius: 8px; overflow: hidden; }
+.et-view-btn {
+  padding: 6px 12px; background: #fff; border: none; cursor: pointer;
+  font-size: 15px; color: #9ca3af; transition: all .12s; line-height: 1;
+}
+.et-view-btn--active { background: #111; color: #fff; }
+.et-view-btn:hover:not(.et-view-btn--active) { background: #f9fafb; }
+
+/* ══════════════════════════════════════════════════════
+   VUE CARTES
+══════════════════════════════════════════════════════ */
+.et-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px; margin-bottom: 16px;
+}
+.et-cards-loading, .et-cards-empty {
+  grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center;
+  gap: 10px; padding: 48px 24px; background: #fff; border-radius: 12px;
+  border: 1.5px dashed #e5e7eb; color: #aaa; font-size: 13px; text-align: center;
+}
+.et-card {
+  background: #fff; border-radius: 12px; border: 1.5px solid #f0f0f0;
+  box-shadow: 0 1px 4px rgba(0,0,0,.04); overflow: hidden;
+  cursor: pointer; transition: border-color .18s, box-shadow .18s, transform .14s;
+  display: flex; flex-direction: column;
+}
+.et-card:hover {
+  border-color: #fca5a5; box-shadow: 0 6px 20px rgba(227,6,19,.08);
+  transform: translateY(-2px);
+}
+.et-card-top {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 16px 10px;
+}
+.et-card-avatar {
+  width: 46px; height: 46px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 800; color: #fff; flex-shrink: 0;
+  text-transform: uppercase; position: relative;
+}
+.et-card-av--red    { box-shadow: 0 0 0 2.5px #fca5a5; }
+.et-card-av--yellow { box-shadow: 0 0 0 2.5px #fde68a; }
+.et-card-info { flex: 1; min-width: 0; }
+.et-card-name { font-size: 13.5px; font-weight: 700; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.et-card-num { font-size: 10px; font-weight: 600; color: #E30613; margin: 1px 0; font-family: monospace; }
+.et-card-email { font-size: 10.5px; color: #aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.et-card-body { padding: 0 16px 10px; flex: 1; }
+.et-card-filiere { font-size: 12px; color: #374151; font-weight: 500; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.et-card-meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.et-card-meta span { font-size: 11px; color: #888; }
+.et-card-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; border-top: 1px solid #f4f4f5; background: #fafafa;
+}
+.et-card-actions { display: flex; gap: 4px; }
+
+@media (max-width: 900px) {
+  .et-hero-content { flex-wrap: wrap; gap: 14px; }
+  .et-hero-kpis { display: grid; grid-template-columns: repeat(4,1fr); width: 100%; }
+  .et-hero-actions { width: 100%; }
+  .et-action-btn { flex: 1; text-align: center; }
+}
+@media (max-width: 640px) {
+  .et-hero-content { padding: 16px 18px; }
+  .et-hero-title { font-size: 18px; }
+  .et-hero-kpis { grid-template-columns: repeat(2,1fr); }
+  .et-toolbar { flex-direction: column; align-items: stretch; }
+  .et-toolbar-search { max-width: none; }
+  .et-toolbar-right { width: 100%; justify-content: space-between; }
+  .et-cards-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Tirage de cartes ── */
+.carte-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.45); padding: 16px;
+}
+.carte-modal {
+  background: #fff; border-radius: 12px;
+  width: 100%; max-width: 720px; max-height: 90vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.22);
+  overflow: hidden;
+}
+.carte-modal-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 20px 24px 14px; border-bottom: 1px solid #f0f0f0; flex-shrink: 0;
+}
+.carte-modal-title { font-size: 16px; font-weight: 700; color: #111; margin: 0 0 4px; }
+.carte-modal-sub { font-size: 12px; color: #888; margin: 0; }
+.carte-close {
+  width: 28px; height: 28px; border-radius: 6px; border: none;
+  background: #f5f5f5; color: #888; font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.carte-close:hover { background: #eee; color: #333; }
+
+.carte-filters { padding: 14px 24px; border-bottom: 1px solid #f5f5f5; }
+.carte-filter-row {
+  display: flex; gap: 10px; flex-wrap: wrap;
+}
+.carte-search {
+  display: flex; align-items: center; gap: 8px;
+  background: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 6px;
+  padding: 0 10px; flex: 1; min-width: 180px;
+}
+.carte-search-input {
+  border: none; background: transparent; outline: none;
+  font-size: 12.5px; padding: 8px 0; width: 100%; color: #333;
+}
+.carte-select {
+  padding: 8px 10px; font-size: 12px; border: 1px solid #e5e7eb;
+  border-radius: 6px; background: #fff; color: #333; min-width: 140px;
+}
+
+.carte-body {
+  flex: 1; overflow-y: auto; padding: 0;
+}
+.carte-loading, .carte-empty {
+  padding: 40px; text-align: center; color: #aaa; font-size: 13px;
+}
+.carte-empty p { margin-top: 8px; }
+
+.carte-select-all {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 24px; background: #f8f9fa; border-bottom: 1px solid #f0f0f0;
+}
+.carte-checkbox-label {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600;
+  color: #555; cursor: pointer;
+}
+.carte-checkbox-label input { cursor: pointer; }
+.carte-count { font-size: 11px; color: #999; }
+
+.carte-list { display: flex; flex-direction: column; }
+.carte-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 24px; cursor: pointer; transition: background 0.15s;
+  border-bottom: 1px solid #f8f8f8;
+}
+.carte-item:hover { background: #f8f9fa; }
+.carte-item--selected { background: #eff6ff; }
+.carte-item input { cursor: pointer; flex-shrink: 0; }
+.carte-item-avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; color: #fff; flex-shrink: 0;
+  text-transform: uppercase;
+}
+.carte-item-info { flex: 1; min-width: 0; }
+.carte-item-name { font-size: 13px; font-weight: 600; color: #111; }
+.carte-item-details { font-size: 11px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.carte-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 24px; border-top: 1px solid #f0f0f0; flex-shrink: 0;
+}
+.carte-footer-info { font-size: 12px; color: #888; }
+.carte-btn-print {
+  padding: 10px 20px; font-size: 13px; font-weight: 600;
+  background: #0f172a; color: #fff; border: none; border-radius: 6px;
+  cursor: pointer; transition: background 0.2s;
+}
+.carte-btn-print:hover { background: #1e293b; }
+.carte-btn-print:disabled { opacity: 0.4; cursor: not-allowed; }
+
+@media (max-width: 640px) {
+  .carte-modal { max-height: 100vh; border-radius: 0; }
+  .carte-filter-row { flex-direction: column; }
+  .carte-select { min-width: 0; width: 100%; }
 }
 </style>

@@ -17,6 +17,7 @@ const users = ref<User[]>([])
 const loading = ref(true)
 const saving = ref(false)
 const resetting = ref<number | null>(null)
+const bulkCreating = ref(false)
 const error = ref('')
 const showForm = ref(false)
 const editTarget = ref<User | null>(null)
@@ -31,6 +32,8 @@ const roleLabels: Record<string, string> = {
   resp_fin: 'Resp. Financier',
   coordinateur: 'Coordinateur',
   secretariat: 'Secrétariat',
+  enseignant: 'Enseignant',
+  etudiant: 'Étudiant',
 }
 
 const roleColors: Record<string, string> = {
@@ -39,6 +42,8 @@ const roleColors: Record<string, string> = {
   resp_fin: 'bg-emerald-100 text-emerald-700',
   coordinateur: 'bg-red-100 text-red-700',
   secretariat: 'bg-yellow-100 text-yellow-700',
+  enseignant: 'bg-teal-100 text-teal-700',
+  etudiant: 'bg-indigo-100 text-indigo-700',
 }
 
 const statutColors: Record<string, string> = {
@@ -48,11 +53,18 @@ const statutColors: Record<string, string> = {
   bloque: 'bg-red-100 text-red-700',
 }
 
+const searchQuery = ref('')
+
 const filtered = computed(() =>
-  users.value.filter(u =>
-    (!filterRole.value || u.role === filterRole.value) &&
-    (!filterStatut.value || u.statut === filterStatut.value)
-  )
+  users.value.filter(u => {
+    if (filterRole.value && u.role !== filterRole.value) return false
+    if (filterStatut.value && u.statut !== filterStatut.value) return false
+    if (searchQuery.value) {
+      const q = searchQuery.value.toLowerCase()
+      return `${u.prenom} ${u.nom} ${u.email}`.toLowerCase().includes(q)
+    }
+    return true
+  })
 )
 
 function formatDate(d: string | null) {
@@ -110,6 +122,33 @@ async function save() {
   }
 }
 
+async function bulkCreateEtudiants() {
+  if (!confirm('Créer automatiquement les comptes pour tous les étudiants sans compte ?\nMot de passe par défaut : Uptech@2026')) return
+  bulkCreating.value = true
+  try {
+    const { data } = await api.post('/users/bulk-etudiants', {})
+    alert(data.message)
+    await load()
+  } catch (e: any) {
+    alert(e.response?.data?.message ?? 'Erreur lors de la création des comptes.')
+  } finally {
+    bulkCreating.value = false
+  }
+}
+
+async function toggleStatut(u: User) {
+  const newStatut = u.statut === 'actif' ? 'bloque' : 'actif'
+  const action = newStatut === 'actif' ? 'Débloquer' : 'Bloquer'
+  if (!confirm(`${action} le compte de ${u.prenom} ${u.nom} ?`)) return
+  try {
+    const { data } = await api.put(`/users/${u.id}`, { ...u, statut: newStatut })
+    const idx = users.value.findIndex(x => x.id === data.id)
+    if (idx !== -1) users.value[idx] = data
+  } catch (e: any) {
+    alert(e.response?.data?.message ?? 'Erreur')
+  }
+}
+
 async function resetPassword(u: User) {
   if (!confirm(`Réinitialiser le mot de passe de ${u.prenom} ${u.nom} ?`)) return
   resetting.value = u.id
@@ -133,19 +172,33 @@ onMounted(load)
         <h1 class="text-xl font-bold text-gray-900">Utilisateurs</h1>
         <p class="text-sm text-gray-500 mt-0.5">Comptes d'accès à la plateforme</p>
       </div>
-      <button
-        @click="openCreate"
-        class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition"
-      >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
-        Nouveau compte
-      </button>
+      <div class="flex gap-2">
+        <button
+          @click="bulkCreateEtudiants"
+          :disabled="bulkCreating"
+          class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0" />
+          </svg>
+          {{ bulkCreating ? 'Création…' : 'Comptes étudiants' }}
+        </button>
+        <button
+          @click="openCreate"
+          class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          Nouveau compte
+        </button>
+      </div>
     </div>
 
     <!-- Filters -->
-    <div class="flex gap-3 mb-4">
+    <div class="flex flex-wrap gap-3 mb-4">
+      <input v-model="searchQuery" type="text" placeholder="Rechercher par nom, prénom ou email…"
+        class="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500 w-64" />
       <select v-model="filterRole"
         class="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500 bg-white">
         <option value="">Tous les rôles</option>
@@ -215,6 +268,20 @@ onMounted(load)
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                       d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
+                <button @click="toggleStatut(u)"
+                  :title="u.statut === 'actif' ? 'Bloquer le compte' : 'Débloquer le compte'"
+                  :class="u.statut === 'actif'
+                    ? 'p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition'
+                    : 'p-1.5 text-red-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition'">
+                  <svg v-if="u.statut !== 'actif'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                  </svg>
+                  <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
                 </button>
                 <button @click="resetPassword(u)" :disabled="resetting === u.id" title="Réinitialiser le mot de passe"

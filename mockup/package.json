@@ -1,0 +1,6 @@
+{
+  "name": "mockup",
+  "scripts": {
+    "dev": "npx serve . -p 3099"
+  }
+}

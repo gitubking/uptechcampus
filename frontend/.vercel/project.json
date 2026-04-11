@@ -1,1 +1,16 @@
-{"projectId":"prj_D17g0gK85NRrTI9Dlt5CPq7X1rwl","orgId":"team_JwUseevNUzx587G6xTCFlGFp","projectName":"uptechcampus"}
+{
+  "projectId": "prj_D17g0gK85NRrTI9Dlt5CPq7X1rwl",
+  "orgId": "team_JwUseevNUzx587G6xTCFlGFp",
+  "projectName": "uptechcampus",
+  "settings": {
+    "createdAt": 1773349829388,
+    "framework": null,
+    "devCommand": null,
+    "installCommand": null,
+    "buildCommand": null,
+    "outputDirectory": null,
+    "rootDirectory": null,
+    "directoryListing": false,
+    "nodeVersion": "24.x"
+  }
+}

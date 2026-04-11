@@ -2,9 +2,15 @@
 import { ref, computed, onMounted } from 'vue'
 import * as XLSX from 'xlsx'
 import api from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
+import QRCode from 'qrcode'
 import UcModal from '@/components/ui/UcModal.vue'
 import UcFormGroup from '@/components/ui/UcFormGroup.vue'
 import UcFormGrid from '@/components/ui/UcFormGrid.vue'
+
+const auth = useAuthStore()
+const isDg = computed(() => auth.user?.role === 'dg')
+const deletingPaiementId = ref<number | null>(null)
 
 const showModal = ref(false)
 const showEditModal = ref(false)
@@ -184,19 +190,16 @@ const ficheEtudiants = computed(() => {
 
   for (const insc of inscriptions.value) {
     if (!insc.etudiant) continue
-    // Tarifs depuis la filière (source de vérité), fallback sur l'inscription
-    const fraisRef = Number(insc.filiere?.frais_inscription) || Number(insc.frais_inscription) || 0
-    const mensRef = Number(insc.filiere?.mensualite) || Number(insc.mensualite) || 0
-    const tenueRef = Number(insc.filiere?.montant_tenue) || 0
     map[insc.id] = {
       inscription_id: insc.id, etudiant: insc.etudiant, filiere: insc.filiere,
-      frais_prevu: fraisRef, frais_paye: 0, frais_total_verse: 0,
-      tenue_prevu: tenueRef, tenue_paye: 0,
-      mensualite_montant: mensRef,
+      frais_prevu: 0, frais_paye: 0, frais_total_verse: 0,
+      tenue_prevu: 0, tenue_paye: 0,
+      mensualite_montant: 0,
       nb_mois_total: 0, nb_mois_payes: 0, total_prevu: 0, total_paye: 0,
     }
   }
 
+  // Tarifs depuis les échéances (source de vérité — incluent la bourse)
   for (const e of echeances.value) {
     if (!e.inscription_id) continue
     const entry = map[e.inscription_id]
@@ -205,10 +208,24 @@ const ficheEtudiants = computed(() => {
     if (e.type_echeance === 'mensualite') {
       entry.nb_mois_total++
       if (e.statut === 'paye') entry.nb_mois_payes++
+      // Prendre le montant de la 1ère échéance mensualité comme référence
+      if (entry.mensualite_montant === 0) entry.mensualite_montant = Number(e.montant)
     }
-    if (e.type_echeance === 'tenue' && Number(entry.filiere?.montant_tenue) > 0) {
-      entry.tenue_prevu = Number(entry.filiere?.montant_tenue)
+    if (e.type_echeance === 'frais_inscription') {
+      entry.frais_prevu = Number(e.montant)
     }
+    if (e.type_echeance === 'tenue') {
+      entry.tenue_prevu = Number(e.montant)
+    }
+  }
+
+  // Fallback : si aucune échéance, utiliser les tarifs filière bruts
+  for (const insc of inscriptions.value) {
+    const entry = map[insc.id]
+    if (!entry) continue
+    if (entry.frais_prevu === 0) entry.frais_prevu = Number(insc.filiere?.frais_inscription) || Number(insc.frais_inscription) || 0
+    if (entry.mensualite_montant === 0) entry.mensualite_montant = Number(insc.filiere?.mensualite) || Number(insc.mensualite) || 0
+    if (entry.tenue_prevu === 0) entry.tenue_prevu = Number(insc.filiere?.montant_tenue) || 0
   }
 
   for (const p of paiements.value) {
@@ -469,7 +486,20 @@ async function confirmerPaiement(id: number) {
   } finally { confirmingId.value = null }
 }
 
+async function deletePaiement(p: Paiement) {
+  if (!confirm(`Supprimer le paiement ${p.numero_recu} de ${p.montant?.toLocaleString()} FCFA ?\nCette action est irréversible.`)) return
+  deletingPaiementId.value = p.id
+  try {
+    await api.delete(`/paiements/${p.id}`)
+    await load()
+    showToast('Paiement supprimé')
+  } catch (e: any) {
+    showToast(e.response?.data?.message ?? 'Erreur lors de la suppression', 'error')
+  } finally { deletingPaiementId.value = null }
+}
+
 // ── Tri historique ────────────────────────────────────────────────────────────
+const historiqueSearch = ref('')
 const sortKey = ref<'date' | 'etudiant' | 'type' | 'montant' | 'statut'>('date')
 const sortDir = ref<'asc' | 'desc'>('desc')
 
@@ -488,7 +518,14 @@ function sortIcon(key: typeof sortKey.value) {
 }
 
 const recentPaiements = computed(() => {
-  const sorted = [...paiements.value].sort((a, b) => {
+  const q = historiqueSearch.value.trim().toLowerCase()
+  const filtered = q
+    ? paiements.value.filter(p => {
+        const full = `${p.etudiant?.prenom ?? ''} ${p.etudiant?.nom ?? ''}`.toLowerCase()
+        return full.includes(q)
+      })
+    : paiements.value
+  const sorted = [...filtered].sort((a, b) => {
     let va: any, vb: any
     if (sortKey.value === 'date') {
       va = new Date(a.confirmed_at ?? a.created_at).getTime()
@@ -517,17 +554,27 @@ const recentPaiements = computed(() => {
 const showRecuPrompt = ref(false)
 const recuToPrint = ref<any>(null)
 
-function printRecu(p: { numero_recu: string; inscription_id: number; type_paiement: string; mois_concerne?: string | null; montant: number; mode_paiement: string; statut: string; created_at?: string; confirmed_at?: string | null; etudiant?: { prenom: string; nom: string } | null; reference?: string | null }) {
+async function printRecu(p: { numero_recu: string; inscription_id: number; type_paiement: string; mois_concerne?: string | null; montant: number; mode_paiement: string; statut: string; created_at?: string; confirmed_at?: string | null; etudiant?: { prenom: string; nom: string } | null; reference?: string | null }) {
   const insc = inscriptions.value.find(i => Number(i.id) === Number(p.inscription_id))
   const logoUrl = `${window.location.origin}/icons/icon-192.png`
   const prenom = p.etudiant?.prenom ?? insc?.etudiant?.prenom ?? ''
   const nom = p.etudiant?.nom ?? insc?.etudiant?.nom ?? ''
   const filiere = insc?.filiere?.nom ?? '—'
-  const typeLabel = p.type_paiement === 'frais_inscription' ? "Frais d'inscription"
-    : p.type_paiement === 'mensualite' ? 'Mensualité'
+  const classe = insc?.classe?.nom ?? insc?.filiere?.nom ?? '—'
+  // Déterminer le numéro de mensualité (M 3/9)
+  let typeLabel = p.type_paiement === 'frais_inscription' ? "Frais d'inscription"
     : p.type_paiement === 'tenue' ? 'Tenue scolaire'
     : p.type_paiement === 'rattrapage' ? 'Rattrapage'
     : p.type_paiement
+  if (p.type_paiement === 'mensualite') {
+    const mensEchs = echeances.value
+      .filter(e => Number(e.inscription_id) === Number(p.inscription_id) && e.type_echeance === 'mensualite')
+      .sort((a, b) => a.mois.localeCompare(b.mois))
+    const moisKey = p.mois_concerne?.substring(0, 7) ?? ''
+    const idx = mensEchs.findIndex(e => e.mois.substring(0, 7) === moisKey)
+    const total = mensEchs.length
+    typeLabel = idx >= 0 ? `Mensualité ${idx + 1}/${total}` : 'Mensualité'
+  }
   const dateLabel = new Date(p.confirmed_at ?? p.created_at ?? new Date()).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
   const moisConcerne = p.mois_concerne
   const moisLabel = moisConcerne
@@ -535,6 +582,11 @@ function printRecu(p: { numero_recu: string; inscription_id: number; type_paieme
     : null
   const modeStr = ({ especes: 'Espèces', wave: 'Wave', orange_money: 'Orange Money', virement: 'Virement', cheque: 'Chèque' } as Record<string, string>)[p.mode_paiement] ?? p.mode_paiement
   const montantStr = Number(p.montant).toLocaleString('fr-FR')
+
+  // QR code de vérification
+  const qrData = JSON.stringify({ r: p.numero_recu, m: p.montant, d: p.confirmed_at ?? p.created_at, e: `${prenom} ${nom}` })
+  let qrDataUrl = ''
+  try { qrDataUrl = await QRCode.toDataURL(qrData, { width: 80, margin: 1 }) } catch { /* ignore */ }
 
   const recuBlock = (exemplaire: string) => `
     <div class="recu-block">
@@ -552,16 +604,20 @@ function printRecu(p: { numero_recu: string; inscription_id: number; type_paieme
         <div class="recu-title">Reçu de paiement &nbsp;<span class="recu-num">${p.numero_recu}</span></div>
         <div class="info-grid">
           <div class="info-box full"><label>Étudiant</label><span>${prenom} ${nom}</span></div>
+          <div class="info-box"><label>Classe</label><span>${classe}</span></div>
           <div class="info-box"><label>Filière</label><span>${filiere}</span></div>
-          <div class="info-box"><label>Type</label><span>${typeLabel}</span></div>
+          <div class="info-box"><label>Objet</label><span>${typeLabel}</span></div>
           <div class="info-box"><label>Mode</label><span>${modeStr}</span></div>
           <div class="info-box"><label>Date</label><span>${dateLabel}</span></div>
           ${moisLabel ? `<div class="info-box"><label>Période</label><span>${moisLabel}</span></div>` : ''}
           ${p.reference ? `<div class="info-box full"><label>Référence</label><span style="font-family:monospace">${p.reference}</span></div>` : ''}
         </div>
-        <div class="montant-box">
-          <div class="lbl">Montant payé</div>
-          <div class="amt">${montantStr} FCFA</div>
+        <div class="montant-qr">
+          <div class="montant-box">
+            <div class="lbl">Montant payé</div>
+            <div class="amt">${montantStr} FCFA</div>
+          </div>
+          ${qrDataUrl ? `<div class="qr-box"><img src="${qrDataUrl}" alt="QR"><div class="qr-label">Vérification</div></div>` : ''}
         </div>
         <div class="sign-area">
           <div class="sign-box"><div class="sign-line"></div><label>Signature du caissier</label></div>
@@ -574,8 +630,9 @@ function printRecu(p: { numero_recu: string; inscription_id: number; type_paieme
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reçu ${p.numero_recu}</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
+    @page{size:A4 portrait;margin:10mm}
     body{font-family:Arial,sans-serif;color:#111;font-size:11px}
-    .recu-block{padding-bottom:6px}
+    .recu-block{page-break-inside:avoid;padding-bottom:6px}
     .exemplaire{text-align:right;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#aaa;padding:4px 16px 2px}
     .hdr{display:flex;align-items:center;gap:14px;padding:10px 16px 8px;border-bottom:2px solid #E30613}
     .hdr img{width:52px;height:52px;object-fit:contain;flex-shrink:0}
@@ -591,9 +648,13 @@ function printRecu(p: { numero_recu: string; inscription_id: number; type_paieme
     .info-box label{font-size:7px;text-transform:uppercase;color:#aaa;font-weight:700;letter-spacing:0.5px;display:block;margin-bottom:2px}
     .info-box span{font-size:11px;font-weight:700;color:#111}
     .full{grid-column:1/-1}
-    .montant-box{border:1.5px solid #111;border-radius:6px;padding:8px 16px;text-align:center;margin:10px 0}
+    .montant-qr{display:flex;align-items:center;gap:12px;margin:10px 0}
+    .montant-box{border:1.5px solid #111;border-radius:6px;padding:8px 16px;text-align:center;flex:1}
     .montant-box .lbl{font-size:8px;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:2px}
     .montant-box .amt{font-size:20px;font-weight:900;color:#111}
+    .qr-box{text-align:center;flex-shrink:0}
+    .qr-box img{width:70px;height:70px}
+    .qr-label{font-size:6px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px}
     .sign-area{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:10px;padding-top:8px;border-top:1px dashed #ddd}
     .sign-box{text-align:center}
     .sign-line{border-bottom:1px solid #ccc;height:30px;margin-bottom:4px}
@@ -712,12 +773,42 @@ function completerPaiement() {
   showModal.value = true
 }
 
+// ── Formations individuelles (onglet FI) ─────────────────────────────────────
+const fiList = ref<any[]>([])
+const fiSearch = ref('')
+async function loadFI() {
+  try {
+    const { data } = await api.get('/formations-individuelles')
+    fiList.value = data
+  } catch { fiList.value = [] }
+}
+const fiFiltered = computed(() => {
+  if (!fiSearch.value) return fiList.value
+  const q = fiSearch.value.toLowerCase()
+  return fiList.value.filter((fi: any) => {
+    const nom = `${fi.etudiant?.prenom || ''} ${fi.etudiant?.nom || ''}`.toLowerCase()
+    return nom.includes(q)
+  })
+})
+function fiTotalPaye(fi: any): number {
+  return (fi.paiements || []).reduce((s: number, p: any) => s + (parseFloat(p.montant_paye) || 0), 0)
+}
+function fiTotalDu(fi: any): number {
+  return parseFloat(fi.cout_total) || 0
+}
+function fiStatutBadge(p: any): { label: string; cls: string } {
+  if (p.statut === 'paye') return { label: '✓ Payé', cls: 'background:#dcfce7;color:#166534;' }
+  if (p.statut === 'partiel') return { label: '◐ Partiel', cls: 'background:#fef3c7;color:#92400e;' }
+  return { label: '✗ Non payé', cls: 'background:#fee2e2;color:#991b1b;' }
+}
+
 // ── Grille mensualités ────────────────────────────────────────────────────────
-const activeTab = ref<'fiches' | 'grille'>('grille')
+const activeTab = ref<'fiches' | 'grille' | 'fi'>('grille')
 const grilleFiliere = ref('')
 const grilleClasse = ref('')
 const grilleSearch = ref('')
-const grilleMode = ref<'icones' | 'texte' | 'montants' | 'complet'>('icones')
+const grilleMode = ref<'icones' | 'texte' | 'montants' | 'complet'>('complet')
+const showAllGrille = ref(false)
 
 const filteredFilieres = computed(() => {
   const seen = new Map<string, { id: number; nom: string }>()
@@ -957,9 +1048,16 @@ function cellLabel(inscId: number, mois: string) {
   return 'À venir'
 }
 
-const grilleRows = computed(() => {
+const grilleHasFilter = computed(() => !!(grilleFiliere.value || grilleClasse.value || grilleSearch.value))
+
+// IDs des étudiants inscrits en FI (à exclure de la grille classique)
+const fiEtudiantIds = computed(() => new Set(fiList.value.map((fi: any) => fi.etudiant_id)))
+
+const grilleRowsAll = computed(() => {
   return inscriptions.value.filter(insc => {
     if (!insc.etudiant) return false
+    // Exclure les étudiants en formation individuelle
+    if (fiEtudiantIds.value.has(insc.etudiant.id)) return false
     if (grilleFiliere.value && String(insc.filiere?.id) !== grilleFiliere.value) return false
     if (grilleClasse.value && String(insc.classe?.id) !== grilleClasse.value) return false
     if (grilleSearch.value) {
@@ -968,7 +1066,16 @@ const grilleRows = computed(() => {
       if (!full.includes(q)) return false
     }
     return true
-  }).sort((a, b) => `${a.etudiant.nom}${a.etudiant.prenom}`.localeCompare(`${b.etudiant.nom}${b.etudiant.prenom}`))
+  })
+})
+
+const grilleRows = computed(() => {
+  const all = grilleRowsAll.value
+  // Si aucun filtre actif et pas "voir tout", limiter aux 5 derniers inscrits (par id desc = plus récents)
+  if (!grilleHasFilter.value && !showAllGrille.value) {
+    return [...all].sort((a, b) => Number(b.id) - Number(a.id)).slice(0, 5)
+  }
+  return [...all].sort((a, b) => `${a.etudiant.nom}${a.etudiant.prenom}`.localeCompare(`${b.etudiant.nom}${b.etudiant.prenom}`))
 })
 
 function fmtMoisCourt(mois: string) {
@@ -1112,7 +1219,7 @@ async function recalculerTarifs() {
   } finally { recalculTarifsLoading.value = false }
 }
 
-onMounted(load)
+onMounted(() => { load(); loadFI() })
 
 // ── Retards ────────────────────────────────────────────────────────────────────
 const showRetardsModal = ref(false)
@@ -1300,6 +1407,12 @@ function exportRetardsPDF() {
         <p class="text-sm text-gray-400 mt-0.5">Frais d'inscription et mensualités</p>
       </div>
       <div class="flex items-center gap-3">
+        <a href="/suivi-paiements" class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition" style="background:#E30613;color:#fff;text-decoration:none;">
+          📊 Suivi paiements
+        </a>
+        <a href="/caisse" class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition" style="background:#1e293b;color:#fff;text-decoration:none;">
+          📒 Journal caisse
+        </a>
         <button @click="showRetardsModal = true"
           class="flex items-center gap-2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-black transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
@@ -1387,6 +1500,12 @@ function exportRetardsPDF() {
         class="px-5 py-2.5 text-sm -mb-px transition font-medium"
         :class="activeTab === 'fiches' ? 'border-b-2 border-red-600 text-red-600' : 'text-gray-500 hover:text-gray-700'">
         Fiches étudiants
+      </button>
+      <button @click="activeTab = 'fi'"
+        class="px-5 py-2.5 text-sm -mb-px transition font-medium"
+        :class="activeTab === 'fi' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-gray-500 hover:text-gray-700'">
+        🎓 Formations individuelles
+        <span v-if="fiList.length" style="background:#eef2ff;color:#4f46e5;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:4px;">{{ fiList.length }}</span>
       </button>
     </div>
 
@@ -1509,6 +1628,78 @@ function exportRetardsPDF() {
       </div>
     </div>
 
+    <!-- ── Formations individuelles ── -->
+    <div v-show="activeTab === 'fi'">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <input v-model="fiSearch" type="text" placeholder="Rechercher un étudiant FI…"
+          style="padding:8px 14px;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;width:280px;" />
+        <span style="font-size:12px;color:#6b7280;">{{ fiFiltered.length }} formation(s)</span>
+      </div>
+
+      <div v-if="fiFiltered.length === 0"
+        style="background:white;border:1px dashed #e5e7eb;border-radius:12px;padding:40px;text-align:center;color:#9ca3af;font-size:13px;">
+        Aucune formation individuelle trouvée.
+      </div>
+
+      <div v-for="fi in fiFiltered" :key="fi.id"
+        style="background:white;border:1px solid #e5e7eb;border-radius:12px;padding:16px 20px;margin-bottom:12px;">
+        <!-- Header -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div>
+            <span style="font-weight:700;font-size:15px;">{{ fi.etudiant?.prenom }} {{ fi.etudiant?.nom }}</span>
+            <span v-if="fi.type_formation" style="margin-left:8px;background:#eef2ff;color:#4f46e5;font-size:11px;padding:2px 8px;border-radius:8px;">
+              {{ fi.type_formation.nom }}
+            </span>
+            <span :style="fi.statut === 'solde' ? 'background:#dcfce7;color:#166534;' : fi.statut === 'en_cours' ? 'background:#dbeafe;color:#1e40af;' : 'background:#f3f4f6;color:#6b7280;'"
+              style="margin-left:6px;font-size:11px;padding:2px 8px;border-radius:8px;font-weight:600;">
+              {{ fi.statut === 'solde' ? '✓ Soldé' : fi.statut === 'en_cours' ? '▶ En cours' : fi.statut }}
+            </span>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-weight:700;font-size:15px;">{{ new Intl.NumberFormat('fr-FR').format(fiTotalPaye(fi)) }} / {{ new Intl.NumberFormat('fr-FR').format(fiTotalDu(fi)) }} F</div>
+            <div style="font-size:11px;color:#6b7280;">
+              {{ fiTotalDu(fi) > 0 ? Math.round(fiTotalPaye(fi) / fiTotalDu(fi) * 100) : 0 }}% payé
+            </div>
+          </div>
+        </div>
+        <!-- Barre progression -->
+        <div style="height:6px;background:#f3f4f6;border-radius:3px;margin-bottom:12px;overflow:hidden;">
+          <div :style="{ width: (fiTotalDu(fi) > 0 ? Math.min(100, Math.round(fiTotalPaye(fi) / fiTotalDu(fi) * 100)) : 0) + '%', background: fiTotalPaye(fi) >= fiTotalDu(fi) ? '#22c55e' : '#6366f1' }"
+            style="height:100%;border-radius:3px;transition:width .3s;"></div>
+        </div>
+        <!-- Table paiements -->
+        <table style="width:100%;font-size:12px;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#f9fafb;">
+              <th style="text-align:left;padding:6px 10px;font-weight:600;color:#6b7280;">Type</th>
+              <th style="text-align:right;padding:6px 10px;font-weight:600;color:#6b7280;">Montant</th>
+              <th style="text-align:right;padding:6px 10px;font-weight:600;color:#6b7280;">Payé</th>
+              <th style="text-align:center;padding:6px 10px;font-weight:600;color:#6b7280;">Statut</th>
+              <th style="text-align:center;padding:6px 10px;font-weight:600;color:#6b7280;">Date paiement</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in fi.paiements" :key="p.id" style="border-top:1px solid #f3f4f6;">
+              <td style="padding:6px 10px;font-weight:500;">{{ p.type === 'inscription' ? 'Inscription' : 'Solde' }}</td>
+              <td style="padding:6px 10px;text-align:right;">{{ new Intl.NumberFormat('fr-FR').format(p.montant) }} F</td>
+              <td style="padding:6px 10px;text-align:right;font-weight:600;">{{ new Intl.NumberFormat('fr-FR').format(p.montant_paye) }} F</td>
+              <td style="padding:6px 10px;text-align:center;">
+                <span :style="fiStatutBadge(p).cls" style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">
+                  {{ fiStatutBadge(p).label }}
+                </span>
+              </td>
+              <td style="padding:6px 10px;text-align:center;color:#6b7280;">
+                {{ p.date_paiement ? new Date(p.date_paiement).toLocaleDateString('fr-FR') : '—' }}
+              </td>
+            </tr>
+            <tr v-if="!fi.paiements?.length" style="border-top:1px solid #f3f4f6;">
+              <td colspan="5" style="padding:10px;text-align:center;color:#9ca3af;">Aucun paiement défini</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- ── Grille mensualités ── -->
     <div v-show="activeTab === 'grille'">
 
@@ -1560,9 +1751,15 @@ function exportRetardsPDF() {
         </div>
       </div>
 
-      <p class="text-xs text-gray-400 mb-3">
-        {{ grilleRows.length }} étudiant(s) · {{ grilleSlots }} mensualité(s) max
-      </p>
+      <div class="flex items-center justify-between mb-3">
+        <p class="text-xs text-gray-400">
+          {{ grilleRows.length }}{{ !grilleHasFilter && !showAllGrille && grilleRowsAll.length > 5 ? ` / ${grilleRowsAll.length}` : '' }} étudiant(s) · {{ grilleSlots }} mensualité(s) max
+        </p>
+        <button v-if="grilleRowsAll.length > 5 && !grilleHasFilter" @click="showAllGrille = !showAllGrille"
+          class="text-xs text-red-600 underline hover:no-underline whitespace-nowrap">
+          {{ showAllGrille ? 'Réduire (5 derniers)' : `Voir tout (${grilleRowsAll.length})` }}
+        </button>
+      </div>
 
       <div v-if="loading" class="text-center text-sm text-gray-400 py-10">Chargement…</div>
 
@@ -1703,7 +1900,7 @@ function exportRetardsPDF() {
 
               <!-- Tenue -->
               <td class="text-center px-2 py-2 border-r border-gray-100">
-                <template v-if="Number(insc.filiere?.montant_tenue) > 0 && getFiche(insc.id) && (getFiche(insc.id)?.tenue_prevu ?? 0) > 0">
+                <template v-if="getFiche(insc.id) && (getFiche(insc.id)?.tenue_prevu ?? 0) > 0">
                   <!-- Mode icônes -->
                   <button v-if="grilleMode === 'icones'"
                     @click="openTenueDetail(insc)"
@@ -1907,12 +2104,16 @@ function exportRetardsPDF() {
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wide">
             Historique des paiements
-            <span class="ml-2 font-normal text-gray-400 normal-case">— {{ paiements.length }} au total</span>
+            <span class="ml-2 font-normal text-gray-400 normal-case">— {{ recentPaiements.length }}{{ historiqueSearch ? ` / ${paiements.length}` : '' }} au total</span>
           </h2>
           <button v-if="paiements.length > 5" @click="showAllHistory = !showAllHistory"
             class="text-xs text-red-600 underline hover:no-underline">
             {{ showAllHistory ? 'Réduire (5 derniers)' : `Voir tout (${paiements.length})` }}
           </button>
+        </div>
+        <div class="mb-3">
+          <input v-model="historiqueSearch" type="search" placeholder="🔍 Rechercher un étudiant par nom…"
+            class="w-full max-w-sm border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400 transition" />
         </div>
 
         <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -1990,6 +2191,13 @@ function exportRetardsPDF() {
                       class="text-xs border border-gray-200 text-gray-500 px-2 py-1 rounded-lg hover:bg-gray-50 transition"
                       title="Modifier ce paiement">
                       ✏️
+                    </button>
+                    <button v-if="isDg"
+                      @click="deletePaiement(p)"
+                      :disabled="deletingPaiementId === p.id"
+                      class="text-xs border border-red-200 text-red-500 px-2 py-1 rounded-lg hover:bg-red-50 transition disabled:opacity-40"
+                      title="Supprimer ce paiement">
+                      {{ deletingPaiementId === p.id ? '…' : '🗑️' }}
                     </button>
                   </div>
                 </td>
@@ -2136,10 +2344,7 @@ function exportRetardsPDF() {
               <option value="rattrapage">Rattrapage</option>
             </select>
           </UcFormGroup>
-          <UcFormGroup label="Mois concerné">
-            <input v-model="form.mois_concerne" type="month"
-              class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400"/>
-          </UcFormGroup>
+          <input type="hidden" v-model="form.mois_concerne" />
           <UcFormGroup label="Date de paiement réelle">
             <input v-model="form.confirmed_at" type="date"
               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400"/>
@@ -2449,10 +2654,7 @@ function exportRetardsPDF() {
               <option value="rattrapage">Rattrapage</option>
             </select>
           </UcFormGroup>
-          <UcFormGroup label="Mois concerné">
-            <input v-model="editForm.mois_concerne" type="month"
-              class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400"/>
-          </UcFormGroup>
+          <input type="hidden" v-model="editForm.mois_concerne" />
         </UcFormGrid>
 
         <UcFormGrid :cols="2">

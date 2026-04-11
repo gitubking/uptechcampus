@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — Maquette pédagogique</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; color: #222; font-size: 13px; }
+
+  /* ── Header filière ── */
+  .page-header {
+    background: #1a1a2e; color: #fff;
+    padding: 14px 28px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .page-header h1 { font-size: 16px; font-weight: 700; }
+  .page-header span { font-size: 11px; color: #aab; margin-left: 10px; }
+  .btn-save {
+    background: #E30613; color: #fff; border: none; border-radius: 6px;
+    padding: 8px 18px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+
+  /* ── Tabs ── */
+  .tabs { background: #fff; border-bottom: 2px solid #e8e8e8; padding: 0 28px; display: flex; gap: 0; }
+  .tab {
+    padding: 12px 22px; font-size: 12px; font-weight: 600; cursor: pointer;
+    border-bottom: 3px solid transparent; color: #888; margin-bottom: -2px;
+  }
+  .tab.active { color: #E30613; border-bottom-color: #E30613; }
+
+  /* ── Content ── */
+  .content { padding: 20px 28px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ── Année block ── */
+  .annee-block {
+    background: #fff; border-radius: 10px;
+    border: 1px solid #e0e4ef; overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  }
+  .annee-header {
+    background: linear-gradient(90deg, #1a1a2e 0%, #2d3561 100%);
+    color: #fff; padding: 10px 18px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .annee-header h2 { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+  .annee-header span { font-size: 11px; color: #8899cc; }
+
+  /* ── Semestre ── */
+  .sem-block { border-top: 1px solid #eaecf4; }
+  .sem-block:first-child { border-top: none; }
+  .sem-header {
+    padding: 8px 14px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .sem-header.s-odd  { background: #eff6ff; color: #1d4ed8; border-bottom: 1px solid #dbeafe; }
+  .sem-header.s-even { background: #f0fdf4; color: #15803d; border-bottom: 1px solid #dcfce7; }
+  .sem-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .s-odd  .sem-dot { background: #3b82f6; }
+  .s-even .sem-dot { background: #22c55e; }
+
+  /* ── Table matières — 8 colonnes ── */
+  .mat-table { width: 100%; border-collapse: collapse; }
+  .mat-table thead tr { background: #f7f8fc; }
+  .mat-table thead th {
+    padding: 6px 10px; text-align: left; font-size: 10px; font-weight: 700;
+    color: #888; border-bottom: 2px solid #e8eaf0; white-space: nowrap;
+  }
+  .mat-table thead th.num { text-align: center; }
+  .mat-table tbody tr { border-bottom: 1px solid #f0f2f8; }
+  .mat-table tbody tr:last-child { border-bottom: none; }
+  .mat-table tbody tr:hover { background: #fafbff; }
+  .mat-table tbody td { padding: 7px 10px; vertical-align: middle; font-size: 12px; }
+
+  /* Code UE colonne */
+  .td-code {
+    font-family: monospace; font-size: 11px; font-weight: 700;
+    color: #1a3a6b; white-space: nowrap;
+    background: #eef1fb; border-left: 3px solid #1a3a6b;
+    vertical-align: middle;
+  }
+
+  /* Intitulé UE colonne */
+  .td-intitule-ue {
+    font-weight: 700; font-size: 12px; color: #1a1a2e;
+    background: #f2f4fb;
+    vertical-align: middle;
+  }
+
+  /* Intitulé EC colonne */
+  .td-ec { font-size: 12px; color: #444; }
+
+  /* num cells */
+  .td-num { text-align: center; }
+  .badge-coef {
+    display: inline-block; background: #e0e7ff; color: #3730a3;
+    border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700;
+  }
+  .badge-cr {
+    display: inline-block; background: #dcfce7; color: #15803d;
+    border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700;
+  }
+  .badge-vh {
+    display: inline-block; background: #fef3c7; color: #92400e;
+    border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700;
+  }
+
+  /* Action buttons */
+  .btn-modifier {
+    background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+    border-radius: 5px; padding: 3px 10px; font-size: 11px; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+  }
+  .btn-modifier:hover { background: #dbeafe; }
+  .btn-supprimer {
+    background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
+    border-radius: 5px; padding: 3px 10px; font-size: 11px; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+  }
+  .btn-supprimer:hover { background: #fee2e2; }
+
+  /* ── Bouton ajouter ── */
+  .add-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 14px; cursor: pointer; border-top: 1px dashed #dde3f4;
+    color: #4338ca; font-size: 11px; font-weight: 600;
+    background: #fafbff; transition: background 0.15s;
+  }
+  .add-row:hover { background: #eef2ff; }
+  .add-row span { font-size: 16px; line-height: 1; }
+
+  /* ── Totaux semestre ── */
+  .sem-totals {
+    padding: 6px 14px; background: #f7f8fc; border-top: 1px solid #eaecf4;
+    display: flex; gap: 20px; font-size: 11px; color: #555;
+  }
+  .sem-totals strong { color: #1a1a2e; }
+
+  /* Master header colors */
+  .annee-header.master1 { background: linear-gradient(90deg,#4c1d95 0%,#6d28d9 100%); }
+  .annee-header.master1 span { color: #c4b5fd; }
+  .annee-header.master2 { background: linear-gradient(90deg,#312e81 0%,#4c1d95 100%); }
+  .annee-header.master2 span { color: #c4b5fd; }
+
+  /* Master sem header */
+  .sem-header.m1 { background: #f5f3ff; color: #6d28d9; border-bottom: 1px solid #e9d5ff; }
+  .sem-header.m1 .sem-dot { background: #8b5cf6; }
+  .sem-header.m2 { background: #faf5ff; color: #6d28d9; border-bottom: 1px solid #e9d5ff; }
+  .sem-header.m2 .sem-dot { background: #a78bfa; }
+  .sem-header.m3 { background: #f5f3ff; color: #4c1d95; border-bottom: 1px solid #e9d5ff; }
+  .sem-header.m3 .sem-dot { background: #7c3aed; }
+  .sem-header.m4 { background: #faf5ff; color: #4c1d95; border-bottom: 1px solid #e9d5ff; }
+  .sem-header.m4 .sem-dot { background: #6d28d9; }
+
+  /* Master UE cells */
+  .td-code.master { background: #ede9fe; border-left-color: #6d28d9; color: #4c1d95; }
+  .td-intitule-ue.master { background: #f5f3ff; color: #4c1d95; }
+
+  /* Séparateur MASTER */
+  .master-sep {
+    display: flex; align-items: center; gap: 12px; margin: 4px 0;
+  }
+  .master-sep-line { flex: 1; height: 2px; }
+  .master-sep-pill {
+    background: #7c3aed; color: #fff; padding: 5px 18px;
+    border-radius: 99px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="page-header">
+  <div>
+    <h1>Filière : Licence PME <span>· Enseignement Supérieur · 3 ans · LMD</span></h1>
+  </div>
+  <button class="btn-save">💾 Enregistrer tout</button>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab">📋 Infos générales</div>
+  <div class="tab active">📚 Maquette pédagogique</div>
+  <div class="tab">💰 Tarifs & frais</div>
+  <div class="tab">📊 Statistiques</div>
+</div>
+
+<!-- Content -->
+<div class="content">
+
+  <!-- ═══ ANNÉE 1 — Licence 1 ═══ -->
+  <div class="annee-block">
+    <div class="annee-header">
+      <h2>📗 ANNÉE 1 — Licence 1</h2>
+      <span>Semestres 1 &amp; 2</span>
+    </div>
+
+    <!-- S1 -->
+    <div class="sem-block">
+      <div class="sem-header s-odd"><span class="sem-dot"></span>SEMESTRE 1</div>
+      <table class="mat-table">
+        <thead><tr>
+          <th style="width:90px;">Code UE</th>
+          <th style="width:160px;">Intitulé UE</th>
+          <th>Intitulé EC (Matière)</th>
+          <th class="num" style="width:80px;">Coefficient</th>
+          <th class="num" style="width:60px;">Crédit</th>
+          <th class="num" style="width:60px;">VH</th>
+          <th style="width:100px;"></th>
+          <th style="width:100px;"></th>
+        </tr></thead>
+        <tbody>
+          <!-- UE101 — 2 ECs -->
+          <tr>
+            <td class="td-code" rowspan="2">InfoG231</td>
+            <td class="td-intitule-ue" rowspan="2">Infographie 3</td>
+            <td class="td-ec">Traitement d'image 3</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">4</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-ec">Infographie vectorielle</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">6</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <!-- UE102 — 1 EC -->
+          <tr>
+            <td class="td-code">MATH101</td>
+            <td class="td-intitule-ue">Mathématiques</td>
+            <td class="td-ec">Algèbre & Analyse</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">4</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <!-- UE103 — 2 ECs -->
+          <tr>
+            <td class="td-code" rowspan="2">DRT101</td>
+            <td class="td-intitule-ue" rowspan="2">Droit des affaires</td>
+            <td class="td-ec">Droit civil</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">3</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-ec">Droit commercial</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">3</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="sem-totals">
+        <span>Matières : <strong>5</strong></span>
+        <span>Total coef. : <strong>11</strong></span>
+        <span>Total crédits : <strong>20</strong></span>
+        <span>Total VH : <strong>165h</strong></span>
+      </div>
+      <div class="add-row"><span>＋</span> Ajouter une matière</div>
+    </div>
+
+    <!-- S2 -->
+    <div class="sem-block">
+      <div class="sem-header s-even"><span class="sem-dot"></span>SEMESTRE 2</div>
+      <table class="mat-table">
+        <thead><tr>
+          <th style="width:90px;">Code UE</th>
+          <th style="width:160px;">Intitulé UE</th>
+          <th>Intitulé EC (Matière)</th>
+          <th class="num" style="width:80px;">Coefficient</th>
+          <th class="num" style="width:60px;">Crédit</th>
+          <th class="num" style="width:60px;">VH</th>
+          <th style="width:100px;"></th>
+          <th style="width:100px;"></th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="td-code" rowspan="2">GEST201</td>
+            <td class="td-intitule-ue" rowspan="2">Gestion financière</td>
+            <td class="td-ec">Analyse financière</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">5</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-ec">Comptabilité analytique</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">4</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-code">MKT201</td>
+            <td class="td-intitule-ue">Marketing</td>
+            <td class="td-ec">Marketing fondamental</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">4</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="sem-totals">
+        <span>Matières : <strong>3</strong></span>
+        <span>Total coef. : <strong>7</strong></span>
+        <span>Total crédits : <strong>13</strong></span>
+        <span>Total VH : <strong>105h</strong></span>
+      </div>
+      <div class="add-row"><span>＋</span> Ajouter une matière</div>
+    </div>
+  </div>
+
+  <!-- ═══ ANNÉE 2 — Licence 2 ═══ -->
+  <div class="annee-block">
+    <div class="annee-header">
+      <h2>📘 ANNÉE 2 — Licence 2</h2>
+      <span>Semestres 3 &amp; 4</span>
+    </div>
+
+    <!-- S3 -->
+    <div class="sem-block">
+      <div class="sem-header s-odd"><span class="sem-dot"></span>SEMESTRE 3</div>
+      <table class="mat-table">
+        <thead><tr>
+          <th style="width:90px;">Code UE</th>
+          <th style="width:160px;">Intitulé UE</th>
+          <th>Intitulé EC (Matière)</th>
+          <th class="num" style="width:80px;">Coefficient</th>
+          <th class="num" style="width:60px;">Crédit</th>
+          <th class="num" style="width:60px;">VH</th>
+          <th style="width:100px;"></th>
+          <th style="width:100px;"></th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="td-code" rowspan="2">GEST301</td>
+            <td class="td-intitule-ue" rowspan="2">Fiscalité</td>
+            <td class="td-ec">Fiscalité des entreprises</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">5</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-ec">TVA et taxes directes</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">4</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-code">INFO301</td>
+            <td class="td-intitule-ue">Informatique de gestion</td>
+            <td class="td-ec">Excel avancé</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">3</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="sem-totals">
+        <span>Matières : <strong>3</strong></span>
+        <span>Total coef. : <strong>7</strong></span>
+        <span>Total crédits : <strong>12</strong></span>
+        <span>Total VH : <strong>105h</strong></span>
+      </div>
+      <div class="add-row"><span>＋</span> Ajouter une matière</div>
+    </div>
+
+    <!-- S4 -->
+    <div class="sem-block">
+      <div class="sem-header s-even"><span class="sem-dot"></span>SEMESTRE 4</div>
+      <table class="mat-table">
+        <thead><tr>
+          <th style="width:90px;">Code UE</th>
+          <th style="width:160px;">Intitulé UE</th>
+          <th>Intitulé EC (Matière)</th>
+          <th class="num" style="width:80px;">Coefficient</th>
+          <th class="num" style="width:60px;">Crédit</th>
+          <th class="num" style="width:60px;">VH</th>
+          <th style="width:100px;"></th>
+          <th style="width:100px;"></th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="td-code">RH401</td>
+            <td class="td-intitule-ue">Gestion des RH</td>
+            <td class="td-ec">Management des équipes</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">5</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-code" rowspan="2">MKT401</td>
+            <td class="td-intitule-ue" rowspan="2">Marketing stratégique</td>
+            <td class="td-ec">Étude de marché</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">4</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-ec">Communication commerciale</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">3</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="sem-totals">
+        <span>Matières : <strong>3</strong></span>
+        <span>Total coef. : <strong>7</strong></span>
+        <span>Total crédits : <strong>12</strong></span>
+        <span>Total VH : <strong>105h</strong></span>
+      </div>
+      <div class="add-row"><span>＋</span> Ajouter une matière</div>
+    </div>
+  </div>
+
+  <!-- ═══ ANNÉE 3 — Licence 3 ═══ -->
+  <div class="annee-block">
+    <div class="annee-header">
+      <h2>📙 ANNÉE 3 — Licence 3</h2>
+      <span>Semestres 5 &amp; 6</span>
+    </div>
+
+    <!-- S5 -->
+    <div class="sem-block">
+      <div class="sem-header s-odd"><span class="sem-dot"></span>SEMESTRE 5</div>
+      <table class="mat-table">
+        <thead><tr>
+          <th style="width:90px;">Code UE</th>
+          <th style="width:160px;">Intitulé UE</th>
+          <th>Intitulé EC (Matière)</th>
+          <th class="num" style="width:80px;">Coefficient</th>
+          <th class="num" style="width:60px;">Crédit</th>
+          <th class="num" style="width:60px;">VH</th>
+          <th style="width:100px;"></th>
+          <th style="width:100px;"></th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="td-code" rowspan="2">FIN501</td>
+            <td class="td-intitule-ue" rowspan="2">Finance d'entreprise</td>
+            <td class="td-ec">Gestion de trésorerie</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">5</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-ec">Évaluation d'entreprise</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">5</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-code">STAGE501</td>
+            <td class="td-intitule-ue">Stage entreprise</td>
+            <td class="td-ec">Rapport de stage L3</td>
+            <td class="td-num"><span class="badge-coef">0</span></td>
+            <td class="td-num"><span class="badge-cr">6</span></td>
+            <td class="td-num">—</td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="sem-totals">
+        <span>Matières : <strong>3</strong></span>
+        <span>Total coef. : <strong>6</strong></span>
+        <span>Total crédits : <strong>16</strong></span>
+        <span>Total VH : <strong>90h</strong></span>
+      </div>
+      <div class="add-row"><span>＋</span> Ajouter une matière</div>
+    </div>
+
+    <!-- S6 -->
+    <div class="sem-block">
+      <div class="sem-header s-even"><span class="sem-dot"></span>SEMESTRE 6</div>
+      <table class="mat-table">
+        <thead><tr>
+          <th style="width:90px;">Code UE</th>
+          <th style="width:160px;">Intitulé UE</th>
+          <th>Intitulé EC (Matière)</th>
+          <th class="num" style="width:80px;">Coefficient</th>
+          <th class="num" style="width:60px;">Crédit</th>
+          <th class="num" style="width:60px;">VH</th>
+          <th style="width:100px;"></th>
+          <th style="width:100px;"></th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="td-code" rowspan="2">PME601</td>
+            <td class="td-intitule-ue" rowspan="2">Projet de création</td>
+            <td class="td-ec">Business plan</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">5</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-ec">Entrepreneuriat</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">4</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="sem-totals">
+        <span>Matières : <strong>2</strong></span>
+        <span>Total coef. : <strong>5</strong></span>
+        <span>Total crédits : <strong>9</strong></span>
+        <span>Total VH : <strong>75h</strong></span>
+      </div>
+      <div class="add-row"><span>＋</span> Ajouter une matière</div>
+    </div>
+  </div>
+
+  <!-- ══════════════ SÉPARATEUR MASTER ══════════════ -->
+  <div class="master-sep">
+    <div class="master-sep-line" style="background:linear-gradient(90deg,transparent,#7c3aed);"></div>
+    <div class="master-sep-pill">🎓 CYCLE MASTER</div>
+    <div class="master-sep-line" style="background:linear-gradient(90deg,#7c3aed,transparent);"></div>
+  </div>
+
+  <!-- ═══ MASTER 1 ═══ -->
+  <div class="annee-block" style="border-color:#c4b5fd;">
+    <div class="annee-header master1">
+      <h2>🎓 MASTER 1</h2>
+      <span>Semestres 1 &amp; 2</span>
+    </div>
+
+    <!-- M1-S1 -->
+    <div class="sem-block">
+      <div class="sem-header m1"><span class="sem-dot"></span>SEMESTRE 1</div>
+      <table class="mat-table">
+        <thead><tr>
+          <th style="width:90px;">Code UE</th>
+          <th style="width:160px;">Intitulé UE</th>
+          <th>Intitulé EC (Matière)</th>
+          <th class="num" style="width:80px;">Coefficient</th>
+          <th class="num" style="width:60px;">Crédit</th>
+          <th class="num" style="width:60px;">VH</th>
+          <th style="width:100px;"></th>
+          <th style="width:100px;"></th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="td-code master" rowspan="2">UEM101</td>
+            <td class="td-intitule-ue master" rowspan="2">Management avancé</td>
+            <td class="td-ec">Stratégie internationale</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">6</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-ec">Management interculturel</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">4</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-code master">UEM102</td>
+            <td class="td-intitule-ue master">Économétrie</td>
+            <td class="td-ec">Méthodes quantitatives</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">6</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="sem-totals">
+        <span>Matières : <strong>3</strong></span>
+        <span>Total coef. : <strong>8</strong></span>
+        <span>Total crédits : <strong>16</strong></span>
+        <span>Total VH : <strong>120h</strong></span>
+      </div>
+      <div class="add-row" style="color:#6d28d9;"><span>＋</span> Ajouter une matière</div>
+    </div>
+
+    <!-- M1-S2 -->
+    <div class="sem-block">
+      <div class="sem-header m2"><span class="sem-dot"></span>SEMESTRE 2</div>
+      <table class="mat-table">
+        <thead><tr>
+          <th style="width:90px;">Code UE</th>
+          <th style="width:160px;">Intitulé UE</th>
+          <th>Intitulé EC (Matière)</th>
+          <th class="num" style="width:80px;">Coefficient</th>
+          <th class="num" style="width:60px;">Crédit</th>
+          <th class="num" style="width:60px;">VH</th>
+          <th style="width:100px;"></th>
+          <th style="width:100px;"></th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="td-code master">UEM201</td>
+            <td class="td-intitule-ue master">Finance internationale</td>
+            <td class="td-ec">Marchés financiers</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">6</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-code master">UEM202</td>
+            <td class="td-intitule-ue master">Mémoire M1</td>
+            <td class="td-ec">Rédaction mémoire de recherche</td>
+            <td class="td-num"><span class="badge-coef">0</span></td>
+            <td class="td-num"><span class="badge-cr">14</span></td>
+            <td class="td-num">—</td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="sem-totals">
+        <span>Matières : <strong>2</strong></span>
+        <span>Total coef. : <strong>3</strong></span>
+        <span>Total crédits : <strong>20</strong></span>
+        <span>Total VH : <strong>45h</strong></span>
+      </div>
+      <div class="add-row" style="color:#6d28d9;"><span>＋</span> Ajouter une matière</div>
+    </div>
+  </div>
+
+  <!-- ═══ MASTER 2 ═══ -->
+  <div class="annee-block" style="border-color:#c4b5fd;">
+    <div class="annee-header master2">
+      <h2>🎓 MASTER 2</h2>
+      <span>Semestres 3 &amp; 4</span>
+    </div>
+
+    <!-- M2-S3 -->
+    <div class="sem-block">
+      <div class="sem-header m3"><span class="sem-dot"></span>SEMESTRE 3</div>
+      <table class="mat-table">
+        <thead><tr>
+          <th style="width:90px;">Code UE</th>
+          <th style="width:160px;">Intitulé UE</th>
+          <th>Intitulé EC (Matière)</th>
+          <th class="num" style="width:80px;">Coefficient</th>
+          <th class="num" style="width:60px;">Crédit</th>
+          <th class="num" style="width:60px;">VH</th>
+          <th style="width:100px;"></th>
+          <th style="width:100px;"></th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="td-code master" rowspan="2">UEM301</td>
+            <td class="td-intitule-ue master" rowspan="2">Recherche avancée</td>
+            <td class="td-ec">Méthodologie de recherche</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">6</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-ec">Séminaire doctoral</td>
+            <td class="td-num"><span class="badge-coef">2</span></td>
+            <td class="td-num"><span class="badge-cr">4</span></td>
+            <td class="td-num"><span class="badge-vh">30</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-code master">UEM302</td>
+            <td class="td-intitule-ue master">Gouvernance</td>
+            <td class="td-ec">Gouvernance d'entreprise</td>
+            <td class="td-num"><span class="badge-coef">3</span></td>
+            <td class="td-num"><span class="badge-cr">6</span></td>
+            <td class="td-num"><span class="badge-vh">45</span></td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="sem-totals">
+        <span>Matières : <strong>3</strong></span>
+        <span>Total coef. : <strong>8</strong></span>
+        <span>Total crédits : <strong>16</strong></span>
+        <span>Total VH : <strong>120h</strong></span>
+      </div>
+      <div class="add-row" style="color:#4c1d95;"><span>＋</span> Ajouter une matière</div>
+    </div>
+
+    <!-- M2-S4 -->
+    <div class="sem-block">
+      <div class="sem-header m4"><span class="sem-dot"></span>SEMESTRE 4</div>
+      <table class="mat-table">
+        <thead><tr>
+          <th style="width:90px;">Code UE</th>
+          <th style="width:160px;">Intitulé UE</th>
+          <th>Intitulé EC (Matière)</th>
+          <th class="num" style="width:80px;">Coefficient</th>
+          <th class="num" style="width:60px;">Crédit</th>
+          <th class="num" style="width:60px;">VH</th>
+          <th style="width:100px;"></th>
+          <th style="width:100px;"></th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="td-code master">UEM401</td>
+            <td class="td-intitule-ue master">Stage & Thèse</td>
+            <td class="td-ec">Stage professionnel M2</td>
+            <td class="td-num"><span class="badge-coef">0</span></td>
+            <td class="td-num"><span class="badge-cr">10</span></td>
+            <td class="td-num">—</td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+          <tr>
+            <td class="td-code master">UEM402</td>
+            <td class="td-intitule-ue master">Mémoire M2</td>
+            <td class="td-ec">Thèse professionnelle</td>
+            <td class="td-num"><span class="badge-coef">0</span></td>
+            <td class="td-num"><span class="badge-cr">20</span></td>
+            <td class="td-num">—</td>
+            <td><button class="btn-modifier">✏️ Modifier</button></td>
+            <td><button class="btn-supprimer">🗑 Supprimer</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="sem-totals">
+        <span>Matières : <strong>2</strong></span>
+        <span>Total coef. : <strong>0</strong></span>
+        <span>Total crédits : <strong>30</strong></span>
+        <span>Total VH : <strong>—</strong></span>
+      </div>
+      <div class="add-row" style="color:#4c1d95;"><span>＋</span> Ajouter une matière</div>
+    </div>
+  </div>
+
+</div><!-- /content -->
+</body>
+</html>

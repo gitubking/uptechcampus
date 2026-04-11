@@ -1,0 +1,449 @@
+<script setup lang="ts">
+import { ref, computed, onMounted, watch } from 'vue'
+import api from '@/services/api'
+import UcPageHeader from '@/components/ui/UcPageHeader.vue'
+
+// ── State ──
+const loading = ref(true)
+const loadError = ref('')
+const moisSelected = ref(new Date().toISOString().slice(0, 7))
+const tabActive = ref<'jour' | 'enseignant' | 'detail'>('jour')
+
+interface Stats {
+  total_seances: number
+  total_heures: number
+  nb_enseignants: number
+  nb_classes: number
+  nb_jours_actifs: number
+}
+interface JourRow { jour: string; nb_seances: number; heures: number; nb_enseignants: number }
+interface EnseignantRow { id: number; nom: string; prenom: string; nb_seances: number; heures_total: number; nb_classes: number; nb_jours: number }
+interface SeanceRow {
+  id: number; matiere: string; date_debut: string; date_fin: string; statut: string; mode: string
+  heures: number; contenu_seance?: string; signe_enseignant_at?: string
+  enseignant?: { id: number; nom: string; prenom: string }
+  classe?: { id: number; nom: string }
+  nb_presents: number; nb_total: number
+}
+
+const stats = ref<Stats>({ total_seances: 0, total_heures: 0, nb_enseignants: 0, nb_classes: 0, nb_jours_actifs: 0 })
+const parJour = ref<JourRow[]>([])
+const parEnseignant = ref<EnseignantRow[]>([])
+const seances = ref<SeanceRow[]>([])
+
+// ── Load data ──
+async function load() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const { data } = await api.get(`/suivi-emargements?mois=${moisSelected.value}`)
+    stats.value = data.stats || { total_seances: 0, total_heures: 0, nb_enseignants: 0, nb_classes: 0, nb_jours_actifs: 0 }
+    parJour.value = data.par_jour || []
+    parEnseignant.value = data.par_enseignant || []
+    seances.value = data.seances || []
+  } catch (e: any) {
+    console.error(e)
+    loadError.value = e?.response?.data?.message || e?.message || 'Erreur lors du chargement des données.'
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(moisSelected, load)
+onMounted(load)
+
+// ── Helpers ──
+function formatDate(d: string) {
+  return new Date(d).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+function formatDateTime(d: string) {
+  return new Date(d).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+function formatHeure(d: string) {
+  return new Date(d).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+}
+
+const moisLabel = computed(() => {
+  const [y, m] = moisSelected.value.split('-')
+  const months = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
+  return `${months[parseInt(m || '1') - 1]} ${y}`
+})
+
+// Navigation mois
+function moisPrecedent() {
+  const d = new Date(moisSelected.value + '-01')
+  d.setMonth(d.getMonth() - 1)
+  moisSelected.value = d.toISOString().slice(0, 7)
+}
+function moisSuivant() {
+  const d = new Date(moisSelected.value + '-01')
+  d.setMonth(d.getMonth() + 1)
+  moisSelected.value = d.toISOString().slice(0, 7)
+}
+
+// ── Filtres export ──
+const filterEnseignant = ref('')
+const filterClasse = ref('')
+
+const seancesFiltrees = computed(() => {
+  return seances.value.filter(s => {
+    if (filterEnseignant.value) {
+      const nomComplet = s.enseignant ? `${s.enseignant.prenom} ${s.enseignant.nom}`.toLowerCase() : ''
+      if (!nomComplet.includes(filterEnseignant.value.toLowerCase())) return false
+    }
+    if (filterClasse.value) {
+      if (!s.classe?.nom?.toLowerCase().includes(filterClasse.value.toLowerCase())) return false
+    }
+    return true
+  })
+})
+
+// Enseignants uniques pour le filtre
+const enseignantsUniques = computed(() => {
+  const map = new Map<number, string>()
+  for (const s of seances.value) {
+    if (s.enseignant?.id && s.enseignant.nom) {
+      map.set(s.enseignant.id, `${s.enseignant.prenom ?? ''} ${s.enseignant.nom}`.trim())
+    }
+  }
+  return [...map.entries()].map(([id, nom]) => ({ id, nom }))
+    .sort((a, b) => (a.nom ?? '').localeCompare(b.nom ?? ''))
+})
+
+// Classes uniques pour le filtre
+const classesUniques = computed(() => {
+  const map = new Map<number, string>()
+  for (const s of seances.value) {
+    if (s.classe?.id && s.classe.nom) map.set(s.classe.id, s.classe.nom)
+  }
+  return [...map.entries()].map(([id, nom]) => ({ id, nom }))
+    .sort((a, b) => (a.nom ?? '').localeCompare(b.nom ?? ''))
+})
+
+// ── Export PDF ──
+async function exportPDF(parEns = false) {
+  const data = seancesFiltrees.value
+  if (!data.length) { alert('Aucune séance à exporter.'); return }
+
+  const { jsPDF } = await import('jspdf')
+  const { default: autoTable } = await import('jspdf-autotable')
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+  const PW = doc.internal.pageSize.getWidth()
+  const NAVY: [number,number,number] = [15, 40, 90]
+  const RED:  [number,number,number] = [227, 6, 19]
+
+  const totalH = data.reduce((s, r) => s + Number(r.heures || 0), 0)
+
+  const addHeader = (title: string) => {
+    // Bandeau haut
+    doc.setFillColor(...RED)
+    doc.rect(0, 0, PW, 18, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+    doc.text("UP'TECH — Suivi des Émargements", 14, 7)
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal')
+    doc.text(title, 14, 13)
+    doc.setFontSize(8)
+    doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')}`, PW - 14, 13, { align: 'right' })
+    doc.setTextColor(0, 0, 0)
+  }
+
+  if (parEns) {
+    // Un tableau par enseignant
+    const grouped = new Map<string, SeanceRow[]>()
+    for (const s of data) {
+      const key = s.enseignant ? `${s.enseignant.prenom} ${s.enseignant.nom}` : '—'
+      if (!grouped.has(key)) grouped.set(key, [])
+      grouped.get(key)!.push(s)
+    }
+    let first = true
+    for (const [ensNom, rows] of grouped) {
+      if (!first) doc.addPage()
+      first = false
+      const hEns = rows.reduce((s, r) => s + Number(r.heures || 0), 0)
+      addHeader(`${moisLabel.value}  —  ${ensNom}  (${rows.length} séance${rows.length > 1 ? 's' : ''} · ${hEns.toFixed(1)}h)`)
+      autoTable(doc, {
+        startY: 22,
+        head: [['Date', 'Horaire', 'Classe', 'Matière', 'Durée', 'Présences', 'Mode']],
+        body: rows.map(s => [
+          formatDate(s.date_debut),
+          `${formatHeure(s.date_debut)} – ${formatHeure(s.date_fin)}`,
+          s.classe?.nom ?? '—',
+          s.matiere,
+          `${Number(s.heures).toFixed(1)}h`,
+          `${s.nb_presents}/${s.nb_total}`,
+          s.mode ?? '—',
+        ]),
+        foot: [['', '', '', 'TOTAL', `${hEns.toFixed(1)}h`, '', '']],
+        styles: { fontSize: 9, cellPadding: 3 },
+        headStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold' },
+        footStyles: { fillColor: [240, 240, 240], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: { 4: { halign: 'center' }, 5: { halign: 'center' } },
+      })
+    }
+  } else {
+    // Un seul tableau global
+    addHeader(`${moisLabel.value}  —  ${data.length} séances · ${totalH.toFixed(1)}h au total`)
+    autoTable(doc, {
+      startY: 22,
+      head: [['Date', 'Horaire', 'Classe', 'Matière', 'Enseignant', 'Durée', 'Présences', 'Mode']],
+      body: data.map(s => [
+        formatDate(s.date_debut),
+        `${formatHeure(s.date_debut)} – ${formatHeure(s.date_fin)}`,
+        s.classe?.nom ?? '—',
+        s.matiere,
+        s.enseignant ? `${s.enseignant.prenom} ${s.enseignant.nom}` : '—',
+        `${Number(s.heures).toFixed(1)}h`,
+        `${s.nb_presents}/${s.nb_total}`,
+        s.mode ?? '—',
+      ]),
+      foot: [['', '', '', '', 'TOTAL', `${totalH.toFixed(1)}h`, '', '']],
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold' },
+      footStyles: { fillColor: [240, 240, 240], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: { 5: { halign: 'center' }, 6: { halign: 'center' } },
+    })
+  }
+
+  doc.save(`emargements-${moisSelected.value}${parEns ? '-par-enseignant' : ''}.pdf`)
+}
+</script>
+
+<template>
+  <div class="se-content">
+    <UcPageHeader title="Suivi des Émargements" subtitle="Vue globale des cours effectués et émargés" />
+
+    <!-- Sélecteur de mois + filtres + export -->
+    <div class="se-mois-nav">
+      <button @click="moisPrecedent" class="se-nav-btn">&larr;</button>
+      <span class="se-mois-label">{{ moisLabel }}</span>
+      <button @click="moisSuivant" class="se-nav-btn">&rarr;</button>
+      <input type="month" v-model="moisSelected" class="se-month-input" />
+
+      <select v-model="filterEnseignant" class="se-month-input" style="min-width:160px;">
+        <option value="">Tous les enseignants</option>
+        <option v-for="e in enseignantsUniques" :key="e.id" :value="e.nom">{{ e.nom }}</option>
+      </select>
+      <select v-model="filterClasse" class="se-month-input" style="min-width:130px;">
+        <option value="">Toutes les classes</option>
+        <option v-for="c in classesUniques" :key="c.id" :value="c.nom">{{ c.nom }}</option>
+      </select>
+
+      <div style="display:flex;gap:8px;margin-left:auto;">
+        <button @click="exportPDF(false)" class="se-export-btn">⬇ PDF global</button>
+        <button @click="exportPDF(true)"  class="se-export-btn se-export-btn--secondary">⬇ PDF par enseignant</button>
+      </div>
+    </div>
+
+    <div v-if="loading" class="se-loading">Chargement...</div>
+
+    <div v-else-if="loadError" style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:20px 24px;color:#dc2626;font-size:13px;">
+      ⚠️ {{ loadError }}
+    </div>
+
+    <div v-else>
+      <!-- KPIs -->
+      <div class="se-kpis">
+        <div class="se-kpi">
+          <div class="se-kpi-value">{{ stats.total_seances }}</div>
+          <div class="se-kpi-label">Séances effectuées</div>
+        </div>
+        <div class="se-kpi">
+          <div class="se-kpi-value">{{ stats.total_heures ?? 0 }}h</div>
+          <div class="se-kpi-label">Heures totales</div>
+        </div>
+        <div class="se-kpi">
+          <div class="se-kpi-value">{{ stats.nb_enseignants }}</div>
+          <div class="se-kpi-label">Enseignants actifs</div>
+        </div>
+        <div class="se-kpi">
+          <div class="se-kpi-value">{{ stats.nb_classes }}</div>
+          <div class="se-kpi-label">Classes</div>
+        </div>
+        <div class="se-kpi">
+          <div class="se-kpi-value">{{ stats.nb_jours_actifs }}</div>
+          <div class="se-kpi-label">Jours actifs</div>
+        </div>
+      </div>
+
+      <!-- Onglets -->
+      <div class="se-tabs">
+        <button :class="['se-tab', tabActive === 'jour' && 'active']" @click="tabActive = 'jour'">Par jour</button>
+        <button :class="['se-tab', tabActive === 'enseignant' && 'active']" @click="tabActive = 'enseignant'">Par enseignant</button>
+        <button :class="['se-tab', tabActive === 'detail' && 'active']" @click="tabActive = 'detail'">Détail séances</button>
+      </div>
+
+      <!-- Tab: Par jour -->
+      <div v-if="tabActive === 'jour'" class="se-table-wrap">
+        <div v-if="parJour.length === 0" class="se-empty">Aucun émargement ce mois-ci.</div>
+        <table v-else class="se-table">
+          <thead>
+            <tr>
+              <th>Jour</th>
+              <th style="text-align:center">Séances</th>
+              <th style="text-align:center">Heures</th>
+              <th style="text-align:center">Enseignants</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="j in parJour" :key="j.jour">
+              <td><strong>{{ formatDate(j.jour) }}</strong></td>
+              <td style="text-align:center">
+                <span class="se-badge se-badge-blue">{{ j.nb_seances }}</span>
+              </td>
+              <td style="text-align:center">
+                <span class="se-badge se-badge-green">{{ j.heures }}h</span>
+              </td>
+              <td style="text-align:center">{{ j.nb_enseignants }}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td><strong>TOTAL</strong></td>
+              <td style="text-align:center"><strong>{{ stats.total_seances }}</strong></td>
+              <td style="text-align:center"><strong>{{ stats.total_heures }}h</strong></td>
+              <td style="text-align:center"><strong>{{ stats.nb_enseignants }}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <!-- Tab: Par enseignant -->
+      <div v-if="tabActive === 'enseignant'" class="se-table-wrap">
+        <div v-if="parEnseignant.length === 0" class="se-empty">Aucun émargement ce mois-ci.</div>
+        <table v-else class="se-table">
+          <thead>
+            <tr>
+              <th>Enseignant</th>
+              <th style="text-align:center">Séances</th>
+              <th style="text-align:center">Heures</th>
+              <th style="text-align:center">Classes</th>
+              <th style="text-align:center">Jours</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="e in parEnseignant" :key="e.id">
+              <td><strong>{{ e.prenom }} {{ e.nom }}</strong></td>
+              <td style="text-align:center">
+                <span class="se-badge se-badge-blue">{{ e.nb_seances }}</span>
+              </td>
+              <td style="text-align:center">
+                <span class="se-badge se-badge-green">{{ e.heures_total }}h</span>
+              </td>
+              <td style="text-align:center">{{ e.nb_classes }}</td>
+              <td style="text-align:center">{{ e.nb_jours }}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td><strong>TOTAL ({{ parEnseignant.length }} enseignants)</strong></td>
+              <td style="text-align:center"><strong>{{ stats.total_seances }}</strong></td>
+              <td style="text-align:center"><strong>{{ stats.total_heures }}h</strong></td>
+              <td style="text-align:center"><strong>{{ stats.nb_classes }}</strong></td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <!-- Tab: Détail séances -->
+      <div v-if="tabActive === 'detail'" class="se-table-wrap">
+        <div v-if="seancesFiltrees.length === 0" class="se-empty">Aucune séance émargée correspondant aux filtres.</div>
+        <table v-else class="se-table se-table-detail">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Horaire</th>
+              <th>Classe</th>
+              <th>Matière</th>
+              <th>Enseignant</th>
+              <th style="text-align:center">Durée</th>
+              <th style="text-align:center">Présences</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in seancesFiltrees" :key="s.id">
+              <td>{{ formatDate(s.date_debut) }}</td>
+              <td>{{ formatHeure(s.date_debut) }} – {{ formatHeure(s.date_fin) }}</td>
+              <td><span class="se-badge se-badge-gray">{{ s.classe?.nom ?? '—' }}</span></td>
+              <td><strong>{{ s.matiere }}</strong></td>
+              <td>{{ s.enseignant ? `${s.enseignant.prenom} ${s.enseignant.nom}` : '—' }}</td>
+              <td style="text-align:center">
+                <span class="se-badge se-badge-green">{{ Number(s.heures).toFixed(1) }}h</span>
+              </td>
+              <td style="text-align:center">
+                <span :class="['se-badge', s.nb_presents === s.nb_total ? 'se-badge-green' : 'se-badge-orange']">
+                  {{ s.nb_presents }}/{{ s.nb_total }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="5"><strong>TOTAL ({{ seancesFiltrees.length }} séances)</strong></td>
+              <td style="text-align:center">
+                <strong>{{ seancesFiltrees.reduce((s, r) => s + Number(r.heures || 0), 0).toFixed(1) }}h</strong>
+              </td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.se-content { padding: 24px; max-width: 1280px; margin: 0 auto; font-family: 'Poppins', sans-serif; }
+
+/* Navigation mois */
+.se-mois-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.se-nav-btn { width: 36px; height: 36px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+.se-nav-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+.se-mois-label { font-size: 18px; font-weight: 700; color: #1e293b; min-width: 200px; text-align: center; }
+.se-month-input { border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 10px; font-size: 13px; color: #64748b; font-family: 'Poppins', sans-serif; }
+
+/* KPIs */
+.se-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.se-kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; text-align: center; }
+.se-kpi-value { font-size: 28px; font-weight: 800; color: #1e293b; }
+.se-kpi-label { font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+
+/* Onglets */
+.se-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid #e2e8f0; }
+.se-tab { padding: 10px 20px; border: none; background: none; font-family: 'Poppins', sans-serif; font-size: 13px; font-weight: 600; color: #94a3b8; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
+.se-tab:hover { color: #475569; }
+.se-tab.active { color: #E30613; border-bottom-color: #E30613; }
+
+/* Table */
+.se-table-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.se-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.se-table th { background: #f8fafc; padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 1px solid #e2e8f0; }
+.se-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+.se-table tbody tr:hover { background: #f8fafc; }
+.se-table tfoot td { background: #f8fafc; border-top: 2px solid #e2e8f0; font-size: 12px; }
+.se-table-detail { font-size: 12px; }
+.se-table-detail td { padding: 8px 10px; }
+
+/* Badges */
+.se-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+.se-badge-blue { background: #eff6ff; color: #1d4ed8; }
+.se-badge-green { background: #f0fdf4; color: #15803d; }
+.se-badge-orange { background: #fff7ed; color: #c2410c; }
+.se-badge-gray { background: #f1f5f9; color: #475569; }
+
+.se-loading { text-align: center; padding: 60px; color: #94a3b8; font-size: 13px; }
+.se-empty { text-align: center; padding: 40px; color: #94a3b8; font-size: 13px; }
+
+/* Boutons export */
+.se-export-btn {
+  padding: 7px 14px; border-radius: 8px; border: 1.5px solid #1e293b;
+  background: #1e293b; color: #fff; font-family: 'Poppins', sans-serif;
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.se-export-btn:hover { background: #0f172a; }
+.se-export-btn--secondary { background: #fff; color: #1e293b; }
+.se-export-btn--secondary:hover { background: #f1f5f9; }
+</style>

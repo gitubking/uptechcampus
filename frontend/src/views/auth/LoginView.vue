@@ -149,7 +149,7 @@ async function submit() {
   background: #f4f4f4;
   min-height: 100vh;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 20px;
 }
@@ -161,6 +161,8 @@ async function submit() {
   border-radius: 6px;
   overflow: hidden;
   box-shadow: 0 8px 40px rgba(0,0,0,0.15);
+  margin-top: auto;
+  margin-bottom: auto;
 }
 
 /* ── Panneau gauche ── */

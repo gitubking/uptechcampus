@@ -10,7 +10,6 @@ import {
   ArcElement,
 } from 'chart.js'
 import api from '@/services/api'
-import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 
 ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement)
 
@@ -28,6 +27,7 @@ interface Kpis {
   depenses_mois: number
   solde_net: number
   creances: number
+  recettes_fi?: number
 }
 
 const loading = ref(true)
@@ -341,18 +341,47 @@ function exportPDF() { window.print() }
 
 <template>
   <div class="uc-content">
-    <UcPageHeader title="Tableau de bord financier" subtitle="Vision globale des recettes, dépenses et trésorerie">
-      <template #actions>
-        <button @click="exportExcel" class="fin-btn-export">
-          <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-          Excel
-        </button>
-        <button @click="exportPDF" class="fin-btn-export fin-btn-pdf">
-          <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
-          PDF
-        </button>
-      </template>
-    </UcPageHeader>
+    <!-- ══ HERO ══ -->
+    <div class="fin-hero">
+      <div class="fin-hero-glow"></div>
+      <div class="fin-hero-content">
+        <div class="fin-hero-left">
+          <div class="fin-hero-icon">💰</div>
+          <div>
+            <h1 class="fin-hero-title">Finance</h1>
+            <p class="fin-hero-sub">Tableau de bord financier — recettes, dépenses &amp; trésorerie</p>
+          </div>
+        </div>
+        <div class="fin-hero-kpis">
+          <div class="fin-hkpi fin-hkpi--green">
+            <div class="fin-hkpi-val">{{ kpis ? fmtN(kpis.recettes_mois) : '…' }}</div>
+            <div class="fin-hkpi-lbl">Recettes mois</div>
+          </div>
+          <div class="fin-hkpi fin-hkpi--red">
+            <div class="fin-hkpi-val">{{ kpis ? fmtN(kpis.depenses_mois) : '…' }}</div>
+            <div class="fin-hkpi-lbl">Dépenses mois</div>
+          </div>
+          <div class="fin-hkpi" :class="(kpis?.solde_net ?? 0) >= 0 ? 'fin-hkpi--green' : 'fin-hkpi--red'">
+            <div class="fin-hkpi-val">{{ kpis ? ((kpis.solde_net >= 0 ? '+' : '') + fmtN(kpis.solde_net)) : '…' }}</div>
+            <div class="fin-hkpi-lbl">Solde net</div>
+          </div>
+          <div class="fin-hkpi fin-hkpi--orange">
+            <div class="fin-hkpi-val">{{ kpis ? fmtN(kpis.creances) : '…' }}</div>
+            <div class="fin-hkpi-lbl">Créances</div>
+          </div>
+        </div>
+        <div class="fin-hero-actions">
+          <button @click="exportExcel" class="fin-export-btn">
+            <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            Excel
+          </button>
+          <button @click="exportPDF" class="fin-export-btn fin-export-btn--pdf">
+            <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+            PDF
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- ── Onglets ──────────────────────────────────────────────────── -->
     <div class="fin-tab-bar">
@@ -594,7 +623,8 @@ function exportPDF() { window.print() }
       <table class="fin-cr-table">
         <thead><tr><th colspan="2">PRODUITS</th></tr></thead>
         <tbody>
-          <tr><td>Scolarités encaissées</td><td class="fin-cr-amt green">{{ fmt(kpis!.recettes_total) }}</td></tr>
+          <tr><td>Scolarités classiques</td><td class="fin-cr-amt green">{{ fmt(kpis!.recettes_total - (kpis!.recettes_fi || 0)) }}</td></tr>
+          <tr v-if="kpis!.recettes_fi"><td>🎓 Formations individuelles</td><td class="fin-cr-amt green">{{ fmt(kpis!.recettes_fi) }}</td></tr>
           <tr class="fin-cr-subtotal"><td><strong>Total produits</strong></td><td class="fin-cr-amt green"><strong>{{ fmt(kpis!.recettes_total) }}</strong></td></tr>
         </tbody>
         <thead><tr><th colspan="2">CHARGES PAR CATÉGORIE</th></tr></thead>
@@ -946,6 +976,106 @@ function exportPDF() { window.print() }
   .fin-tab { padding: 8px 10px; font-size: 11px; }
   .fin-modal-body { padding: 12px; }
   .fin-modal-header { padding: 12px; }
+}
+
+/* ════════════════════════════════════════════════════════
+   HERO FINANCE
+════════════════════════════════════════════════════════ */
+.fin-hero {
+  position: relative;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0a1a0a 100%);
+  border-radius: 16px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(15,23,42,0.18);
+}
+.fin-hero-glow {
+  position: absolute;
+  top: -60px; right: -40px;
+  width: 260px; height: 260px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(34,197,94,0.15) 0%, transparent 70%);
+  pointer-events: none;
+}
+.fin-hero-content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 28px;
+  flex-wrap: wrap;
+}
+.fin-hero-left { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.fin-hero-icon {
+  width: 48px; height: 48px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  border: 1px solid rgba(255,255,255,0.1);
+  flex-shrink: 0;
+}
+.fin-hero-title { font-size: 20px; font-weight: 800; color: #fff; margin: 0 0 2px; }
+.fin-hero-sub { font-size: 12px; color: rgba(255,255,255,0.45); margin: 0; }
+
+.fin-hero-kpis { display: flex; gap: 8px; flex-wrap: wrap; }
+.fin-hkpi {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 10px 14px;
+  text-align: center;
+  min-width: 90px;
+}
+.fin-hkpi--green { border-color: rgba(34,197,94,0.35); }
+.fin-hkpi--red   { border-color: rgba(227,6,19,0.35); }
+.fin-hkpi--orange { border-color: rgba(249,115,22,0.35); }
+.fin-hkpi-val {
+  font-size: 15px; font-weight: 800; color: #fff;
+  line-height: 1.1; white-space: nowrap;
+  font-family: 'Poppins', sans-serif;
+}
+.fin-hkpi--green .fin-hkpi-val { color: #4ade80; }
+.fin-hkpi--red   .fin-hkpi-val { color: #f87171; }
+.fin-hkpi--orange .fin-hkpi-val { color: #fb923c; }
+.fin-hkpi-lbl {
+  font-size: 9.5px; color: rgba(255,255,255,0.4);
+  font-weight: 600; margin-top: 3px;
+  text-transform: uppercase; letter-spacing: .04em;
+  white-space: nowrap;
+}
+
+.fin-hero-actions {
+  margin-left: auto;
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.fin-export-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 14px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.8);
+  font-size: 12px; font-weight: 600;
+  cursor: pointer;
+  font-family: 'Poppins', sans-serif;
+  transition: all 0.15s;
+}
+.fin-export-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+.fin-export-btn--pdf {
+  border-color: rgba(227,6,19,0.5);
+  color: #fca5a5;
+}
+.fin-export-btn--pdf:hover { background: rgba(227,6,19,0.15); }
+
+@media (max-width: 900px) {
+  .fin-hero-content { padding: 16px 20px; gap: 12px; }
+  .fin-hero-kpis { gap: 6px; }
+}
+@media (max-width: 640px) {
+  .fin-hero-kpis { display: grid; grid-template-columns: repeat(2,1fr); width: 100%; }
+  .fin-hero-actions { width: 100%; }
+  .fin-export-btn { flex: 1; justify-content: center; }
 }
 </style>
 

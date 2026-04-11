@@ -82,7 +82,7 @@ const editValues = ref<Record<string, string>>({})
 const activeGroup = ref('etablissement')
 
 // ── Onglet pédagogique actif ─────────────────────────────────────────
-const activePedaTab = ref<'types' | 'tarifs' | 'matieres' | 'niveaux-entree' | 'niveaux-bourse' | 'types-docs'>('types')
+const activePedaTab = ref<'types' | 'tarifs' | 'matieres' | 'niveaux-entree' | 'niveaux-bourse' | 'types-docs' | 'conges'>('types')
 
 // ── Types de formation ──────────────────────────────────────────────
 const typesFormation = ref<TypeFormation[]>([])
@@ -91,7 +91,7 @@ const showModalType = ref(false)
 const editingType = ref<TypeFormation | null>(null)
 const savingType = ref(false)
 const deletingTypeId = ref<number | null>(null)
-const formType = ref({ nom: '', code: '', actif: true, has_niveau: false })
+const formType = ref({ nom: '', code: '', actif: true, has_niveau: false, est_individuel: false })
 
 async function loadTypesFormation() {
   loadingTypes.value = true
@@ -105,13 +105,13 @@ async function loadTypesFormation() {
 
 function openNewType() {
   editingType.value = null
-  formType.value = { nom: '', code: '', actif: true, has_niveau: false }
+  formType.value = { nom: '', code: '', actif: true, has_niveau: false, est_individuel: false }
   showModalType.value = true
 }
 
 function openEditType(t: TypeFormation) {
   editingType.value = t
-  formType.value = { nom: t.nom, code: t.code, actif: t.actif, has_niveau: t.has_niveau ?? false }
+  formType.value = { nom: t.nom, code: t.code, actif: t.actif, has_niveau: t.has_niveau ?? false, est_individuel: (t as any).est_individuel ?? false }
   showModalType.value = true
 }
 
@@ -119,7 +119,7 @@ async function saveType() {
   if (!formType.value.nom.trim() || !formType.value.code.trim()) return
   savingType.value = true
   try {
-    const payload = { nom: formType.value.nom, code: formType.value.code, actif: formType.value.actif, has_niveau: formType.value.has_niveau }
+    const payload = { nom: formType.value.nom, code: formType.value.code, actif: formType.value.actif, has_niveau: formType.value.has_niveau, est_individuel: formType.value.est_individuel }
     if (editingType.value) {
       const { data } = await api.put(`/types-formation/${editingType.value.id}`, payload)
       const idx = typesFormation.value.findIndex(t => t.id === editingType.value!.id)
@@ -221,6 +221,7 @@ const showModalMatiere = ref(false)
 const editingMatiere = ref<Matiere | null>(null)
 const savingMatiere = ref(false)
 const deletingMatiereId = ref<number | null>(null)
+const nettoyageDoublonsMatieres = ref(false)
 const formMatiere = ref({ nom: '', code: '', description: '', actif: true })
 
 async function loadMatieres() {
@@ -243,6 +244,29 @@ function openEditMatiere(m: Matiere) {
   editingMatiere.value = m
   formMatiere.value = { nom: m.nom, code: m.code, description: m.description ?? '', actif: m.actif }
   showModalMatiere.value = true
+}
+
+async function nettoyerDoublonsMatieres() {
+  // Compter les doublons côté client
+  const counts: Record<string, number> = {}
+  for (const m of matieres.value) {
+    const key = (m.nom || '').trim().toLowerCase()
+    counts[key] = (counts[key] || 0) + 1
+  }
+  const nbDoublons = Object.values(counts).filter(n => n > 1).reduce((a, n) => a + (n - 1), 0)
+  if (nbDoublons === 0) { alert('Aucun doublon détecté.'); return }
+  if (!confirm(`${nbDoublons} doublon(s) de matière(s) détecté(s). Supprimer automatiquement ? (Les affiliations filières seront conservées sur la matière originale.)`)) return
+  nettoyageDoublonsMatieres.value = true
+  try {
+    const { data } = await api.post('/matieres/nettoyer-doublons')
+    alert(typeof data?.message === 'string' ? data.message : JSON.stringify(data))
+    await loadMatieres()
+  } catch (e: any) {
+    const msg = e.response?.data?.error || e.response?.data?.message || e.message || 'Erreur lors du nettoyage'
+    alert(typeof msg === 'string' ? msg : JSON.stringify(msg))
+  } finally {
+    nettoyageDoublonsMatieres.value = false
+  }
 }
 
 async function saveMatiere() {
@@ -432,6 +456,9 @@ const groups = [
 // ── Labels et types de champs ────────────────────────────────────────
 const fieldConfig: Record<string, { label: string; type?: string; textarea?: boolean; toggle?: boolean }> = {
   nom_etablissement:          { label: "Nom de l'établissement" },
+  agrement:                   { label: "Numéro d'agrément" },
+  directeur_general:          { label: 'Nom du Directeur Général' },
+  ministere_tutelle:          { label: 'Intitulé du ministère de tutelle' },
   abreviation:                { label: 'Abréviation' },
   adresse:                    { label: 'Adresse' },
   telephone:                  { label: 'Téléphone', type: 'tel' },
@@ -654,6 +681,91 @@ async function deleteTypeDoc(t: TypeDocument) {
   }
 }
 
+// ── Congés & Fêtes institut ───────────────────────────────────────────
+interface CongeInstitut { id: number; nom: string; date_debut: string; date_fin: string; type: string; recurrent: boolean; annee_academique_id: number | null; annee_academique_libelle?: string }
+const conges = ref<CongeInstitut[]>([])
+const loadingConges = ref(false)
+const showModalConge = ref(false)
+const editingConge = ref<CongeInstitut | null>(null)
+const savingConge = ref(false)
+const deletingCongeId = ref<number | null>(null)
+const formConge = ref({ nom: '', date_debut: '', date_fin: '', type: 'fete' as string, recurrent: false, annee_academique_id: null as number | null })
+
+const congeTypes: Record<string, string> = { fete: 'Fête religieuse', vacances: 'Vacances', pont: 'Pont', autre: 'Autre' }
+
+async function loadConges() {
+  loadingConges.value = true
+  try {
+    const { data } = await api.get('/conges-institut')
+    conges.value = data
+  } finally {
+    loadingConges.value = false
+  }
+}
+
+function openNewConge() {
+  editingConge.value = null
+  formConge.value = { nom: '', date_debut: '', date_fin: '', type: 'fete', recurrent: false, annee_academique_id: null }
+  showModalConge.value = true
+}
+
+function openEditConge(c: CongeInstitut) {
+  editingConge.value = c
+  formConge.value = {
+    nom: c.nom,
+    date_debut: c.date_debut?.slice(0, 10) ?? '',
+    date_fin: c.date_fin?.slice(0, 10) ?? '',
+    type: c.type,
+    recurrent: c.recurrent,
+    annee_academique_id: c.annee_academique_id,
+  }
+  showModalConge.value = true
+}
+
+async function saveConge() {
+  if (!formConge.value.nom.trim() || !formConge.value.date_debut || !formConge.value.date_fin) return
+  savingConge.value = true
+  try {
+    const payload = { ...formConge.value }
+    if (editingConge.value) {
+      const { data } = await api.put(`/conges-institut/${editingConge.value.id}`, payload)
+      const idx = conges.value.findIndex(c => c.id === editingConge.value!.id)
+      if (idx >= 0) conges.value[idx] = data
+    } else {
+      const { data } = await api.post('/conges-institut', payload)
+      conges.value.unshift(data)
+    }
+    showModalConge.value = false
+  } catch (e: any) {
+    alert(e?.response?.data?.message || 'Erreur lors de la sauvegarde')
+  } finally {
+    savingConge.value = false
+  }
+}
+
+async function deleteConge(c: CongeInstitut) {
+  if (!confirm(`Supprimer "${c.nom}" ?`)) return
+  deletingCongeId.value = c.id
+  try {
+    await api.delete(`/conges-institut/${c.id}`)
+    conges.value = conges.value.filter(x => x.id !== c.id)
+  } catch (e: any) {
+    alert(e?.response?.data?.message || 'Suppression impossible')
+  } finally {
+    deletingCongeId.value = null
+  }
+}
+
+function formatDateFr(d: string) {
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function congeDuree(c: CongeInstitut) {
+  const d1 = new Date(c.date_debut), d2 = new Date(c.date_fin)
+  return Math.round((d2.getTime() - d1.getTime()) / 86400000) + 1
+}
+
 onMounted(() => {
   load()
   loadTypesFormation()
@@ -663,6 +775,7 @@ onMounted(() => {
   loadNiveauxBourse()
   loadTypesDocs()
   loadCatDep()
+  loadConges()
 })
 </script>
 
@@ -691,6 +804,22 @@ onMounted(() => {
     <!-- Contenu principal -->
     <main class="pm-main">
 
+      <!-- Raccourcis administration -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+        <a href="/annees-academiques" style="display:inline-flex;align-items:center;gap:7px;padding:8px 16px;background:#E30613;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;">
+          <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          Années académiques
+        </a>
+        <a href="/tarifs" style="display:inline-flex;align-items:center;gap:7px;padding:8px 16px;background:#1e293b;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;">
+          <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
+          Tarifs
+        </a>
+        <a href="/users" style="display:inline-flex;align-items:center;gap:7px;padding:8px 16px;background:#1e293b;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;">
+          <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+          Utilisateurs
+        </a>
+      </div>
+
       <!-- ═══ PÉDAGOGIQUE ═══════════════════════════════════════════════ -->
       <template v-if="activeGroup === 'pedagogique'">
 
@@ -709,6 +838,7 @@ onMounted(() => {
               { key: 'niveaux-entree', label: 'Niveaux d\'entrée' },
               { key: 'niveaux-bourse', label: 'Niveaux de bourse' },
               { key: 'types-docs',     label: 'Types de documents' },
+              { key: 'conges',         label: 'Congés & Fêtes' },
             ]"
             :key="tab.key"
             @click="activePedaTab = tab.key as any"
@@ -799,6 +929,12 @@ onMounted(() => {
                       <span class="pm-toggle-knob" :class="formType.has_niveau ? 'pm-toggle-knob--on' : ''" />
                     </button>
                     <span class="pm-toggle-label">{{ formType.has_niveau ? 'A des années d\'étude (1ère, 2ème…)' : 'Pas d\'année d\'étude' }}</span>
+                  </div>
+                  <div class="pm-toggle-row" style="margin-top:8px;">
+                    <button @click="formType.est_individuel = !formType.est_individuel" class="pm-toggle" :class="formType.est_individuel ? 'pm-toggle--on' : ''">
+                      <span class="pm-toggle-knob" :class="formType.est_individuel ? 'pm-toggle-knob--on' : ''" />
+                    </button>
+                    <span class="pm-toggle-label">{{ formType.est_individuel ? 'Formation individuelle (à la carte, paiement 50/50)' : 'Formation collective (classique)' }}</span>
                   </div>
                 </div>
                 <div class="pm-modal-footer">
@@ -895,7 +1031,13 @@ onMounted(() => {
         <template v-else-if="activePedaTab === 'matieres'">
           <div class="pm-tab-bar">
             <p class="pm-tab-desc">Référentiel global des matières enseignées, partagées entre les filières.</p>
-            <button v-if="isDG" @click="openNewMatiere" class="uc-btn-primary">+ Nouvelle matière</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <button v-if="isDG && matieres.length > 0" @click="nettoyerDoublonsMatieres" :disabled="nettoyageDoublonsMatieres"
+                style="padding:7px 13px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer;border:1.5px solid #ea580c;background:#fff7ed;color:#ea580c;">
+                {{ nettoyageDoublonsMatieres ? 'Nettoyage…' : '🧹 Nettoyer les doublons' }}
+              </button>
+              <button v-if="isDG" @click="openNewMatiere" class="uc-btn-primary">+ Nouvelle matière</button>
+            </div>
           </div>
 
           <div v-if="loadingMatieres" class="pm-empty">Chargement…</div>
@@ -1319,6 +1461,111 @@ onMounted(() => {
                     :style="(!formTypeDoc.label.trim() || (!editingTypeDoc && !formTypeDoc.code.trim()) || savingTypeDoc) ? 'opacity:0.4' : ''"
                   >
                     {{ savingTypeDoc ? 'Enregistrement…' : editingTypeDoc ? 'Modifier' : 'Créer' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Teleport>
+        </template>
+
+        <!-- ─── Congés & Fêtes ───────────────────────────────────────── -->
+        <template v-if="activePedaTab === 'conges'">
+          <div class="pm-tab-bar">
+            <p class="pm-tab-desc">Définissez les jours fériés, fêtes et vacances de l'institut. Ces périodes seront exclues de la génération automatique des emplois du temps.</p>
+            <button v-if="isDG || auth.user?.role === 'dir_peda'" @click="openNewConge" class="uc-btn-primary">+ Nouveau congé</button>
+          </div>
+
+          <div v-if="loadingConges" class="pm-empty">Chargement…</div>
+          <div v-else-if="conges.length === 0" class="pm-empty">Aucun congé ou fête configuré. Commencez par en créer un.</div>
+          <div v-else class="pm-table-wrap">
+            <table class="pm-table">
+              <thead>
+                <tr>
+                  <th>Nom</th>
+                  <th>Type</th>
+                  <th>Date début</th>
+                  <th>Date fin</th>
+                  <th style="text-align:center">Durée</th>
+                  <th style="text-align:center">Récurrent</th>
+                  <th v-if="isDG || auth.user?.role === 'dir_peda'" style="text-align:right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in conges" :key="c.id">
+                  <td class="pm-td-bold">{{ c.nom }}</td>
+                  <td><span class="pm-badge-code" :style="c.type === 'vacances' ? 'background:#dbeafe;color:#1d4ed8' : c.type === 'fete' ? 'background:#fef3c7;color:#92400e' : ''">{{ congeTypes[c.type] ?? c.type }}</span></td>
+                  <td style="font-size:12px;">{{ formatDateFr(c.date_debut) }}</td>
+                  <td style="font-size:12px;">{{ formatDateFr(c.date_fin) }}</td>
+                  <td style="text-align:center;font-size:12px;font-weight:600;">{{ congeDuree(c) }}j</td>
+                  <td style="text-align:center">
+                    <span class="pm-badge-statut" :class="c.recurrent ? 'pm-statut-actif' : 'pm-statut-inactif'">{{ c.recurrent ? 'Oui' : 'Non' }}</span>
+                  </td>
+                  <td v-if="isDG || auth.user?.role === 'dir_peda'" style="text-align:right">
+                    <div class="pm-row-actions">
+                      <button @click="openEditConge(c)" class="pm-action-btn pm-action-btn--edit">Modifier</button>
+                      <button @click="deleteConge(c)" :disabled="deletingCongeId === c.id" class="pm-action-btn pm-action-btn--del">{{ deletingCongeId === c.id ? '…' : 'Supprimer' }}</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Modal créer / modifier un congé -->
+          <Teleport to="body">
+            <div v-if="showModalConge" class="pm-overlay" @click.self="showModalConge = false">
+              <div class="pm-modal">
+                <div class="pm-modal-header">
+                  <h2 class="pm-modal-title">{{ editingConge ? 'Modifier le congé' : 'Nouveau congé / fête' }}</h2>
+                  <button @click="showModalConge = false" class="pm-modal-close">✕</button>
+                </div>
+                <div class="pm-modal-body">
+                  <div class="pm-field">
+                    <label class="pm-label">Nom <span class="pm-req">*</span></label>
+                    <input v-model="formConge.nom" type="text" class="pm-input" placeholder="Ex: Tabaski, Vacances de Noël, Magal…" />
+                  </div>
+                  <div class="pm-field">
+                    <label class="pm-label">Type</label>
+                    <select v-model="formConge.type" class="pm-input">
+                      <option value="fete">Fête religieuse</option>
+                      <option value="vacances">Vacances</option>
+                      <option value="pont">Pont</option>
+                      <option value="autre">Autre</option>
+                    </select>
+                  </div>
+                  <div class="pm-grid-2">
+                    <div class="pm-field">
+                      <label class="pm-label">Date début <span class="pm-req">*</span></label>
+                      <input v-model="formConge.date_debut" type="date" class="pm-input" />
+                    </div>
+                    <div class="pm-field">
+                      <label class="pm-label">Date fin <span class="pm-req">*</span></label>
+                      <input v-model="formConge.date_fin" type="date" class="pm-input" />
+                    </div>
+                  </div>
+                  <div class="pm-check-row">
+                    <button
+                      @click="formConge.recurrent = !formConge.recurrent"
+                      class="pm-toggle pm-toggle--sm"
+                      :class="formConge.recurrent ? 'pm-toggle--on' : ''"
+                    >
+                      <span class="pm-toggle-knob pm-toggle-knob--sm" :class="formConge.recurrent ? 'pm-toggle-knob--sm-on' : ''" />
+                    </button>
+                    <div>
+                      <p class="pm-check-label">Récurrent chaque année</p>
+                      <p class="pm-hint">Si activé, ce congé sera automatiquement reconduit les années suivantes.</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="pm-modal-footer">
+                  <button @click="showModalConge = false" class="pm-btn-cancel">Annuler</button>
+                  <button
+                    @click="saveConge"
+                    :disabled="!formConge.nom.trim() || !formConge.date_debut || !formConge.date_fin || savingConge"
+                    class="uc-btn-primary"
+                    :style="(!formConge.nom.trim() || !formConge.date_debut || !formConge.date_fin || savingConge) ? 'opacity:0.4' : ''"
+                  >
+                    {{ savingConge ? 'Enregistrement…' : editingConge ? 'Modifier' : 'Créer' }}
                   </button>
                 </div>
               </div>

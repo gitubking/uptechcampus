@@ -54,9 +54,39 @@ async function confirmDeleteEtudiant() {
 // --- Données ---
 const etudiant = ref<any>(null)
 const loading = ref(true)
-const activeTab = ref<'infos' | 'inscriptions' | 'documents' | 'timeline' | 'commentaires'>('infos')
+const activeTab = ref<'infos' | 'inscriptions' | 'documents' | 'finance' | 'timeline' | 'commentaires'>('infos')
 const echeancesMap = ref<Record<number, any[]>>({})
 const paiementsMap = ref<Record<number, any[]>>({})
+
+// --- Formation individuelle ---
+const fiData = ref<any>(null)
+const isFiStudent = computed(() => !!fiData.value)
+
+// --- Conditions d'accès documents ---
+// Fiche d'inscription : disponible si frais d'inscription payé (classique) OU inscription FI payée
+const ficheDisponible = computed(() => {
+  // Cas FI : inscription FI payée
+  if (isFiStudent.value) {
+    const paiements = fiData.value?.paiements || []
+    return paiements.some((p: any) => p.type === 'inscription' && (p.statut === 'paye' || p.statut === 'partiel'))
+  }
+  // Cas classique
+  const insc = etudiant.value?.inscriptions?.[0]
+  if (!insc) return false
+  const paiements = paiementsMap.value[insc.id] || []
+  return paiements.some((p: any) => p.type_paiement === 'frais_inscription' && p.statut === 'confirme')
+})
+// Certificat : disponible si inscription payée + au moins un paiement supplémentaire
+const certificatDisponible = computed(() => {
+  if (!ficheDisponible.value) return false
+  // Cas FI : inscription FI payée = suffit (pas de mensualité pour FI)
+  if (isFiStudent.value) return true
+  // Cas classique
+  const insc = etudiant.value?.inscriptions?.[0]
+  if (!insc) return false
+  const paiements = paiementsMap.value[insc.id] || []
+  return paiements.some((p: any) => p.type_paiement === 'mensualite' && p.statut === 'confirme')
+})
 
 // Statistiques clés
 interface EtudiantStats {
@@ -121,6 +151,13 @@ async function fetchEtudiant() {
         paiementsMap.value = map
       }).catch(() => {})
     }
+    // Charger formation individuelle si l'étudiant en a une
+    api.get('/formations-individuelles').then(r => {
+      const allFi: any[] = r.data || []
+      const myFi = allFi.find((fi: any) => String(fi.etudiant_id) === String(data.id))
+      fiData.value = myFi || null
+      console.log('[FI-LOAD]', data.id, allFi.length, myFi ? 'FOUND' : 'NOT FOUND')
+    }).catch((err) => { console.error('[FI-ERR]', err) })
   } finally {
     loading.value = false
     loadChecklist()
@@ -133,11 +170,20 @@ function printRecuDetail(p: any, insc: any) {
   const prenom = insc.etudiant?.prenom ?? etudiant.value?.prenom ?? ''
   const nom = insc.etudiant?.nom ?? etudiant.value?.nom ?? ''
   const filiere = insc.filiere?.nom ?? insc.classe?.filiere?.nom ?? '—'
-  const typeLabel = p.type_paiement === 'frais_inscription' ? "Frais d'inscription"
-    : p.type_paiement === 'mensualite' ? 'Mensualité'
+  const classe = insc.classe?.nom ?? insc.filiere?.nom ?? '—'
+  let typeLabel = p.type_paiement === 'frais_inscription' ? "Frais d'inscription"
     : p.type_paiement === 'tenue' ? 'Tenue scolaire'
     : p.type_paiement === 'rattrapage' ? 'Rattrapage'
     : p.type_paiement
+  if (p.type_paiement === 'mensualite') {
+    const echs = (echeancesMap.value[insc.id] || [])
+      .filter((e: any) => e.type_echeance === 'mensualite')
+      .sort((a: any, b: any) => a.mois.localeCompare(b.mois))
+    const moisKey = p.mois_concerne?.substring(0, 7) ?? ''
+    const idx = echs.findIndex((e: any) => e.mois.substring(0, 7) === moisKey)
+    const total = echs.length
+    typeLabel = idx >= 0 ? `Mensualité ${idx + 1}/${total}` : 'Mensualité'
+  }
   const dateLabel = new Date(p.confirmed_at ?? p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
   const moisConcerne = p.mois_concerne
   const moisLabel = moisConcerne
@@ -162,8 +208,9 @@ function printRecuDetail(p: any, insc: any) {
         <div class="recu-title">Reçu de paiement &nbsp;<span class="recu-num">${p.numero_recu}</span></div>
         <div class="info-grid">
           <div class="info-box full"><label>Étudiant</label><span>${prenom} ${nom}</span></div>
+          <div class="info-box"><label>Classe</label><span>${classe}</span></div>
           <div class="info-box"><label>Filière</label><span>${filiere}</span></div>
-          <div class="info-box"><label>Type</label><span>${typeLabel}</span></div>
+          <div class="info-box"><label>Objet</label><span>${typeLabel}</span></div>
           <div class="info-box"><label>Mode</label><span>${modeStr}</span></div>
           <div class="info-box"><label>Date</label><span>${dateLabel}</span></div>
           ${moisLabel ? `<div class="info-box"><label>Période</label><span>${moisLabel}</span></div>` : ''}
@@ -226,6 +273,84 @@ function echLabel(ech: any, allEchs: any[]): string {
     return `M${idx + 1}`
   }
   return ech.type_echeance
+}
+
+// ── Fiche financière (onglet Finance) ────────────────────────────────
+const financeSummary = computed(() => {
+  if (!etudiant.value?.inscriptions) return []
+  return etudiant.value.inscriptions.map((insc: any) => {
+    const echs = echeancesMap.value[insc.id] || []
+    const pays = paiementsMap.value[insc.id] || []
+    const totalPrevu = echs.reduce((s: number, e: any) => s + Number(e.montant), 0)
+    const totalPaye = pays.filter((p: any) => p.statut === 'confirme').reduce((s: number, p: any) => s + Number(p.montant), 0)
+    const reste = Math.max(0, totalPrevu - totalPaye)
+    const now = new Date().toISOString().substring(0, 7)
+    const echsRetard = echs.filter((e: any) => e.mois.substring(0, 7) <= now && e.statut !== 'paye')
+    return { insc, echs, pays, totalPrevu, totalPaye, reste, nbRetard: echsRetard.length }
+  })
+})
+
+async function printRecuFinance(p: any, insc: any) {
+  const logoUrl = `${window.location.origin}/icons/icon-192.png`
+  const prenom = etudiant.value?.prenom ?? ''
+  const nom = etudiant.value?.nom ?? ''
+  const filiere = insc.filiere?.nom ?? '—'
+  const classe = insc.classe?.nom ?? insc.filiere?.nom ?? '—'
+  let typeLabel = p.type_paiement === 'frais_inscription' ? "Frais d'inscription"
+    : p.type_paiement === 'tenue' ? 'Tenue scolaire'
+    : p.type_paiement === 'rattrapage' ? 'Rattrapage' : p.type_paiement
+  if (p.type_paiement === 'mensualite') {
+    const echs = (echeancesMap.value[insc.id] || [])
+      .filter((e: any) => e.type_echeance === 'mensualite')
+      .sort((a: any, b: any) => a.mois.localeCompare(b.mois))
+    const moisKey = p.mois_concerne?.substring(0, 7) ?? ''
+    const idx = echs.findIndex((e: any) => e.mois.substring(0, 7) === moisKey)
+    const total = echs.length
+    typeLabel = idx >= 0 ? `Mensualité ${idx + 1}/${total}` : 'Mensualité'
+  }
+  const dateLabel = new Date(p.confirmed_at ?? p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+  const moisLabel = p.mois_concerne
+    ? new Date((p.mois_concerne.length === 7 ? p.mois_concerne + '-01' : p.mois_concerne)).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+    : null
+  const modeStr = ({ especes: 'Espèces', wave: 'Wave', orange_money: 'Orange Money', virement: 'Virement', cheque: 'Chèque' } as Record<string,string>)[p.mode_paiement] ?? p.mode_paiement
+  const montantStr = Number(p.montant).toLocaleString('fr-FR')
+  const qrData = JSON.stringify({ r: p.numero_recu, m: p.montant, d: p.confirmed_at ?? p.created_at, e: `${prenom} ${nom}` })
+  let qrDataUrl = ''
+  try { qrDataUrl = await QRCode.toDataURL(qrData, { width: 80, margin: 1 }) } catch { /* ignore */ }
+  const recuBlock = (exemplaire: string) => `
+    <div class="recu-block"><div class="exemplaire">${exemplaire}</div>
+      <div class="hdr"><img src="${logoUrl}" alt="Logo"><div class="hdr-info">
+        <div class="tagline">Institut de Formation</div>
+        <h1>Institut Supérieur de Formation aux Nouveaux Métiers de l'Informatique et de la Communication</h1>
+        <div class="meta">NINEA : 006118310 _ BP 50281 RP DAKAR | Sicap Amitié 1, Villa N° 3031 — Dakar | Tél : 33 821 34 25 / 77 841 50 44</div>
+        <div class="agree">Agréé par l'État : N°RepSEN/Ensup-priv/AP/387-2021_N°14191/MFPAA/SG/DFPT</div>
+      </div></div>
+      <div class="content">
+        <div class="recu-title">Reçu de paiement <span class="recu-num">${p.numero_recu}</span></div>
+        <div class="info-grid">
+          <div class="info-box full"><label>Étudiant</label><span>${prenom} ${nom}</span></div>
+          <div class="info-box"><label>Classe</label><span>${classe}</span></div>
+          <div class="info-box"><label>Filière</label><span>${filiere}</span></div>
+          <div class="info-box"><label>Objet</label><span>${typeLabel}</span></div>
+          <div class="info-box"><label>Mode</label><span>${modeStr}</span></div>
+          <div class="info-box"><label>Date</label><span>${dateLabel}</span></div>
+          ${moisLabel ? `<div class="info-box"><label>Période</label><span>${moisLabel}</span></div>` : ''}
+          ${p.reference ? `<div class="info-box full"><label>Référence</label><span style="font-family:monospace">${p.reference}</span></div>` : ''}
+        </div>
+        <div class="montant-qr">
+          <div class="montant-box"><div class="lbl">Montant payé</div><div class="amt">${montantStr} FCFA</div></div>
+          ${qrDataUrl ? `<div class="qr-box"><img src="${qrDataUrl}" alt="QR"><div class="qr-label">Vérification</div></div>` : ''}
+        </div>
+        <div class="sign-area">
+          <div class="sign-box"><div class="sign-line"></div><label>Signature du caissier</label></div>
+          <div class="sign-box"><div class="sign-line"></div><label>Cachet de l'établissement</label></div>
+        </div>
+        <div class="footer-bar">Amitié 1, Villa n°3031 — Dakar | +221 77 841 50 44 / 77 618 45 52 | uptechformation.com</div>
+      </div></div>`
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reçu ${p.numero_recu}</title>
+  <style>*{box-sizing:border-box;margin:0;padding:0}@page{size:A4 portrait;margin:10mm}body{font-family:Arial,sans-serif;color:#111;font-size:11px;width:148mm}.recu-block{page-break-inside:avoid;padding-bottom:6px}.exemplaire{text-align:right;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#aaa;padding:4px 16px 2px}.hdr{display:flex;align-items:center;gap:14px;padding:10px 16px 8px;border-bottom:2px solid #E30613}.hdr img{width:52px;height:52px;object-fit:contain;flex-shrink:0}.hdr-info .tagline{font-size:7px;font-weight:700;color:#E30613;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px}.hdr-info h1{font-size:11px;font-weight:900;color:#111;line-height:1.2;margin-bottom:3px}.hdr-info .meta{font-size:8px;color:#555;line-height:1.5}.hdr-info .agree{font-size:7px;color:#888;margin-top:2px}.content{padding:10px 16px}.recu-title{font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#111;margin-bottom:8px}.recu-num{font-size:11px;font-weight:400;color:#888;font-family:monospace;letter-spacing:1px}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}.info-box{background:#f9f9f9;border:1px solid #eee;border-radius:4px;padding:6px 10px}.info-box label{font-size:7px;text-transform:uppercase;color:#aaa;font-weight:700;letter-spacing:0.5px;display:block;margin-bottom:2px}.info-box span{font-size:11px;font-weight:700;color:#111}.full{grid-column:1/-1}.montant-qr{display:flex;align-items:center;gap:12px;margin:10px 0}.montant-box{border:1.5px solid #111;border-radius:6px;padding:8px 16px;text-align:center;flex:1}.montant-box .lbl{font-size:8px;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:2px}.montant-box .amt{font-size:20px;font-weight:900;color:#111}.qr-box{text-align:center;flex-shrink:0}.qr-box img{width:70px;height:70px}.qr-label{font-size:6px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px}.sign-area{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:10px;padding-top:8px;border-top:1px dashed #ddd}.sign-box{text-align:center}.sign-line{border-bottom:1px solid #ccc;height:30px;margin-bottom:4px}.sign-box label{font-size:7px;color:#aaa;text-transform:uppercase}.footer-bar{border-top:1px solid #ccc;color:#777;font-size:7px;text-align:center;padding:4px 16px;margin-top:10px}.cut-line{display:flex;align-items:center;gap:8px;margin:8px 0;color:#aaa;font-size:8px}.cut-line::before,.cut-line::after{content:'';flex:1;border-top:1px dashed #aaa}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head>
+  <body>${recuBlock('Exemplaire établissement')}<div class="cut-line">✂  Découper ici</div>${recuBlock('Exemplaire étudiant')}</body></html>`
+  openPrintAndClose(html)
 }
 
 // ── Indicateur de risque ──────────────────────────────────────────────
@@ -371,11 +496,191 @@ async function saveWebcamPhoto() {
   }
 }
 
+// --- Badge étudiant ---
+const showBadge = ref(false)
+const badgeCanvas = ref<HTMLCanvasElement | null>(null)
+const badgeGenerated = ref(false)
+
+async function generateBadge() {
+  showBadge.value = true
+  badgeGenerated.value = false
+  await new Promise(r => setTimeout(r, 80))
+  const canvas = badgeCanvas.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')!
+
+  // Portrait — 90 × 126 mm @ 300 DPI ≈ 1063 × 1488 px
+  const W = 380, H = 520          // logique
+  const SCALE = 2.8               // rendu 300dpi
+  canvas.width  = Math.round(W * SCALE)
+  canvas.height = Math.round(H * SCALE)
+  ctx.scale(SCALE, SCALE)
+
+  const insc0 = etudiant.value.inscriptions?.[0]
+  const fi = fiData.value
+  const filiereNom = fi ? (fi.type_formation?.nom ?? 'Formation Individuelle') : (insc0?.filiere?.nom ?? insc0?.classe?.filiere?.nom ?? '')
+  const classeNom = fi ? 'Formation Individuelle' : (insc0?.classe?.nom ?? '—')
+  const anneeAcad = fi ? (fi.annee_academique?.libelle ?? '') : (insc0?.annee_academique?.libelle ?? '')
+
+  // ── 1. Fond blanc ────────────────────────────────────────────────────
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, W, H)
+
+  // ── 2. Bande rouge en haut ───────────────────────────────────────────
+  const headerH = 90
+  ctx.fillStyle = '#E30613'
+  ctx.fillRect(0, 0, W, headerH)
+
+  // Logo UP'TECH (centré dans l'en-tête)
+  await drawImage(ctx, UPTECH_LOGO, W / 2 - 32, 8, 64, 64)
+
+  // ── 3. Photo ronde ───────────────────────────────────────────────────
+  const cx = W / 2
+  const cy = headerH + 66
+  const r  = 58
+
+  // Halo blanc autour du cercle
+  ctx.beginPath()
+  ctx.arc(cx, cy, r + 5, 0, Math.PI * 2)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill()
+
+  // Clip circulaire
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.clip()
+
+  if (etudiant.value.photo_path) {
+    await drawImage(ctx, etudiant.value.photo_path, cx - r, cy - r, r * 2, r * 2)
+  } else {
+    // Fond rouge initiales
+    ctx.fillStyle = '#E30613'
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2)
+    ctx.fillStyle = '#ffffff'
+    ctx.font = `bold ${r}px Arial`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(
+      `${etudiant.value.prenom[0]}${etudiant.value.nom[0]}`.toUpperCase(),
+      cx, cy
+    )
+    ctx.textBaseline = 'alphabetic'
+  }
+  ctx.restore()
+
+  // Bordure rouge cercle
+  ctx.beginPath()
+  ctx.arc(cx, cy, r + 5, 0, Math.PI * 2)
+  ctx.strokeStyle = '#E30613'
+  ctx.lineWidth = 3
+  ctx.stroke()
+
+  // ── 4. Nom complet ──────────────────────────────────────────────────
+  const nameY = cy + r + 30
+  ctx.fillStyle = '#111111'
+  ctx.font = 'bold 26px Arial'
+  ctx.textAlign = 'center'
+  const fullName = `${etudiant.value.prenom.toUpperCase()} ${etudiant.value.nom.toUpperCase()}`
+  // Réduire taille si trop long
+  let nameFontSize = 26
+  while (ctx.measureText(fullName).width > W - 40 && nameFontSize > 14) {
+    nameFontSize--
+    ctx.font = `bold ${nameFontSize}px Arial`
+  }
+  ctx.fillText(fullName, cx, nameY)
+
+  // ── 5. Numéro étudiant ──────────────────────────────────────────────
+  if (etudiant.value.numero_etudiant) {
+    ctx.fillStyle = '#E30613'
+    ctx.font = 'bold 16px Courier New'
+    ctx.fillText(etudiant.value.numero_etudiant, cx, nameY + 24)
+  }
+
+  // ── 6. Ligne séparatrice ────────────────────────────────────────────
+  const sepY = nameY + 40
+  ctx.strokeStyle = '#f0f0f0'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(40, sepY)
+  ctx.lineTo(W - 40, sepY)
+  ctx.stroke()
+
+  // ── 7. Filière ──────────────────────────────────────────────────────
+  ctx.fillStyle = '#555555'
+  ctx.font = '16px Arial'
+  ctx.fillText(filiereNom, cx, sepY + 22)
+
+  // ── 8. Classe ───────────────────────────────────────────────────────
+  ctx.fillStyle = '#111111'
+  ctx.font = 'bold 18px Arial'
+  ctx.fillText(classeNom, cx, sepY + 46)
+
+  // ── 9. Année académique ─────────────────────────────────────────────
+  ctx.fillStyle = '#888888'
+  ctx.font = '13px Arial'
+  ctx.fillText(anneeAcad, cx, sepY + 68)
+
+  // ── 10. QR code (vérification) ──────────────────────────────────────
+  try {
+    const verifyUrl = `${window.location.origin}/verify/${etudiant.value.numero_etudiant}`
+    const qrDataUrl = await QRCode.toDataURL(verifyUrl, { width: 80, margin: 1 })
+    const qrSize = 70
+    await drawImage(ctx, qrDataUrl, cx - qrSize / 2, sepY + 82, qrSize, qrSize)
+    ctx.fillStyle = '#aaaaaa'
+    ctx.font = '10px Arial'
+    ctx.fillText('Vérifier', cx, sepY + 82 + qrSize + 14)
+  } catch { /* ignore */ }
+
+  // ── 11. Barre noire en bas ──────────────────────────────────────────
+  const footerH = 36
+  ctx.fillStyle = '#111111'
+  ctx.fillRect(0, H - footerH, W, footerH)
+  ctx.fillStyle = '#ffffff'
+  ctx.font = 'bold 11px Arial'
+  ctx.textAlign = 'center'
+  ctx.fillText("UP'TECH — Institut Supérieur de Formation", cx, H - footerH + 14)
+  ctx.font = '9px Arial'
+  ctx.fillStyle = '#cccccc'
+  ctx.fillText('Sicap Amitié 1, Villa 3031 — Dakar  |  uptechformation.com', cx, H - footerH + 27)
+  ctx.textAlign = 'left'
+
+  badgeGenerated.value = true
+}
+
+function downloadBadge() {
+  const canvas = badgeCanvas.value
+  if (!canvas) return
+  const link = document.createElement('a')
+  link.download = `badge-${etudiant.value.numero_etudiant}.png`
+  link.href = canvas.toDataURL('image/png')
+  link.click()
+}
+
+function printBadge() {
+  const canvas = badgeCanvas.value
+  if (!canvas) return
+  const dataUrl = canvas.toDataURL('image/png')
+  const html = `<html><head><title>Badge étudiant</title>
+    <style>
+      body { margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #f5f5f5; }
+      img { max-height: 90vh; width: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+      @media print { body { background: white; } img { box-shadow: none; max-height: 100%; } }
+    </style></head>
+    <body><img src="${dataUrl}" /></body></html>`
+  openPrintAndClose(html)
+}
+
 // --- Carte étudiant ---
 const showCard = ref(false)
 const cardCanvas = ref<HTMLCanvasElement | null>(null)
 const cardGenerated = ref(false)
-const carteBloquee = computed(() => !etudiant.value?.inscriptions?.[0]?.classe?.id)
+const carteBloquee = computed(() => {
+  // FI student : carte disponible si inscription FI payée
+  if (isFiStudent.value) return !ficheDisponible.value
+  // Classique : doit avoir une classe
+  return !etudiant.value?.inscriptions?.[0]?.classe?.id
+})
 
 // Logo UPTECH exact (PNG embarqué en base64)
 const UPTECH_LOGO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVMAAABrCAYAAADKFWEAAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAV3UlEQVR4Ae2dv4/sSBHHn/ovWPEPMPwQEtHtJUQEjURCtpeQMqdLL9gLCZDuIiSSJUAiXE66hOiBRIgYSCFYMshGiHtCIMSiJ4RAJzTU17uebZfbdper7W6/rZa8nvbY3dXfrvpM2Z7xvnhhxRQwBUwBU8AUMAVMAVPAFDAFTAFTwBQwBUwBU8AUMAVMAVPAFDAFTAFTwBQoqcCfvvrWBS2elo9sEWtwRZrtSs6f9W0KmAKFFQAEaLml5WSLWoMDaXhVeEqte1PAFFhbAQr8GwOoGqCxDyFA9WLt+bT+TAFTYGUFEOi03BlIFwFpC9d70vdy5am17kwBU2BNBSjIkTm1QX9e/+3969O/Xv789J/f/s6WRA3+/ctfnf7x/R+c/vy1r591DLQFUHdrzq31ZQqYAispQMGNG0ydwP/rd947ffbpq5OV+Qr87/XrBqpcW6rfrTS11o0pMFMBR5ekHF3rdx/RcqCFfNadIsvx8f0bWu9p2c3scPuHUWDjZlMHpH//7vfmE8SO7CmAzJ5rTHVyPG1pnByOnrKQs7fF0aWGpGPadvftkQ9r8fFtO+36JfWPIKV20VZqSbWZt+cQ6G3fpdZsnM3Yl7YlmHOuyVDdedIK83NSLEc69pqWi6Fe4tu1fsVbVc37nrc2Waeg7txw+ss73+7BwDboFfjnj37MgUoOpy0ih6fAbYvzwkAh8IXFeeHxU4GJ4ANcJ4IvdbyhrXjdgHTKhqXfJ83C0ox36T4PYY/jr88gy2nT/cO8jvf89K7ztL+i/6eWHl6p5p35PG87UieY4hreOdBxbbSmcnf3+9Ph8OvTy5c/O3344UfNcnv7k46JsBmwwvL640/O13Y7O1VQefXNb511ftScZSuRCRrdJHK8ILCcFzotcyzx8akBciS7RjRJHS8XTRVUqbZP7Ueah6UmmC5uy934vLa6OC/0S6Z52067Vs078/m2zYE1BfRlCNLSWenxeDwBlPv9u6fLy7eZUE+B5P03OmiMZH1naAFguImGff77hz92jlu7AtCHetNr2YT15vFJkwQnPDwd7nzC/qH+zE7x8WFbU6+RzexeREvqePnBqqCasjf1fd+1anGAwa5Dt89Yzd0KfSF1vHw/zOvIByVsc15nCzXRKap5Zz7fabhfoWDGr5vOAQ7grF2QeV5ff3Da7b7IxR+sS2Aajg+vcYcd14Rxx33tggya2XPbnxXJllS4NPsdnlp2Xui0zLHExw/O5YAdga1PVg/sG2k7PAavVUEVaV+ke3u871pVA0xXA2mrwQRQHWk0S9vH9rsKK+ed+Txvm9UpsDt38dcEDDLQsexzTFQNTEOYIWvFBwjuuq9Vwv7p9YFNibAqcrygL+fH9I28xxxLfHwbTJL17kWvpI6XH2gw5YrQHO8j8yyZn7n7HqnfgWvjzuts4qNUzTvzed42q3OYrnG9FBCVZKExcXPBNAQbstU1vgoW9mkwHYXjNXNXqo7uHwQ3P1IVVEG7qf1H9/Ndq0pmps3XnpAl5hqbtJ2brhZtzXmdTW077Vo17/XCFDeQtBBthV4CpoAcLgEsnakaTJMD+LYNiad16rFPRzy8UgWVFBRD+/uuVUVhStqmarnIfgB5JDt1pJGmv67C1NZB0V59MMVNJcBPMajesUvBtAUdTv+XytLbPh7XNNmaInK8oC/nhfPBHGvO8U02dEX93iX2HdjbapQ0XmqfF1VQ9fwv0X5+nO9aVQqmxbPSVpd9Vw/UnJ+p7WOb1ESnqOad+Xyn4X6FArpzzTQ3QHBKf3HxuVa8bOulYdoCDz8JzX09tW37+cG09b/mVzUpvnBoj3haJ8E0dhxtSzo2xa65+/inceBVMZjuFVogo6QPRJQGyreKtuhYXpxXtEfzwssbANP7+/vm6006YYadfy2YAnj4uljOr1QZTOHww3MbvHfgoRG8R4Ez2EYko1AF1Vhfkvd8dzzFYHozot3UeOjYsDRAnTpm6P1j2NLDa+cVtlE/vKjmPeJHvP2gToGdPTMFSOfepU8Vck2YAn64lporazeYwgEHQRgGHmVBvDTBcaDjKRAH23jMnMJjVUEV2qR57UOLyH4K1sExaPoJjz10+0RNpUVM2+P8cXDrnJ/fFrTkRTXWsjDFd0Zz3WQaE3VtmLYAxG/staVt63EdcXbuEGN1UTAGfTk/pm/kPeZY6uPJ8VNsHxr74HXXCICH2uDbU+wZ3Mfz1qbrKpgGczndU3ePQe1S5sR320JNBSzWnqP6oMYJ9pE5naKyjfl8p+F+hQI6W2YKkC5xfTQmbimYAoBaoBpM4YepAdP3WTp2P3K8LAA6zafaFN3Pd5pKqhSDaQKUomPEcb4/NBWwWHtof7DvBLu5dSrbZL6UC6ZrghRil4SpFqgGUzh8asD0gmPset8d31tWT7Upup+X9YW9NwnTXX+cKmDtu+05n+4bsXnotkZtHRTtrQ/TNa6RckFKwxRAnHsN1WAKh48FQmxbLziGshM6vR/6PT9vY6ge6z95mx9qdXj7FmEaG01OYDmf7huxueH25bSNt83qFNjq0/ylbzbFxK0BprgpNecXUwZTOGEsEGLbmMPGj6OMFHeVtSXWf/I2L+/dYErzxrI/Rzomax75YOWzsCGY4gElusHPE64GmAKK+NqU9HuoBtPkgKFsk5eOvyAbZcHI95fUO21L/dpLenrY12Danz9HOmrmgc/CRmCKn4fqBj5ftFpgCjDii/2S8rxh2nwvEZlkiu8ceGg8Hofjr2nJkI2GPSTZNGQ3QUBaSsC0eQD00BgStsfGmBNYzif6xoCt3L6ctvG2WZ0Ce9ZpPq6TrnXnPiZuTTAFHCXXT58pTAecfxRgB+auC1dHbZmy38uNKwJTslMzztgocwLLZbYvp22xsQfb5sIUD2/WTYpmQsvfzWdAPOG3/Kmn++xYJTBEOgZ9iZ2WnU6Lj5/jLy8DV13hpUhLPh4vN9BgSgzJ7Vc0Dy5cUs+C+Hyizmx7MV7mwBT/QqQkSNF3bZkpAJn6YG2DaTK0ZM487uoJ7ybbFfN/n9AB28Vg2geWIx1V8xCbm7nbZP43B6YAWekB1whT3N1PyU4NpsnBcsnos3A12a6Y/xMEpEUFU2RcfnrhNjXHxOxP3MbbQz3nqbTWPtUccg2WhWkNWSlAXiNMAcmUf5FtME1y+EMsbJfdlmQXD7i27uW2qWDa9jux5lY5slMzTt4e6gbTRhVpZlpDVlozTFOyU4PpZDAj68p8pz4GAb5t0q4xcHne2nTdYErzzLI/Rzqq5mFsjqTvMdsmZlQCU/xktJaB1pqZApRT104NpqPBclMGpAiUUbumfJ8gIC1vDEz3pB2BZ9biu6o5qqvmYWqeJO8vB9PSd/BDkWuGKe7sjxWD6TlY7mlOD7Tc0rKnpUA2Goby2S5JwLX7EgSk5U2BqXTcY/s7T37Qalp6vRxMS36vlAtcM0wBy7H/8vpMYSpzzLF4W+w9VRATBKTFYNpXzHke6wXrMp+lwE760n7JXzvFxKwdpmM3ogym/RCqY4vBNBZr3W1Lz5Tz3f5Uc6LNbJeBaU2n+BC7dpjiRtRQMZguHZBz21cFLkFAWiwz7Svm/BsP0zWeni8RsXaYAphD/zfKYNoPoTq2GEynY3DpmXJ+2gbVPEmy1fyZaU138VuhtwDT1x9/Ek1ODaZLB+Tc9lVBShCQFstM+4o538Z4Bev8MMW/a65gYB0btgDTv71/bTB9ujMrc8x+lK2wxWA6HedLT4Pz0zao5qnDkYm+ZD5LWdLkDahSzywdG+gWYDr0FSnLTJcOyLntq4KUICAtlpn2FXN+LO5Xfi8/TAGulQcx2d8WYApoxorBtB9CdWzZFEwP8zRzXhfLsV6bZ6Si3TnL7kWnOJ/Xvpw/de0Y2q+kZKa13XyC2FuBaewmlMG074d1bDGYToMsNlM5geX8tA1j88Tty2kbb5vVU2CqG9zYwOe/txWYxh4anRmmlKEk60i/eW9L86T6yTOAoG3fHvmwdlRP7hf9yE6Zup2tVBONh2tHekiL6jSf5n1OcV44b2ycsT5zAiu3fTlti4092GYwfevE4Ja1HvslFOtvZlC0k+heCoODHmvX/OsQ6lcED/Y4PLHTG0zbKTuvDabkg8wvxH41AfuKYHo8HpmxogBc7NitZKaxh55khuleCMU5c3I8x//5hdjpWdCcG6rohcq3vXwgBtNnBdNanl/KgWEwbUO3yTLxwJA5kEw9JgJCR/AQ9Rlpox1DLWvReLh2pIe0FIHpTjhvbJyxMebM/pzPa19O22JjD7ZNneYjM/3ww4+qW/Dd17Dg2iSywNqW5a+ZYjLF1z9ZgIxC5EjtR57m5LzQ6Q2mmKpOKQFTGDA63xO+0RnAYyUnsJzPa19O22JjD7ZNwTQElr3Oo0De0/x2MpvH2E0EwqwgYtdKz/15odMbTFvpzmuDKfkQ8wsn9Svm82dxH18YTPNQq9JWloEpfCc7UPePHhlZOW8w7Xw4kR7SYjA1mFYKqa2YtRxMEczNKb/2GipO7Qcy0hYYzhtMDaYP3qDK/q5aj3psS+pX28lMP/v0VXXXIXFd9F8vf95hJ26U1XhtF3bxsixM4ZLNTalrWgOKzNlG69gfx108OPbYX+eFbbPTubG2S703qs2UjqSHtBTLTOn7xrPHGhmnCqasPUf12bbRHPGisk3msxTYo7/Nxw0UFvxV1P/6nfc6jAJIdZOgmcDhY2EXL0zPA5/+vHW3I132tJBjNI5F/XXWN1QHQC9l/TpPx0g0lzmmzJhMe4vGw8dOekhLMZjCB7j9qfXIOFXAYn7nqP3ZttEYeFHZJvPZKZgiM2XBX0XdYMqdxup6BTRB7Ly8fxVMcSkHUJxa9n27HD5AU+HJ94uMU3wGFLTJrXPU/mzbqF1eKoIpsiqD6fzJxb974YXpeeDTb/VSCsyfZwKAl1utgmkApFG7I9mV6qt0dBYTluaSUqotfL9j2NLDa+cNpvSEJAaJRetbyUzLXDPtu6htSVFgFEocBLxOEJCWYjAlW2ePlQAYXlNXjeFlXzGnsY3mhJfKMlM8l3NNUKb0tRWY4r8U8MLGd+DTb/VSCswGDMDq5VarQIQ+U5ZIZgpLk44dar+9xHCnbIdluY1dXtcm2ghLZTAFuBgAite3AlMOUtSZlkeq4yagLcMaXJM+F2GILPNaBRgvt6koTCkrVI13CLSS7bu+Zs7r7OItVgbTf3z/BxwAxetbgCmeAxsrDKbFtdyIPfdkJ7vzywNHW1fBhSAgLUVhSvaqxiuBZmzf27haTmkXb7UymOI7nbUF3BZgenX1Toyl1WlZ29yO2AOg7ni45Kur4OLldpSEKaxVgSYGyNRtuEwwcKbhvA7yGFdYVGMcuEQSth+8Jucc/Z4paICnxY84eJH3tgDTm5sfGkzz35iMXGcLHFr18tnBlDJ9B7ClQjDXfiNnGM7r7OEOUBlMQYTabkJtAaaxm0/QsrYPpo3Zc+Dhkq+uggpBQFpKZ6aw113p4CXSDOCm/saK8zp7eNsVwvTv3/1eVRCoHaYXF58DN6NlY/Cqat5JO7pxslQRgYFnaV5uVQ0whdXO07J0hnqkPkYyUjKjKc6/8TDFv9+oCQK1w3S/fzcKUmysSccN2rJvYm6RP88VphCz+dkxfVCpNOAfMG39ltq9SJsy53U28F4qzEwBgT9/7evVgKB2mMZ++QQNUTYIsFpsviPtEoOSB1VKXQUSgoC01JKZhnY7TzDLBVW0Q+1JivPPAqY1nerXDNOhr0Q9oNRgOvPD5LAsSBHwBlOo8FDOD8gBEHGK3maZY+t72g/7X9Oya1uSrZ1P7GvADt5bpZlpTXf1a4Zp7ElRLUgjmSmyLW/LqAYJ19p4EM2pN5kifR1m1non79H5mX1JbKQ+chVc83R+YMl0xtD81n+oj4TtL1gZtXmqvR1rbLxKQTz51agQBIAYHVN8qRWmuPF0f38fStZ7zfQ7jM+QvWsKmAKbUEAK01qeb1orTMduPLVUNZhuIjTMSFNApoAUpgBCDdlpjTBNyUqhn8FU5qO2tymwCQXmwLSG7LRGmE5dKwVIUUKY/uZLXz2ucN1Mco3N9p13zdR027Zue4pD3XXfOTAFEErf2a8NpriDP3WtFLqhhDD96ee/PHBXMunuqR2bdpfZdDKdUnwA30a4np0Fz4Xp/16/Lvq909pgGnsI9AM6+38NpvZBQUGbEty2TxmdbmcBdS5MgYiSv4qqCabX1x/0iTmyxWBqIDGYVu8DV2KgamAKXpR61mktML28fDv59L7lq8G0+kCyjLBMRliT7sfVYQpA/OWdb3euA4awWOp1DTDF3fuhJ0O14IytQ03smqmB1bLUan3gUgRUCmzRl/ZjcMD107WBWgNMJddJQ90MptUGT02ZkdlSPjv2q8MUoMBPTdd8EEppmN7e/iTko+i1wdRgatnoJnygDEzXBmpJmGpACp0MppsIJMsMy2eGpeegHExboK7xVP5SMNWC1GBqILWsdBM+QN85FZYc10wBiLCscQ11bZjiZtPca6ShNnhtmekmgql0VmT9l82M6RdtwrIETAEMAHXJX0mtCVN8/WnOXXvoECsGU4OpZadV+8BBiNGH3ZeCaQsR/JvoJW5MrQVTfCE/9Wei7Zin1gbTqgPJMsKyGWFp/W/og27eb/SXhinA8tmnr7I/aWppmOK39rlO6zlcQ5j+4gtfwe+B6ZPQFtPAfKCgD+BBNbtZGWl70BowbWGCn5/mujm1FExxbRRPf8qdjbYaYB3ClF7PO6VoJ9DWpoApUIcCa8K0BQpO/bVQXQKmeLDz8XhszVxsbTCtw/fNClMgqwIcpsge1yqA6txfTuWCKU7nl85EuZ4G06wubI2ZAnUoQIGNf+Z2PvX8549+zGN/8Tp+PYUHpkiyVQ1McSqPLHTs3zEvNejIg7Vv6/AEs8IUMAVUChBIL0OYIlMsWXCzChkrvlY1lrVKYIrs8+rqnSYDzfkVpzk6vf74k/MH16Pu8u+zqWbcDjYFTIHFFKCgvg+BiuyppoLMFTYBssicseB1WHDnHafrWG5uftjciV/qbnzYr/R1JPuWPZlmMS+whk0BU0CtAIH0JoRp6exUCqit7I8PgVBnen1UT541YAqYAvUoQEG9Y0HenGZvBVJbsBOZNNeY6vt6vMAsMQVMgSwKUGB3nmuKwMd1SVzDtDJfAfysduC/EdxlmThrxBQwBepTgAB6AET5gptByKxw3dKWNA3wFTNAdOCntLhGvavPA8wiU8AUyKIABfgFLXccplbvf8AoNAFI7aZTFo+1RkyByhWgYO/ckFKAo5flPvO2kPnvKp9+M88UMAVyKoCgp+X2mcMv14cBILrPOT/WlilgCmxMAYIATv3xKyncoLJFpsGeNNttbMrNXFPAFDAFTAFTwBQwBUwBU8AUMAVMAVPAFDAFTAFTwBQwBUwBU8AUMAVMAVPAFDAFTIG1Ffg/nr1xpD8EfgMAAAAASUVORK5CYII='
@@ -396,14 +701,16 @@ async function generateCard() {
   ctx.scale(PW / W, PH / H)       // tout le dessin utilise toujours 856×540
 
   const insc0 = etudiant.value.inscriptions?.[0]
-  const filiere = insc0?.filiere?.nom ?? insc0?.classe?.filiere?.nom ?? ''
+  const fi = fiData.value
+  const filiere = fi ? (fi.type_formation?.nom ?? 'Formation Individuelle') : (insc0?.filiere?.nom ?? insc0?.classe?.filiere?.nom ?? '')
   const classe = insc0?.classe
-  const classeNom = classe?.nom ?? '—'
+  const classeNom = fi ? 'Formation Individuelle' : (classe?.nom ?? '—')
   const classeNiveau = classe?.niveau ?? 1
-  const hasNiveau0 = !!((insc0?.filiere as any)?.type_has_niveau ?? (insc0?.classe?.filiere as any)?.type_has_niveau ?? false)
+  const hasNiveau0 = fi ? false : !!((insc0?.filiere as any)?.type_has_niveau ?? (insc0?.classe?.filiere as any)?.type_has_niveau ?? false)
   const niveauLabel = hasNiveau0
     ? (classeNiveau === 1 ? '1ère Année' : `${classeNiveau}ème Année`)
     : classeNom
+  const anneeAcad = fi ? (fi.annee_academique?.libelle ?? '') : (insc0?.annee_academique?.libelle ?? '')
 
   // ── 1. Fond blanc ────────────────────────────────────────────────────
   ctx.fillStyle = '#ffffff'
@@ -436,7 +743,7 @@ async function generateCard() {
   ctx.fillText("CARTE D'ETUDIANT", pad, 45)
 
   // Année académique — centré sous "CARTE D'ETUDIANT"
-  const annee = insc0?.annee_academique?.libelle ?? ''
+  const annee = anneeAcad
   ctx.font = 'bold 20px Arial'
   ctx.textAlign = 'center'
   ctx.fillText(annee, pad + leftColW / 2, 80)
@@ -763,7 +1070,8 @@ function openPrintWindow(html: string) {
 function printFicheDetail() {
   const etd = etudiant.value
   const insc = etd.inscriptions?.[0]
-  if (!etd || !insc) { alert("Aucune inscription trouvée pour cet étudiant."); return }
+  const fi = fiData.value
+  if (!etd || (!insc && !fi)) { alert("Aucune inscription trouvée pour cet étudiant."); return }
   const fmt = (n: number | null | undefined) =>
     n != null ? new Intl.NumberFormat('fr-FR').format(n) + ' FCFA' : '—'
   const val = (v: any) => v || '—'
@@ -771,13 +1079,13 @@ function printFicheDetail() {
     if (!d) return '—'
     try { return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) } catch { return d }
   }
-  const filiere = insc?.filiere?.nom ?? insc?.classe?.filiere?.nom ?? '—'
-  const niveau = insc?.niveau_entree?.nom ?? '—'
-  const bourse = insc?.niveau_bourse?.nom ? `${insc.niveau_bourse.nom} (${insc.niveau_bourse.pourcentage}%)` : 'Aucune'
-  const annee = insc?.annee_academique?.libelle ?? '—'
-  const sLabel = statutLabel[insc?.statut] ?? insc?.statut ?? '—'
+  const filiere = fi ? (fi.type_formation?.nom ?? 'Formation Individuelle') : (insc?.filiere?.nom ?? insc?.classe?.filiere?.nom ?? '—')
+  const niveau = fi ? 'Formation Individuelle' : (insc?.niveau_entree?.nom ?? '—')
+  const bourse = fi ? 'N/A' : (insc?.niveau_bourse?.nom ? `${insc.niveau_bourse.nom} (${insc.niveau_bourse.pourcentage}%)` : 'Aucune')
+  const annee = fi ? (fi.annee_academique?.libelle ?? '—') : (insc?.annee_academique?.libelle ?? '—')
+  const sLabel = fi ? (fi.statut === 'solde' ? 'Soldé' : fi.statut === 'en_cours' ? 'En cours' : fi.statut) : (statutLabel[insc?.statut] ?? insc?.statut ?? '—')
   const nv = (insc?.classe as any)?.niveau
-  const hasNiveau = !!(
+  const hasNiveau = fi ? false : !!(
     (insc?.filiere as any)?.type_has_niveau
     ?? (insc?.classe?.filiere as any)?.type_has_niveau
     ?? false
@@ -847,6 +1155,17 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 <tr><td class="lbl">N° CNI / Passeport</td><td colspan="3">${val(etd.cni_numero)}</td></tr>
 <tr><td class="lbl">Parent / Tuteur</td><td>${val(etd.nom_parent)}</td><td class="lbl2">Tél. parent</td><td>${val(etd.telephone_parent)}</td></tr>
 </table></div>
+${fi ? `
+<div class="sec"><div class="sec-title">Paramètres de formation</div><table>
+<tr><td class="lbl">Type de formation</td><td>${fi.type_formation?.nom ?? 'Formation Individuelle'}</td><td class="lbl2">Année académique</td><td>${annee}</td></tr>
+<tr><td class="lbl">Date début</td><td>${fmtDate(fi.date_debut)}</td><td class="lbl2">Date fin</td><td>${fmtDate(fi.date_fin)}</td></tr>
+<tr><td class="lbl">Modules</td><td colspan="3">${(fi.modules || []).map((m: any) => m.matiere_nom).join(', ') || '—'}</td></tr>
+</table></div>
+<div class="sec"><div class="sec-title">Conditions financières</div><table class="fin-tbl">
+<tr><td class="lbl" style="width:40%">Coût total</td><td>${fmt(fi.cout_total)}</td></tr>
+${(fi.paiements || []).map((p: any) => `<tr><td class="lbl">${p.type === 'inscription' ? 'Inscription' : 'Solde'}</td><td>${fmt(p.montant)} ${p.statut === 'paye' ? '✓ Payé' : p.statut === 'partiel' ? '◐ Partiel' : '✗ Non payé'}</td></tr>`).join('')}
+</table></div>
+` : `
 <div class="sec"><div class="sec-title">Paramètres d'inscription</div><table>
 <tr><td class="lbl">Filière</td><td>${filiere}</td><td class="lbl2">Niveau d'entrée</td><td>${niveau}</td></tr>
 <tr><td class="lbl">Année académique</td><td>${annee}</td><td class="lbl2">Bourse</td><td>${bourse}</td></tr>
@@ -857,6 +1176,7 @@ ${niveauEtude ? `<tr><td class="lbl">Année d'étude</td><td><strong>${niveauEtu
 <tr><td class="lbl">Mensualité</td><td>${fmt(insc?.mensualite)}</td></tr>
 ${insc?.frais_tenue ? `<tr><td class="lbl">Frais de tenue</td><td>${fmt(insc.frais_tenue)}</td></tr>` : ''}
 </table></div>
+`}
 <div class="sign-row">
 <div class="sign-box"><h4>Signature de l'étudiant(e)</h4><div class="sign-line">Lu et approuvé — Signature</div></div>
 <div class="sign-box"><h4>Cachet et signature de la Direction</h4><div class="sign-line">Tampon + Signature</div></div>
@@ -884,17 +1204,18 @@ ${insc?.frais_tenue ? `<tr><td class="lbl">Frais de tenue</td><td>${fmt(insc.fra
 function printCertificatDetail() {
   const etd = etudiant.value
   const insc = etd.inscriptions?.[0]
-  if (!etd || !insc) { alert("Aucune inscription trouvée pour cet étudiant."); return }
+  const fi = fiData.value
+  if (!etd || (!insc && !fi)) { alert("Aucune inscription trouvée pour cet étudiant."); return }
   const val = (v: any) => v || '—'
   const fmtDate = (d: string | null | undefined) => {
     if (!d) return '—'
     try { return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) } catch { return d }
   }
-  const filiere = insc?.filiere?.nom ?? insc?.classe?.filiere?.nom ?? '—'
-  const niveau = insc?.niveau_entree?.nom ?? '—'
-  const annee = insc?.annee_academique?.libelle ?? '—'
+  const filiere = fi ? (fi.type_formation?.nom ?? 'Formation Individuelle') : (insc?.filiere?.nom ?? insc?.classe?.filiere?.nom ?? '—')
+  const niveau = fi ? 'Formation Individuelle' : (insc?.niveau_entree?.nom ?? '—')
+  const annee = fi ? (fi.annee_academique?.libelle ?? '—') : (insc?.annee_academique?.libelle ?? '—')
   const nvc = (insc?.classe as any)?.niveau
-  const hasNiveauC = !!(
+  const hasNiveauC = fi ? false : !!(
     (insc?.filiere as any)?.type_has_niveau
     ?? (insc?.classe?.filiere as any)?.type_has_niveau
     ?? false
@@ -904,7 +1225,7 @@ function printCertificatDetail() {
   const refNum = `UPTECH/${new Date().getFullYear()}/${String(etd.id ?? Math.floor(Math.random()*9000+1000)).padStart(4,'0')}`
   const dateJour = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
   const dots = '◦ '.repeat(80)
-  const sLabel = statutLabel[insc?.statut] ?? insc?.statut ?? '—'
+  const sLabel = fi ? (fi.statut === 'en_cours' ? 'En cours' : fi.statut) : (statutLabel[insc?.statut] ?? insc?.statut ?? '—')
   const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/>
 <title>Certificat d'inscription — ${etd.prenom} ${etd.nom}</title>
 <style>
@@ -956,11 +1277,17 @@ ${etd.cni_numero ? `porteur/porteuse de la CNI N° <span class="underline">${etd
 </div>
 <div class="cert-card"><table>
 <tr><td>Numéro étudiant</td><td>${etd.numero_etudiant ?? '—'}</td></tr>
-<tr><td>Filière</td><td>${filiere}</td></tr>
+<tr><td>Filière / Formation</td><td>${filiere}</td></tr>
+${fi ? `
+<tr><td>Type</td><td>Formation Individuelle</td></tr>
+<tr><td>Modules</td><td>${(fi.modules || []).map((m: any) => m.matiere_nom).join(', ') || '—'}</td></tr>
+<tr><td>Période</td><td>${fmtDate(fi.date_debut)} — ${fmtDate(fi.date_fin)}</td></tr>
+` : `
 <tr><td>Niveau d'entrée</td><td>${niveau}</td></tr>
 ${niveauEtude ? `<tr><td>Année d'étude</td><td><strong>${niveauEtude}</strong></td></tr>` : ''}
 <tr><td>Classe</td><td>${insc?.classe?.nom ?? 'Pool (à affecter)'}</td></tr>
-<tr><td>Statut</td><td>${sLabel}</td></tr>
+`}
+<tr><td>Statut</td><td>${fi ? (fi.statut === 'en_cours' ? 'En cours' : fi.statut) : sLabel}</td></tr>
 </table></div>
 <div class="cert-usage">Ce certificat est délivré à l'intéressé(e) pour servir et valoir ce que de droit, notamment pour les démarches administratives, bancaires et auprès des autorités compétentes.</div>
 <div class="cert-sign"><div class="cert-sign-box">
@@ -1712,10 +2039,24 @@ ${checklist.value.length ? `<div class="sec">
               >
                 {{ statutLabel[etudiant.inscriptions[0].statut] ?? etudiant.inscriptions[0].statut }}
               </span>
+              <span v-if="isFiStudent" style="background:#eef2ff;color:#4f46e5;font-size:11px;padding:3px 10px;border-radius:10px;font-weight:600;">
+                🎓 Formation Individuelle
+              </span>
+              <!-- Bouton Badge étudiant -->
+              <button @click="generateBadge"
+                :disabled="carteBloquee"
+                :title="carteBloquee ? 'L\'étudiant doit avoir une inscription active' : 'Générer le badge nominatif'"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-700 text-white text-xs font-medium rounded-lg transition"
+                :class="carteBloquee ? 'opacity-40 cursor-not-allowed' : 'hover:bg-red-800'">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                </svg>
+                Badge
+              </button>
               <!-- Bouton Carte étudiant -->
               <button @click="generateCard"
                 :disabled="carteBloquee"
-                :title="carteBloquee ? 'L\'étudiant doit être affecté à une classe pour générer sa carte' : 'Générer la carte étudiant'"
+                :title="carteBloquee ? (isFiStudent ? 'L\'inscription FI doit être payée' : 'L\'étudiant doit être affecté à une classe') : 'Générer la carte étudiant'"
                 class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg transition"
                 :class="carteBloquee ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-700'">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1723,12 +2064,18 @@ ${checklist.value.length ? `<div class="sec">
                 </svg>
                 Carte étudiant
               </button>
-              <button @click="printFicheDetail()"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-700 transition">
+              <button @click="ficheDisponible && printFicheDetail()"
+                :disabled="!ficheDisponible"
+                :title="!ficheDisponible ? (isFiStudent ? 'Disponible après paiement de l\'inscription FI' : 'Disponible après paiement des frais d\'inscription') : 'Imprimer la fiche'"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg transition"
+                :class="!ficheDisponible ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-700'">
                 🖨️ Fiche d'inscription
               </button>
-              <button @click="printCertificatDetail()"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-700 transition">
+              <button @click="certificatDisponible && printCertificatDetail()"
+                :disabled="!certificatDisponible"
+                :title="!certificatDisponible ? (isFiStudent ? 'Disponible après paiement de l\'inscription FI' : 'Disponible après paiement inscription + 1ère mensualité') : 'Imprimer le certificat'"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg transition"
+                :class="!certificatDisponible ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-700'">
                 📄 Certificat
               </button>
               <!-- Export dossier complet PDF -->
@@ -1774,6 +2121,12 @@ ${checklist.value.length ? `<div class="sec">
               </svg>
               {{ etudiant.inscriptions[0].classe.filiere.nom }}
             </span>
+            <span v-else-if="isFiStudent" class="flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+              </svg>
+              {{ fiData.type_formation?.nom ?? 'Formation Individuelle' }}
+            </span>
           </div>
         </div>
       </div>
@@ -1787,13 +2140,13 @@ ${checklist.value.length ? `<div class="sec">
             <svg viewBox="0 0 40 40" class="stat-donut">
               <circle cx="20" cy="20" r="15.9155" class="stat-donut-bg"/>
               <circle cx="20" cy="20" r="15.9155" class="stat-donut-arc"
-                :stroke="statColor(stats?.moyenne !== null ? (stats!.moyenne! / 20) * 100 : null)"
-                :stroke-dasharray="donutDash(stats?.moyenne !== null ? Math.round((stats!.moyenne! / 20) * 100) : null)"
+                :stroke="statColor(stats?.moyenne != null ? (stats!.moyenne! / 20) * 100 : null)"
+                :stroke-dasharray="donutDash(stats?.moyenne != null ? Math.round((stats!.moyenne! / 20) * 100) : null)"
                 stroke-dashoffset="25"/>
             </svg>
             <span class="stat-donut-val"
-              :style="{ color: statColor(stats?.moyenne !== null ? (stats!.moyenne! / 20) * 100 : null) }">
-              {{ stats?.moyenne !== null && stats?.moyenne !== undefined ? stats.moyenne : '—' }}
+              :style="{ color: statColor(stats?.moyenne != null ? (stats!.moyenne! / 20) * 100 : null) }">
+              {{ stats?.moyenne != null ? stats.moyenne : '—' }}
             </span>
           </div>
           <div class="stat-label">Moyenne générale</div>
@@ -1815,7 +2168,7 @@ ${checklist.value.length ? `<div class="sec">
             </svg>
             <span class="stat-donut-val"
               :style="{ color: statColor(stats?.taux_presence ?? null) }">
-              {{ stats?.taux_presence !== null && stats?.taux_presence !== undefined ? stats.taux_presence + '%' : '—' }}
+              {{ stats?.taux_presence != null ? stats.taux_presence + '%' : '—' }}
             </span>
           </div>
           <div class="stat-label">Taux de présence</div>
@@ -1859,7 +2212,7 @@ ${checklist.value.length ? `<div class="sec">
             </svg>
             <span class="stat-donut-val"
               :style="{ color: statColor(stats?.pct_paiements ?? null) }">
-              {{ stats?.pct_paiements !== null && stats?.pct_paiements !== undefined ? stats.pct_paiements + '%' : '—' }}
+              {{ stats?.pct_paiements != null ? stats.pct_paiements + '%' : '—' }}
             </span>
           </div>
           <div class="stat-label">Paiements honorés</div>
@@ -1877,6 +2230,7 @@ ${checklist.value.length ? `<div class="sec">
           { key: 'infos', label: 'Informations' },
           { key: 'inscriptions', label: `Inscriptions (${etudiant.inscriptions?.length ?? 0})` },
           { key: 'documents', label: `Documents (${checklistRecuCount}/${checklist.length})` },
+          { key: 'finance', label: 'Finances' },
           { key: 'timeline', label: '📅 Timeline' },
           { key: 'commentaires', label: `🗒️ Notes internes${commentaires.length ? ` (${commentaires.length})` : ''}` },
         ]" :key="tab.key"
@@ -1913,7 +2267,70 @@ ${checklist.value.length ? `<div class="sec">
 
       <!-- Onglet : Inscriptions -->
       <div v-else-if="activeTab === 'inscriptions'">
-        <div v-if="!etudiant.inscriptions?.length" class="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
+        <!-- Formation individuelle -->
+        <div v-if="isFiStudent" class="bg-white rounded-xl border border-indigo-200 p-5 mb-4">
+          <div class="flex items-start justify-between mb-3">
+            <div>
+              <span style="background:#eef2ff;color:#4f46e5;font-size:11px;padding:2px 10px;border-radius:10px;font-weight:600;">🎓 Formation Individuelle</span>
+              <p class="font-medium text-gray-900 mt-2">{{ fiData.type_formation?.nom ?? 'Formation Individuelle' }}</p>
+              <p class="text-sm text-gray-500 mt-0.5">{{ fiData.annee_academique?.libelle ?? '' }}</p>
+            </div>
+            <span :style="fiData.statut === 'solde' ? 'background:#dcfce7;color:#166534;' : fiData.statut === 'en_cours' ? 'background:#dbeafe;color:#1e40af;' : 'background:#f3f4f6;color:#6b7280;'"
+              style="font-size:11px;padding:3px 10px;border-radius:10px;font-weight:600;">
+              {{ fiData.statut === 'solde' ? '✓ Soldé' : fiData.statut === 'en_cours' ? '▶ En cours' : fiData.statut }}
+            </span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+            <div style="background:#f9fafb;border-radius:8px;padding:8px 12px;">
+              <div style="font-size:10px;color:#6b7280;text-transform:uppercase;">Coût total</div>
+              <div style="font-weight:700;font-size:14px;">{{ new Intl.NumberFormat('fr-FR').format(fiData.cout_total) }} F</div>
+            </div>
+            <div style="background:#f9fafb;border-radius:8px;padding:8px 12px;">
+              <div style="font-size:10px;color:#6b7280;text-transform:uppercase;">Payé</div>
+              <div style="font-weight:700;font-size:14px;color:#059669;">{{ new Intl.NumberFormat('fr-FR').format((fiData.paiements || []).reduce((s: number, p: any) => s + (parseFloat(p.montant_paye) || 0), 0)) }} F</div>
+            </div>
+            <div style="background:#f9fafb;border-radius:8px;padding:8px 12px;">
+              <div style="font-size:10px;color:#6b7280;text-transform:uppercase;">Modules</div>
+              <div style="font-weight:700;font-size:14px;">{{ (fiData.modules || []).length }}</div>
+            </div>
+          </div>
+          <!-- Modules -->
+          <table style="width:100%;font-size:12px;border-collapse:collapse;">
+            <thead>
+              <tr style="background:#f9fafb;">
+                <th style="text-align:left;padding:6px 10px;font-weight:600;color:#6b7280;">Matière</th>
+                <th style="text-align:left;padding:6px 10px;font-weight:600;color:#6b7280;">Formateur</th>
+                <th style="text-align:center;padding:6px 10px;font-weight:600;color:#6b7280;">Heures</th>
+                <th style="text-align:center;padding:6px 10px;font-weight:600;color:#6b7280;">Progression</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in fiData.modules" :key="m.id" style="border-top:1px solid #f3f4f6;">
+                <td style="padding:6px 10px;font-weight:500;">{{ m.matiere_nom }}</td>
+                <td style="padding:6px 10px;color:#6b7280;">{{ m.enseignant_nom || '—' }}</td>
+                <td style="padding:6px 10px;text-align:center;">{{ m.heures_effectuees }} / {{ m.volume_horaire }}h</td>
+                <td style="padding:6px 10px;text-align:center;">
+                  <div style="display:inline-block;width:60px;height:5px;background:#eee;border-radius:3px;overflow:hidden;vertical-align:middle;">
+                    <div :style="{ width: (m.volume_horaire > 0 ? Math.round(m.heures_effectuees / m.volume_horaire * 100) : 0) + '%' }"
+                      style="height:100%;background:#6366f1;border-radius:3px;"></div>
+                  </div>
+                  <span style="font-size:10px;margin-left:4px;">{{ m.volume_horaire > 0 ? Math.round(m.heures_effectuees / m.volume_horaire * 100) : 0 }}%</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <!-- Paiements -->
+          <h4 style="margin:12px 0 6px;font-size:12px;font-weight:600;color:#374151;">Paiements</h4>
+          <div v-for="p in fiData.paiements" :key="p.id" style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-top:1px solid #f3f4f6;font-size:12px;">
+            <span style="font-weight:500;">{{ p.type === 'inscription' ? 'Inscription' : 'Solde' }}</span>
+            <span>{{ new Intl.NumberFormat('fr-FR').format(p.montant_paye) }} / {{ new Intl.NumberFormat('fr-FR').format(p.montant) }} F</span>
+            <span :style="p.statut === 'paye' ? 'color:#059669;' : p.statut === 'partiel' ? 'color:#d97706;' : 'color:#dc2626;'" style="font-weight:600;font-size:11px;">
+              {{ p.statut === 'paye' ? '✓ Payé' : p.statut === 'partiel' ? '◐ Partiel' : '✗ Non payé' }}
+            </span>
+          </div>
+        </div>
+
+        <div v-if="!etudiant.inscriptions?.length && !isFiStudent" class="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
           Aucune inscription enregistrée
         </div>
         <div v-else class="space-y-3">
@@ -2109,6 +2526,127 @@ ${checklist.value.length ? `<div class="sec">
             </span>
           </button>
         </div>
+      </div>
+
+      <!-- ── Onglet : Finances ─────────────────────────────────────── -->
+      <div v-else-if="activeTab === 'finance'">
+        <div v-for="fs in financeSummary" :key="fs.insc.id" class="mb-8">
+          <!-- En-tête inscription -->
+          <div class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+            <h3 class="text-sm font-bold text-gray-800 mb-3">
+              {{ fs.insc.filiere?.nom ?? '—' }}
+              <span class="text-xs font-normal text-gray-400 ml-2">{{ fs.insc.annee_academique?.libelle ?? '' }}</span>
+            </h3>
+
+            <!-- KPIs -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div class="bg-gray-50 rounded-lg p-3 text-center">
+                <div class="text-[10px] uppercase text-gray-400 font-semibold tracking-wide">Total prévu</div>
+                <div class="text-lg font-black text-gray-800">{{ fs.totalPrevu.toLocaleString('fr-FR') }} <span class="text-xs font-normal">F</span></div>
+              </div>
+              <div class="bg-green-50 rounded-lg p-3 text-center">
+                <div class="text-[10px] uppercase text-green-500 font-semibold tracking-wide">Total payé</div>
+                <div class="text-lg font-black text-green-700">{{ fs.totalPaye.toLocaleString('fr-FR') }} <span class="text-xs font-normal">F</span></div>
+              </div>
+              <div class="rounded-lg p-3 text-center" :class="fs.reste > 0 ? 'bg-red-50' : 'bg-green-50'">
+                <div class="text-[10px] uppercase font-semibold tracking-wide" :class="fs.reste > 0 ? 'text-red-400' : 'text-green-500'">Reste</div>
+                <div class="text-lg font-black" :class="fs.reste > 0 ? 'text-red-600' : 'text-green-700'">{{ fs.reste.toLocaleString('fr-FR') }} <span class="text-xs font-normal">F</span></div>
+              </div>
+              <div class="rounded-lg p-3 text-center" :class="fs.nbRetard > 0 ? 'bg-amber-50' : 'bg-green-50'">
+                <div class="text-[10px] uppercase font-semibold tracking-wide" :class="fs.nbRetard > 0 ? 'text-amber-500' : 'text-green-500'">Retards</div>
+                <div class="text-lg font-black" :class="fs.nbRetard > 0 ? 'text-amber-600' : 'text-green-700'">{{ fs.nbRetard }}</div>
+              </div>
+            </div>
+
+            <!-- Barre progression -->
+            <div class="w-full bg-gray-100 rounded-full h-2 mb-1">
+              <div class="h-2 rounded-full transition-all" :class="fs.totalPaye >= fs.totalPrevu ? 'bg-green-500' : 'bg-red-500'" :style="`width:${Math.min(100, fs.totalPrevu > 0 ? (fs.totalPaye / fs.totalPrevu * 100) : 0)}%`"></div>
+            </div>
+            <div class="text-[10px] text-gray-400 text-right">{{ fs.totalPrevu > 0 ? Math.round(fs.totalPaye / fs.totalPrevu * 100) : 0 }}% payé</div>
+          </div>
+
+          <!-- Échéancier -->
+          <div class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+            <h4 class="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Échéancier</h4>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-gray-100">
+                    <th class="text-left py-2 px-3 text-[10px] uppercase text-gray-400 font-semibold">Mois</th>
+                    <th class="text-left py-2 px-3 text-[10px] uppercase text-gray-400 font-semibold">Type</th>
+                    <th class="text-right py-2 px-3 text-[10px] uppercase text-gray-400 font-semibold">Montant</th>
+                    <th class="text-center py-2 px-3 text-[10px] uppercase text-gray-400 font-semibold">Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="ech in fs.echs" :key="ech.id" class="border-b border-gray-50 hover:bg-gray-50">
+                    <td class="py-2 px-3 text-gray-700">{{ fmtMoisEch(ech.mois) }}</td>
+                    <td class="py-2 px-3">
+                      <span class="text-xs px-2 py-0.5 rounded-full" :class="ech.type_echeance === 'frais_inscription' ? 'bg-blue-50 text-blue-600' : ech.type_echeance === 'tenue' ? 'bg-purple-50 text-purple-600' : 'bg-gray-100 text-gray-600'">
+                        {{ echLabel(ech, fs.echs) }}
+                      </span>
+                    </td>
+                    <td class="py-2 px-3 text-right font-semibold">{{ Number(ech.montant).toLocaleString('fr-FR') }} F</td>
+                    <td class="py-2 px-3 text-center">
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                        :class="ech.statut === 'paye' ? 'bg-green-50 text-green-700' : ech.statut === 'partiel' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600'">
+                        <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
+                        {{ ech.statut === 'paye' ? 'Payé' : ech.statut === 'partiel' ? 'Partiel' : 'Non payé' }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Historique paiements -->
+          <div class="bg-white rounded-xl border border-gray-200 p-5">
+            <h4 class="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Historique des paiements</h4>
+            <div v-if="!fs.pays.length" class="text-sm text-gray-400 text-center py-6">Aucun paiement enregistré</div>
+            <div v-else class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-gray-100">
+                    <th class="text-left py-2 px-3 text-[10px] uppercase text-gray-400 font-semibold">Reçu</th>
+                    <th class="text-left py-2 px-3 text-[10px] uppercase text-gray-400 font-semibold">Date</th>
+                    <th class="text-left py-2 px-3 text-[10px] uppercase text-gray-400 font-semibold">Type</th>
+                    <th class="text-left py-2 px-3 text-[10px] uppercase text-gray-400 font-semibold">Mode</th>
+                    <th class="text-right py-2 px-3 text-[10px] uppercase text-gray-400 font-semibold">Montant</th>
+                    <th class="text-center py-2 px-3 text-[10px] uppercase text-gray-400 font-semibold">Statut</th>
+                    <th class="text-center py-2 px-3 text-[10px] uppercase text-gray-400 font-semibold">Reçu</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="p in fs.pays" :key="p.id" class="border-b border-gray-50 hover:bg-gray-50">
+                    <td class="py-2 px-3 font-mono text-xs text-gray-500">{{ p.numero_recu }}</td>
+                    <td class="py-2 px-3 text-gray-600 text-xs">{{ new Date(p.confirmed_at ?? p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }) }}</td>
+                    <td class="py-2 px-3">
+                      <span class="text-xs px-2 py-0.5 rounded-full" :class="p.type_paiement === 'frais_inscription' ? 'bg-blue-50 text-blue-600' : p.type_paiement === 'tenue' ? 'bg-purple-50 text-purple-600' : 'bg-gray-100 text-gray-600'">
+                        {{ p.type_paiement === 'frais_inscription' ? 'Inscription' : p.type_paiement === 'mensualite' ? 'Mensualité' : p.type_paiement === 'tenue' ? 'Tenue' : p.type_paiement }}
+                      </span>
+                    </td>
+                    <td class="py-2 px-3 text-xs text-gray-500">{{ ({ especes:'Espèces', wave:'Wave', orange_money:'OM', virement:'Virement', cheque:'Chèque' } as Record<string,string>)[p.mode_paiement] ?? p.mode_paiement }}</td>
+                    <td class="py-2 px-3 text-right font-bold text-green-600">+{{ Number(p.montant).toLocaleString('fr-FR') }} F</td>
+                    <td class="py-2 px-3 text-center">
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                        :class="p.statut === 'confirme' ? 'bg-green-50 text-green-700' : p.statut === 'en_attente' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600'">
+                        {{ p.statut === 'confirme' ? 'OK' : p.statut === 'en_attente' ? 'Attente' : 'Rejeté' }}
+                      </span>
+                    </td>
+                    <td class="py-2 px-3 text-center">
+                      <button v-if="p.statut === 'confirme'" @click="printRecuFinance(p, fs.insc)"
+                        class="text-xs border border-gray-200 text-gray-400 px-2 py-1 rounded hover:bg-gray-50 transition" title="Imprimer reçu">
+                        <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div v-if="!financeSummary.length" class="text-center text-gray-400 py-12">Aucune inscription trouvée</div>
       </div>
 
       <!-- ── Onglet : Timeline ─────────────────────────────────────── -->
@@ -2412,6 +2950,39 @@ ${checklist.value.length ? `<div class="sec">
             Imprimer
           </button>
           <button @click="downloadCard" class="uc-btn-primary">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Télécharger PNG
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Modal Badge étudiant -->
+  <Teleport to="body">
+    <div v-if="showBadge" class="card-overlay" @click.self="showBadge = false">
+      <div class="card-modal" style="max-width:360px;">
+        <div class="card-modal-header">
+          <div>
+            <h2 class="card-modal-title">Badge nominatif</h2>
+            <p class="card-modal-sub">Aperçu — 90 × 126 mm (format badge portrait)</p>
+          </div>
+          <button @click="showBadge = false" class="card-close">✕</button>
+        </div>
+        <div class="card-modal-body">
+          <canvas ref="badgeCanvas" class="card-canvas" style="max-width:280px;" />
+          <p v-if="!badgeGenerated" class="card-loading">Génération en cours…</p>
+        </div>
+        <div v-if="badgeGenerated" class="card-modal-footer">
+          <button @click="printBadge" class="uc-btn-outline">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+            </svg>
+            Imprimer
+          </button>
+          <button @click="downloadBadge" class="uc-btn-primary">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>

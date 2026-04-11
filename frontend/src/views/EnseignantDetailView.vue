@@ -9,7 +9,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const canWrite = computed(() => ['dg', 'secretariat'].includes(auth.user?.role ?? ''))
 
-const activeTab = ref<'infos'|'classes'|'seances'|'vacations'>('infos')
+const activeTab = ref<'infos'|'classes'|'seances'|'vacations'|'fi'>('infos')
 
 interface Filiere { id: number; nom: string; code: string }
 interface EnseignantFiliere { filiere_id: number; matiere: string; filiere?: Filiere }
@@ -27,7 +27,9 @@ interface Stats {
   seances_ce_mois: number; heures_ce_mois: number
   seances_total: number; heures_total: number
   tarif_horaire: number; montant_du: number
+  montant_du_classique: number; montant_du_fi: number
   montant_paye: number; montant_restant: number
+  fi_heures_total: number; fi_heures_effectuees: number; fi_nb_modules: number; fi_tarif_horaire: number
   classes: { id: number; nom: string; est_tronc_commun: boolean; nb_ues: number }[]
 }
 interface Seance {
@@ -42,6 +44,7 @@ const stats = ref<Stats | null>(null)
 const seances = ref<Seance[]>([])
 const loading = ref(true)
 const loadingSeances = ref(false)
+const contratLoading = ref(false)
 
 const statutConfig: Record<string, { label: string; cls: string }> = {
   actif:      { label: 'Actif',       cls: 'ed-badge-actif' },
@@ -81,6 +84,25 @@ function waLink() {
   return `https://wa.me/${p.replace('+', '')}?text=${msg}`
 }
 
+async function telechargerContrat() {
+  if (!enseignant.value) return
+  contratLoading.value = true
+  try {
+    const res = await api.get(`/enseignants/${enseignant.value.id}/contrat-pdf`, { responseType: 'blob' })
+    const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Contrat_${enseignant.value.prenom}_${enseignant.value.nom}.docx`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    alert('Erreur lors de la génération du contrat')
+  } finally {
+    contratLoading.value = false
+  }
+}
+
 // Grouper les UEs par classe
 const uesByClasse = computed(() => {
   const map: Record<string, { classe: ClasseUE['classe']; ues: ClasseUE[] }> = {}
@@ -112,9 +134,27 @@ async function loadSeances() {
   } finally { loadingSeances.value = false }
 }
 
+// ── Formations individuelles assignées ────────────────────────────────
+interface FIModuleAssigne {
+  id: number; matiere_nom: string; volume_horaire: number; heures_effectuees: number
+  etudiant_nom: string; etudiant_prenom: string; cout_total: number
+  fi_statut: string; date_debut: string; date_fin: string | null
+}
+const fiModules = ref<FIModuleAssigne[]>([])
+const loadingFI = ref(false)
+
+async function loadFIModules() {
+  loadingFI.value = true
+  try {
+    const { data } = await api.get(`/enseignants/${route.params.id}/formations-individuelles`)
+    fiModules.value = data
+  } finally { loadingFI.value = false }
+}
+
 async function switchTab(tab: typeof activeTab.value) {
   activeTab.value = tab
   if (tab === 'seances' && seances.value.length === 0) loadSeances()
+  if (tab === 'fi' && fiModules.value.length === 0) loadFIModules()
 }
 
 onMounted(load)
@@ -167,6 +207,12 @@ onMounted(load)
             </svg>
             Email
           </a>
+          <button @click="telechargerContrat" :disabled="contratLoading" class="ed-btn-contrat">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            {{ contratLoading ? 'Génération...' : 'Contrat' }}
+          </button>
         </div>
       </div>
 
@@ -231,6 +277,10 @@ onMounted(load)
         <button @click="switchTab('vacations')" :class="['ed-tab', activeTab==='vacations' && 'ed-tab-active']">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
           Vacations
+        </button>
+        <button @click="switchTab('fi')" :class="['ed-tab', activeTab==='fi' && 'ed-tab-active']">
+          🎓 Formations indiv.
+          <span v-if="fiModules.length" class="ed-tab-badge">{{ fiModules.length }}</span>
         </button>
       </div>
 
@@ -400,6 +450,33 @@ onMounted(load)
                 <span class="ed-vac-val" style="color:#1d4ed8;">{{ fmt(stats.montant_du) }}</span>
               </div>
             </div>
+            <!-- Détail classique vs FI -->
+            <div v-if="stats.fi_nb_modules > 0" style="margin-top:10px;padding:10px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:12px;">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                <span style="color:#0369a1;">Vacations classiques</span>
+                <strong>{{ fmt(stats.montant_du_classique) }}</strong>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                <span style="color:#6366f1;">🎓 Formations individuelles ({{ stats.fi_nb_modules }} module{{ stats.fi_nb_modules > 1 ? 's' : '' }})</span>
+                <strong style="color:#6366f1;">{{ fmt(stats.montant_du_fi) }}</strong>
+              </div>
+              <div style="margin-top:6px;padding:8px 10px;background:#eef2ff;border-radius:6px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+                  <span style="color:#4338ca;">Tarif horaire FI</span>
+                  <strong style="color:#4338ca;">{{ fmt(stats.fi_tarif_horaire) }}/h</strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+                  <span style="color:#64748b;">Heures émargées</span>
+                  <strong>{{ stats.fi_heures_effectuees }}h / {{ stats.fi_heures_total }}h</strong>
+                </div>
+                <div style="height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;margin-top:4px;">
+                  <div :style="`height:100%;width:${stats.fi_heures_total>0?Math.round(stats.fi_heures_effectuees/stats.fi_heures_total*100):0}%;background:#6366f1;border-radius:3px;`"></div>
+                </div>
+                <div style="font-size:10px;color:#6366f1;margin-top:2px;text-align:right;">
+                  {{ stats.fi_heures_total > 0 ? Math.round(stats.fi_heures_effectuees/stats.fi_heures_total*100) : 0 }}% complété — avoir = {{ stats.fi_heures_effectuees }}h × {{ fmt(stats.fi_tarif_horaire) }} = {{ fmt(stats.montant_du_fi) }}
+                </div>
+              </div>
+            </div>
           </div>
           <!-- Paiements -->
           <div class="ed-card">
@@ -449,6 +526,49 @@ onMounted(load)
       </div>
 
     </template>
+
+      <!-- ═══ FORMATIONS INDIVIDUELLES ═══ -->
+      <div v-if="activeTab==='fi'" class="ed-panel">
+        <div v-if="loadingFI" style="text-align:center;padding:30px;color:#9ca3af;">Chargement...</div>
+        <div v-else-if="fiModules.length === 0" style="text-align:center;padding:30px;color:#9ca3af;">
+          Aucune formation individuelle assignée
+        </div>
+        <div v-else class="ed-card">
+          <h3 class="ed-card-title">Modules assignés ({{ fiModules.length }})</h3>
+          <table class="ed-ue-table">
+            <thead>
+              <tr>
+                <th>Étudiant</th>
+                <th>Matière</th>
+                <th style="text-align:center">Volume</th>
+                <th style="text-align:center">Effectué</th>
+                <th style="text-align:center">Progression</th>
+                <th style="text-align:center">Statut formation</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in fiModules" :key="m.id">
+                <td style="font-weight:600;">{{ m.etudiant_prenom }} {{ m.etudiant_nom }}</td>
+                <td>{{ m.matiere_nom }}</td>
+                <td style="text-align:center">{{ m.volume_horaire }}h</td>
+                <td style="text-align:center">{{ m.heures_effectuees }}h</td>
+                <td style="text-align:center">
+                  <div style="width:60px;height:5px;background:#f1f5f9;border-radius:3px;overflow:hidden;display:inline-block;">
+                    <div :style="{ width: (m.volume_horaire > 0 ? Math.min(m.heures_effectuees / m.volume_horaire * 100, 100) : 0) + '%', height: '100%', background: m.heures_effectuees >= m.volume_horaire ? '#22c55e' : '#3b82f6', borderRadius: '3px' }" />
+                  </div>
+                </td>
+                <td style="text-align:center">
+                  <span style="font-size:11px;padding:2px 8px;border-radius:10px;"
+                    :style="{ background: m.fi_statut === 'en_cours' ? '#dbeafe' : m.fi_statut === 'termine' ? '#dcfce7' : '#f1f5f9', color: m.fi_statut === 'en_cours' ? '#1e40af' : m.fi_statut === 'termine' ? '#166534' : '#666' }">
+                    {{ m.fi_statut === 'en_cours' ? 'En cours' : m.fi_statut === 'termine' ? 'Terminé' : m.fi_statut }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
   </div>
 </template>
 
@@ -468,6 +588,9 @@ onMounted(load)
 .ed-btn-wa:hover { background:#15803d; }
 .ed-btn-email { display:inline-flex;align-items:center;gap:6px;background:#fff;color:#374151;border:1.5px solid #e5e7eb;border-radius:6px;padding:8px 14px;font-size:12.5px;font-weight:600;font-family:'Poppins',sans-serif;cursor:pointer;text-decoration:none; }
 .ed-btn-email:hover { border-color:#374151; }
+.ed-btn-contrat { display:inline-flex;align-items:center;gap:6px;background:#E30613;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:12.5px;font-weight:600;font-family:'Poppins',sans-serif;cursor:pointer; }
+.ed-btn-contrat:hover { background:#c00510; }
+.ed-btn-contrat:disabled { opacity:0.6;cursor:wait; }
 
 /* KPI */
 .ed-kpi-row { display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap; }

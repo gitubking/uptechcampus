@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import * as XLSX from 'xlsx'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import UcModal from '@/components/ui/UcModal.vue'
@@ -411,6 +413,242 @@ async function supprimerDepense(d: Depense) {
   }
 }
 
+// ── Génération PDF ────────────────────────────────────────────────────────────
+const ETAB    = 'UPTECH Campus'
+const ADRESSE = 'Dakar, Sénégal'
+const COULEUR: [number, number, number] = [227, 6, 19]   // rouge UPTECH
+
+function pdfHeader(doc: jsPDF, titre: string, sous: string) {
+  const W = doc.internal.pageSize.getWidth()
+  // Bandeau haut
+  doc.setFillColor(...COULEUR); doc.rect(0, 0, W, 28, 'F')
+  doc.setTextColor(255, 255, 255)
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
+  doc.text(ETAB, 14, 11)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
+  doc.text(ADRESSE, 14, 17)
+  // Titre document (centré)
+  doc.setFontSize(11); doc.setFont('helvetica', 'bold')
+  doc.text(titre.toUpperCase(), W / 2, 24, { align: 'center' })
+  // Sous-titre gris
+  doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5)
+  doc.text(sous, W / 2, 33, { align: 'center' })
+  doc.setTextColor(30, 30, 30)
+  return 40  // y de départ
+}
+
+function pdfLigne(doc: jsPDF, label: string, val: string, y: number, x1 = 14, x2 = 80): number {
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(90, 90, 90)
+  doc.text(label, x1, y)
+  doc.setFont('helvetica', 'normal'); doc.setTextColor(20, 20, 20)
+  doc.text(val, x2, y)
+  return y + 6
+}
+
+function pdfFooter(doc: jsPDF, ref_: string) {
+  const W = doc.internal.pageSize.getWidth()
+  const H = doc.internal.pageSize.getHeight()
+  doc.setDrawColor(200); doc.setLineWidth(0.3); doc.line(14, H - 18, W - 14, H - 18)
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(150)
+  doc.text(`Réf : ${ref_}  —  Document généré le ${new Date().toLocaleDateString('fr-FR')} — ${ETAB}`, W / 2, H - 11, { align: 'center' })
+}
+
+// ── 1. Bulletin de salaire ────────────────────────────────────────────────────
+function genererBulletinSalaire(p: Personnel, moisCible?: string) {
+  const mois = moisCible || new Date().toISOString().slice(0, 7)
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const W = doc.internal.pageSize.getWidth()
+  let y = pdfHeader(doc, 'Bulletin de Salaire', `Période : ${fmtMois(mois)}`)
+
+  // Encadré employé
+  doc.setFillColor(248, 250, 252); doc.setDrawColor(220)
+  doc.roundedRect(14, y, W - 28, 36, 3, 3, 'FD')
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(20, 20, 20)
+  doc.text(`${p.prenom} ${p.nom}`.toUpperCase(), 20, y + 9)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(80, 80, 80)
+  doc.text(p.poste, 20, y + 16)
+  doc.text(`Contrat : ${p.type_contrat}`, 20, y + 22)
+  doc.text(`Date d'entrée : ${fmtDateStr(p.date_debut)}`, 20, y + 28)
+  // Numéro réf à droite
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(120)
+  doc.text(`Ref. BS-${p.id}-${mois.replace('-', '')}`, W - 20, y + 9, { align: 'right' })
+  y += 42
+
+  // Tableau rémunération
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(30, 30, 30)
+  doc.text('DÉTAIL DE LA RÉMUNÉRATION', 14, y); y += 3
+  autoTable(doc, {
+    startY: y,
+    head: [['Rubrique', 'Base', 'Montant (F CFA)']],
+    body: [
+      ['Salaire de base', '100%', fmt(p.salaire_brut)],
+      ['Brut imposable', '',     fmt(p.salaire_brut)],
+      ['Net à payer', '',        fmt(p.salaire_brut)],
+    ],
+    styles: { fontSize: 9.5, cellPadding: 4 },
+    headStyles: { fillColor: COULEUR, textColor: 255, fontStyle: 'bold' },
+    columnStyles: { 2: { halign: 'right', fontStyle: 'bold' } },
+    alternateRowStyles: { fillColor: [250, 250, 252] },
+    margin: { left: 14, right: 14 },
+  })
+  y = (doc as any).lastAutoTable.finalY + 8
+
+  // Montant net encadré
+  doc.setFillColor(...COULEUR)
+  doc.roundedRect(W / 2 - 10, y, W / 2 - 4, 14, 2, 2, 'F')
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 255, 255)
+  doc.text(`NET À PAYER : ${fmt(p.salaire_brut)}`, W - 18, y + 9, { align: 'right' })
+  y += 22
+
+  // Zone signatures
+  const sigY = Math.max(y + 10, 200)
+  doc.setDrawColor(180); doc.setLineWidth(0.3)
+  const sigCols = [14, W / 2 + 10]
+  const sigLabels = ['Signature de l\'employé(e)', 'Le Directeur Général']
+  sigCols.forEach((x, i) => {
+    doc.line(x, sigY + 18, x + 70, sigY + 18)
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(100)
+    doc.text(sigLabels[i] ?? '', x, sigY + 23)
+  })
+
+  pdfFooter(doc, `BS-${p.id}-${mois.replace('-', '')}`)
+  doc.save(`Bulletin_Salaire_${p.nom}_${p.prenom}_${mois}.pdf`)
+}
+
+function fmtDateStr(d: string | null) {
+  return d ? new Date(d).toLocaleDateString('fr-FR') : '—'
+}
+
+// ── 2. Reçu de prestation ─────────────────────────────────────────────────────
+function genererRecuPrestation(ct: ContratFixe, moisCible?: string) {
+  const mois = moisCible || new Date().toISOString().slice(0, 7)
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const W = doc.internal.pageSize.getWidth()
+  const ref_ = `PREST-${ct.id}-${mois.replace('-', '')}`
+  let y = pdfHeader(doc, 'Reçu de Prestation de Service', `Période : ${fmtMois(mois)}`)
+
+  // Parties
+  doc.setFillColor(248, 250, 252); doc.setDrawColor(220)
+  doc.roundedRect(14, y, W - 28, 28, 3, 3, 'FD')
+  y += 7
+  y = pdfLigne(doc, 'Prestataire :', ct.beneficiaire, y, 20, 65)
+  y = pdfLigne(doc, 'Service :', ct.libelle, y, 20, 65)
+  if (ct.description) { y = pdfLigne(doc, 'Description :', ct.description, y, 20, 65) }
+  y = pdfLigne(doc, 'Périodicité :', ct.periodicite, y, 20, 65)
+  y += 10
+
+  // Tableau montant
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(30, 30, 30)
+  doc.text('DÉTAIL DU PAIEMENT', 14, y); y += 3
+  autoTable(doc, {
+    startY: y,
+    head: [['Désignation', 'Période', 'Montant (F CFA)']],
+    body: [[ct.libelle, fmtMois(mois), fmt(ct.montant)]],
+    styles: { fontSize: 9.5, cellPadding: 4 },
+    headStyles: { fillColor: COULEUR, textColor: 255, fontStyle: 'bold' },
+    columnStyles: { 2: { halign: 'right', fontStyle: 'bold' } },
+    margin: { left: 14, right: 14 },
+  })
+  y = (doc as any).lastAutoTable.finalY + 8
+
+  // Montant encadré
+  doc.setFillColor(...COULEUR)
+  doc.roundedRect(W / 2 - 10, y, W / 2 - 4, 14, 2, 2, 'F')
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 255, 255)
+  doc.text(`MONTANT DÛ : ${fmt(ct.montant)}`, W - 18, y + 9, { align: 'right' })
+  y += 22
+
+  // Signatures
+  const sigY = Math.max(y + 10, 200)
+  doc.setDrawColor(180); doc.setLineWidth(0.3)
+  const sigCols2 = [14, W / 2 + 10]
+  ;['Signature du prestataire', 'Cachet & Signature UPTECH'].forEach((lbl, i) => {
+    const x = sigCols2[i] ?? 14
+    doc.line(x, sigY + 18, x + 70, sigY + 18)
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(100)
+    doc.text(lbl, x, sigY + 23)
+  })
+
+  pdfFooter(doc, ref_)
+  doc.save(`Recu_Prestation_${ct.beneficiaire.replace(/\s+/g, '_')}_${mois}.pdf`)
+}
+
+// ── 3. Reçu de paiement (dépense quelconque) ─────────────────────────────────
+function genererRecuPaiement(d: Depense) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const W = doc.internal.pageSize.getWidth()
+  const ref_ = d.reference_facture || `REC-${d.id}-${String(d.date_depense).replace(/-/g, '')}`
+  let y = pdfHeader(doc, 'Reçu de Paiement', `Date : ${fmtDateStr(d.date_depense)}`)
+
+  // Bloc infos
+  doc.setFillColor(248, 250, 252); doc.setDrawColor(220)
+  doc.roundedRect(14, y, W - 28, 46, 3, 3, 'FD')
+  y += 7
+  y = pdfLigne(doc, 'Référence :', ref_, y, 20, 75)
+  if (d.beneficiaire) { y = pdfLigne(doc, 'Bénéficiaire :', d.beneficiaire, y, 20, 75) }
+  y = pdfLigne(doc, 'Libellé :', d.libelle, y, 20, 75)
+  y = pdfLigne(doc, 'Catégorie :', d.categorie, y, 20, 75)
+  if (d.mode_paiement) { y = pdfLigne(doc, 'Mode de paiement :', d.mode_paiement, y, 20, 75) }
+  if (d.mois_concerne) { y = pdfLigne(doc, 'Mois concerné :', fmtMois(d.mois_concerne), y, 20, 75) }
+  y += 10
+
+  // Montant
+  doc.setFillColor(...COULEUR)
+  doc.roundedRect(14, y, W - 28, 20, 3, 3, 'F')
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(255, 255, 255)
+  doc.text(`MONTANT PAYÉ : ${fmt(Number(d.montant))} FCFA`, W / 2, y + 13, { align: 'center' })
+  y += 28
+
+  // Notes
+  if (d.notes) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(80)
+    const lines = doc.splitTextToSize(`Note : ${d.notes}`, W - 28)
+    doc.text(lines, 14, y); y += lines.length * 5 + 6
+  }
+
+  // Statut
+  const statutTxt = d.statut === 'validee' ? '✓ Dépense validée' : d.statut === 'rejetee' ? '✗ Dépense rejetée' : '⏳ En attente de validation'
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
+  doc.setTextColor(d.statut === 'validee' ? 22 : d.statut === 'rejetee' ? 185 : 180,
+                   d.statut === 'validee' ? 163 : 28, d.statut === 'validee' ? 74 : 28)
+  doc.text(statutTxt, 14, y); y += 14
+
+  // Signatures
+  const sigY = Math.max(y + 10, 210)
+  doc.setDrawColor(180); doc.setLineWidth(0.3)
+  ;['Émetteur / Caissier', 'Bénéficiaire', 'Le Directeur Général'].forEach((lbl, i) => {
+    const x = 14 + i * ((W - 28) / 3)
+    doc.line(x, sigY + 18, x + 52, sigY + 18)
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(100)
+    doc.text(lbl, x, sigY + 23)
+  })
+
+  pdfFooter(doc, ref_)
+  doc.save(`Recu_Paiement_${ref_}.pdf`)
+}
+
+// ── État modal mois pour bulletin/reçu prestation ─────────────────────────────
+const showMoisModal  = ref(false)
+const moisModalType  = ref<'salaire' | 'prestation'>('salaire')
+const moisModalCible = ref(new Date().toISOString().slice(0, 7))
+const moisModalItem  = ref<Personnel | ContratFixe | null>(null)
+
+function openMoisModal(type: 'salaire' | 'prestation', item: Personnel | ContratFixe) {
+  moisModalType.value  = type
+  moisModalCible.value = new Date().toISOString().slice(0, 7)
+  moisModalItem.value  = item
+  showMoisModal.value  = true
+}
+function confirmMoisModal() {
+  if (!moisModalItem.value) return
+  if (moisModalType.value === 'salaire') {
+    genererBulletinSalaire(moisModalItem.value as Personnel, moisModalCible.value)
+  } else {
+    genererRecuPrestation(moisModalItem.value as ContratFixe, moisModalCible.value)
+  }
+  showMoisModal.value = false
+}
+
 // ── Utilitaires ──────────────────────────────────────────────────────────────
 function fmt(n: number) { return new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' F' }
 function fmtDate(d: string | null) { return d ? new Date(d).toLocaleDateString('fr-FR') : '—' }
@@ -597,7 +835,14 @@ function isPeriodeLocked(periode: string): boolean {
   return clotures.value.some(c => c.periode === periode)
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  const hint = sessionStorage.getItem('depenses_tab')
+  if (hint && ['fixes','variables','journal','budget','clotures'].includes(hint)) {
+    activeTab.value = hint as typeof activeTab.value
+    sessionStorage.removeItem('depenses_tab')
+  }
+})
 watch(budgetAnnee, loadBudget)
 </script>
 
@@ -606,6 +851,12 @@ watch(budgetAnnee, loadBudget)
 
     <UcPageHeader title="Dépenses" subtitle="Gestion des charges fixes et dépenses variables">
       <template #actions>
+        <button @click="setTab('journal')" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:#E30613;color:#fff;font-size:12px;font-weight:600;border:none;cursor:pointer;">
+          💸 Journal des dépenses
+        </button>
+        <router-link to="/vacations" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:#1e293b;color:#fff;font-size:12px;font-weight:600;text-decoration:none;">
+          👨‍🏫 Vacataires
+        </router-link>
         <button v-if="canWrite" @click="downloadTemplate" class="dep-btn-secondary" title="Télécharger le modèle Excel (Livre de caisse) à remplir">
           <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
           Modèle Excel
@@ -770,8 +1021,9 @@ watch(budgetAnnee, loadBudget)
                 <a v-if="p.contrat_url" :href="p.contrat_url" target="_blank" class="dep-contrat-link" title="Voir le contrat">📄 Contrat</a>
                 <span v-else style="color:#ccc;font-size:11px;">—</span>
               </td>
-              <td v-if="canWrite" style="white-space:nowrap;">
-                <button @click="openEditPersonnel(p)" class="dep-btn-icon" title="Modifier">✏️</button>
+              <td style="white-space:nowrap;display:flex;gap:4px;align-items:center;">
+                <button @click="openMoisModal('salaire', p)" class="dep-btn-icon" title="Générer bulletin de salaire" style="color:#0369a1;">📄</button>
+                <button v-if="canWrite" @click="openEditPersonnel(p)" class="dep-btn-icon" title="Modifier">✏️</button>
                 <button v-if="canValidate" @click="deletePersonnel(p)" class="dep-btn-icon" title="Supprimer">🗑</button>
               </td>
             </tr>
@@ -828,8 +1080,9 @@ watch(budgetAnnee, loadBudget)
                 <a v-if="ct.contrat_url" :href="ct.contrat_url" target="_blank" class="dep-contrat-link" title="Voir le contrat">📄 Contrat</a>
                 <span v-else style="color:#ccc;font-size:11px;">—</span>
               </td>
-              <td v-if="canWrite" style="white-space:nowrap;">
-                <button @click="openEditContrat(ct)" class="dep-btn-icon" title="Modifier">✏️</button>
+              <td style="white-space:nowrap;display:flex;gap:4px;align-items:center;">
+                <button @click="openMoisModal('prestation', ct)" class="dep-btn-icon" title="Générer reçu de prestation" style="color:#0369a1;">📄</button>
+                <button v-if="canWrite" @click="openEditContrat(ct)" class="dep-btn-icon" title="Modifier">✏️</button>
                 <button v-if="canValidate" @click="deleteContrat(ct)" class="dep-btn-icon" title="Supprimer">🗑</button>
               </td>
             </tr>
@@ -889,7 +1142,10 @@ watch(budgetAnnee, loadBudget)
               <td style="font-size:11.5px;color:#888;">{{ fmtMois(d.mois_concerne) }}</td>
               <td style="font-weight:700;color:#E30613;">{{ fmt(d.montant) }}</td>
               <td><span :class="d.statut==='validee'?'dep-badge-ok':d.statut==='rejetee'?'dep-badge-off':'dep-badge-warn'">{{ d.statut==='validee'?'Validée':d.statut==='rejetee'?'Rejetée':'En attente' }}</span></td>
-              <td><button @click="selectedDep=d;showDetailModal=true" class="dep-btn-voir">Voir</button></td>
+              <td style="white-space:nowrap;display:flex;gap:4px;align-items:center;">
+                <button @click="selectedDep=d;showDetailModal=true" class="dep-btn-voir">Voir</button>
+                <button v-if="canValidate" @click="supprimerDepense(d)" class="dep-btn-icon" title="Supprimer" style="color:#dc2626;">🗑</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -917,7 +1173,10 @@ watch(budgetAnnee, loadBudget)
               <td><span class="dep-cat-chip">{{ catLabels[d.categorie] ?? d.categorie }}</span></td>
               <td style="font-weight:700;color:#E30613;">{{ fmt(d.montant) }}</td>
               <td><span :class="d.statut==='validee'?'dep-badge-ok':d.statut==='rejetee'?'dep-badge-off':'dep-badge-warn'">{{ d.statut==='validee'?'Validée':d.statut==='rejetee'?'Rejetée':'En attente' }}</span></td>
-              <td><button @click="selectedDep=d;showDetailModal=true" class="dep-btn-voir">Voir</button></td>
+              <td style="white-space:nowrap;display:flex;gap:4px;align-items:center;">
+                <button @click="selectedDep=d;showDetailModal=true" class="dep-btn-voir">Voir</button>
+                <button v-if="canValidate" @click="supprimerDepense(d)" class="dep-btn-icon" title="Supprimer" style="color:#dc2626;">🗑</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -1052,9 +1311,10 @@ watch(budgetAnnee, loadBudget)
             <td><span class="dep-cat-chip">{{ catLabels[d.categorie] ?? d.categorie }}</span></td>
             <td style="text-align:right;font-weight:700;color:#E30613;font-size:13px;">{{ fmt(d.montant) }}</td>
             <td><span :class="d.statut==='validee'?'dep-badge-ok':d.statut==='rejetee'?'dep-badge-off':'dep-badge-warn'">{{ d.statut==='validee'?'Validée':d.statut==='rejetee'?'Rejetée':'En attente' }}</span></td>
-            <td style="white-space:nowrap;display:flex;gap:4px;">
+            <td style="white-space:nowrap;display:flex;gap:4px;align-items:center;">
               <button @click="selectedDep=d;showDetailModal=true" class="dep-btn-voir">Voir</button>
               <button v-if="canWrite" @click="openEditDep(d)" class="dep-btn-icon" title="Modifier">✏️</button>
+              <button v-if="canValidate" @click="supprimerDepense(d)" class="dep-btn-icon" title="Supprimer" style="color:#dc2626;">🗑</button>
             </td>
           </tr>
         </tbody>
@@ -1458,10 +1718,46 @@ watch(budgetAnnee, loadBudget)
           style="background:#fff;color:#b91c1c;border:1px solid #fca5a5;border-radius:4px;padding:9px 18px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;margin-right:auto;">
           🗑 Supprimer
         </button>
+        <button @click="genererRecuPaiement(selectedDep!)"
+          style="background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:4px;padding:9px 18px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;">
+          📄 Reçu PDF
+        </button>
         <template v-if="canValidate && selectedDep.statut==='en_attente'">
           <button @click="rejeter(selectedDep!)" style="background:#111;color:#fff;border:none;border-radius:4px;padding:9px 18px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;">Rejeter</button>
           <button @click="valider(selectedDep!)" style="background:#E30613;color:#fff;border:none;border-radius:4px;padding:9px 18px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;">Valider</button>
         </template>
+      </template>
+    </UcModal>
+
+    <!-- ══════════ MODAL CHOIX MOIS (bulletin / reçu prestation) ══════════ -->
+    <UcModal v-model="showMoisModal" :title="moisModalType==='salaire' ? '📄 Bulletin de salaire' : '📄 Reçu de prestation'" width="360px" @close="showMoisModal=false">
+      <div style="font-size:13px;color:#444;margin-bottom:16px;">
+        <span v-if="moisModalType==='salaire' && moisModalItem">
+          Générer le bulletin de <strong>{{ (moisModalItem as any).prenom }} {{ (moisModalItem as any).nom }}</strong>
+        </span>
+        <span v-else-if="moisModalItem">
+          Générer le reçu pour <strong>{{ (moisModalItem as any).beneficiaire }}</strong>
+        </span>
+      </div>
+      <UcFormGroup label="Mois concerné">
+        <input v-model="moisModalCible" type="month" class="uc-input" />
+      </UcFormGroup>
+      <div v-if="moisModalType==='salaire' && moisModalItem" style="margin-top:10px;background:#f8fafc;border-radius:6px;padding:10px 14px;font-size:12.5px;color:#334155;">
+        <div>Salarié : <strong>{{ (moisModalItem as any).prenom }} {{ (moisModalItem as any).nom }}</strong></div>
+        <div style="margin-top:4px;">Poste : {{ (moisModalItem as any).poste }}</div>
+        <div style="margin-top:4px;color:#E30613;font-weight:700;">Net à payer : {{ fmt((moisModalItem as any).salaire_brut) }}</div>
+      </div>
+      <div v-else-if="moisModalItem" style="margin-top:10px;background:#f8fafc;border-radius:6px;padding:10px 14px;font-size:12.5px;color:#334155;">
+        <div>Prestataire : <strong>{{ (moisModalItem as any).beneficiaire }}</strong></div>
+        <div style="margin-top:4px;">{{ (moisModalItem as any).libelle }}</div>
+        <div style="margin-top:4px;color:#E30613;font-weight:700;">Montant : {{ fmt((moisModalItem as any).montant) }}</div>
+      </div>
+      <template #footer>
+        <button @click="showMoisModal=false" class="dep-btn-cancel">Annuler</button>
+        <button @click="confirmMoisModal"
+          style="background:#E30613;color:#fff;border:none;border-radius:4px;padding:9px 20px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;">
+          📄 Générer PDF
+        </button>
       </template>
     </UcModal>
 

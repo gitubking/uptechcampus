@@ -2,7 +2,6 @@
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
-import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 import UcModal from '@/components/ui/UcModal.vue'
 import UcFormGroup from '@/components/ui/UcFormGroup.vue'
 
@@ -49,9 +48,82 @@ const formAnnonce = ref({
   canaux: ['messagerie'] as string[],
   publie_at: '',
 })
-const formMsg = ref({ destinataires: '', sujet: '', message: '' })
+// Nouveau message groupé
+const formMsg = ref({
+  cible: 'personne' as 'personne' | 'classe' | 'filiere' | 'tous',
+  cible_id: '' as string,
+  recherche: '',
+  sujet: '',
+  message: '',
+})
 const sendingNewMsg = ref(false)
+
+// Données pour ciblage
+const classesList = ref<{id:number; nom:string}[]>([])
+const filieresList = ref<{id:number; nom:string}[]>([])
+const usersList = ref<{id:number; nom:string; prenom:string; role:string}[]>([])
+const usersFiltered = computed(() => {
+  if (!formMsg.value.recherche.trim()) return []
+  const q = formMsg.value.recherche.toLowerCase()
+  return usersList.value.filter(u =>
+    (u.prenom + ' ' + u.nom).toLowerCase().includes(q)
+  ).slice(0, 8)
+})
+
+async function loadTargetData() {
+  try {
+    // Si enseignant : récupérer son profil et ses séances pour connaître ses classes
+    if (isEnseignant.value && !monEnseignantId.value) {
+      try {
+        const { data: profil } = await api.get('/enseignants/me')
+        monEnseignantId.value = profil.id ? Number(profil.id) : null
+        // Charger les séances pour identifier les classes de cet enseignant
+        const { data: seancesData } = await api.get('/seances')
+        const ids = new Set<number>()
+        for (const s of seancesData) {
+          if (Number(s.enseignant_id) === monEnseignantId.value && s.classe_id) {
+            ids.add(Number(s.classe_id))
+          }
+        }
+        mesClasseIds.value = ids
+      } catch (e) {
+        console.error('[Communication] Erreur profil enseignant:', e)
+      }
+    }
+
+    const [c, f, e, et] = await Promise.all([
+      api.get('/classes'),
+      api.get('/filieres'),
+      api.get('/enseignants'),
+      api.get('/etudiants'),
+    ])
+    let allClasses = (Array.isArray(c.data) ? c.data : c.data.data ?? []).map((x: any) => ({ id: x.id, nom: x.nom }))
+    // Enseignant : restreindre aux classes où il enseigne
+    if (isEnseignant.value && mesClasseIds.value.size > 0) {
+      allClasses = allClasses.filter((cl: any) => mesClasseIds.value.has(Number(cl.id)))
+    }
+    classesList.value = allClasses
+    filieresList.value = (Array.isArray(f.data) ? f.data : []).map((x: any) => ({ id: x.id, nom: x.nom }))
+    const ens = (Array.isArray(e.data) ? e.data : e.data.data ?? []).map((x: any) => ({
+      id: x.user_id, nom: x.nom, prenom: x.prenom, role: 'enseignant'
+    }))
+    let etds = (Array.isArray(et.data) ? et.data : et.data.data ?? []).map((x: any) => ({
+      id: x.user_id, nom: x.nom, prenom: x.prenom, role: 'etudiant', classe_id: x.classe_id
+    }))
+    // Enseignant : restreindre les étudiants à ceux de ses classes
+    if (isEnseignant.value && mesClasseIds.value.size > 0) {
+      etds = etds.filter((u: any) => u.classe_id && mesClasseIds.value.has(Number(u.classe_id)))
+    }
+    usersList.value = isEnseignant.value
+      ? etds.filter((u: any) => u.id) // Enseignant ne voit que les étudiants de ses classes
+      : [...ens, ...etds].filter(u => u.id)
+  } catch {}
+}
 const savingAnnonce = ref(false)
+
+const isEnseignant = computed(() => auth.user?.role === 'enseignant')
+const monEnseignantId = ref<number | null>(null)
+const mesClasseIds = ref<Set<number>>(new Set())
 
 const canWrite = computed(() =>
   ['dg', 'dir_peda', 'coordinateur', 'secretariat'].includes(auth.user?.role ?? '')
@@ -127,18 +199,33 @@ async function sendMessage() {
   }
 }
 
+async function deleteMessage(msgId: number) {
+  if (!confirm('Supprimer ce message ?')) return
+  await api.delete(`/messages/${msgId}`)
+  messages.value = messages.value.filter((m: any) => m.id !== msgId)
+}
+
+async function deleteConversation(conv: any) {
+  if (!confirm(`Supprimer la conversation "${conv.nom}" et tous ses messages ?`)) return
+  await api.delete(`/conversations/${conv.id}`)
+  conversations.value = conversations.value.filter((c: any) => c.id !== conv.id)
+  if (activeConversation.value?.id === conv.id) {
+    activeConversation.value = conversations.value[0] || null
+    messages.value = []
+  }
+}
+
 async function sendNewMessage() {
   if (!formMsg.value.message.trim() || sendingNewMsg.value) return
   sendingNewMsg.value = true
   try {
-    const nom = formMsg.value.sujet || formMsg.value.destinataires || 'Nouveau message'
-    const { data: conv } = await api.post('/conversations', {
-      type: 'direct',
-      nom,
-      user_ids: [],
+    const { data: conv } = await api.post('/conversations/groupe', {
+      cible: formMsg.value.cible,
+      cible_id: formMsg.value.cible_id || null,
+      sujet: formMsg.value.sujet || null,
     })
     await api.post(`/conversations/${conv.id}/messages`, { contenu: formMsg.value.message.trim() })
-    formMsg.value = { destinataires: '', sujet: '', message: '' }
+    formMsg.value = { cible: 'personne', cible_id: '', recherche: '', sujet: '', message: '' }
     showModalNouveauMsg.value = false
     await fetchConversations()
     const created = conversations.value.find(c => c.id === conv.id)
@@ -146,6 +233,14 @@ async function sendNewMessage() {
   } finally {
     sendingNewMsg.value = false
   }
+}
+
+function openNouveauMsg() {
+  formMsg.value.cible = isEnseignant.value ? 'classe' : 'personne'
+  formMsg.value.cible_id = ''
+  formMsg.value.recherche = ''
+  loadTargetData()
+  showModalNouveauMsg.value = true
 }
 
 async function saveAnnonce(publie = false) {
@@ -276,23 +371,54 @@ function toggleChip(arr: string[], val: string) {
 <template>
   <div class="uc-content cm-layout" style="padding:0">
 
-    <!-- Header page -->
-    <UcPageHeader
-      title="Communication & Messagerie"
-      :subtitle="`${conversations.reduce((s, c) => s + c.nb_non_lus, 0)} message(s) non lu(s) · ${annonces.filter(a => a.statut === 'brouillon').length} annonce(s) en attente`"
-    >
-      <template #actions>
-        <button v-if="canWrite" @click="showModalAnnonce = true" class="cm-btn-outline">
-          <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
-          </svg>
-          Annonce
-        </button>
-        <button @click="showModalNouveauMsg = true" class="uc-btn-primary">
-          + Nouveau message
-        </button>
-      </template>
-    </UcPageHeader>
+    <!-- ══ HERO ══ -->
+    <div class="cm-hero">
+      <div class="cm-hero-glow"></div>
+      <div class="cm-hero-content">
+        <div class="cm-hero-left">
+          <div class="cm-hero-icon">💬</div>
+          <div>
+            <h1 class="cm-hero-title">Communication</h1>
+            <p class="cm-hero-sub">Messagerie interne &amp; diffusion d'annonces</p>
+          </div>
+        </div>
+        <div class="cm-hero-kpis">
+          <div class="cm-hkpi">
+            <div class="cm-hkpi-val">{{ conversations.length }}</div>
+            <div class="cm-hkpi-lbl">Conversations</div>
+          </div>
+          <div class="cm-hkpi cm-hkpi--red">
+            <div class="cm-hkpi-val">{{ conversations.reduce((s, c) => s + c.nb_non_lus, 0) }}</div>
+            <div class="cm-hkpi-lbl">Non lus</div>
+          </div>
+          <div class="cm-hkpi cm-hkpi--green">
+            <div class="cm-hkpi-val">{{ annonces.filter(a => a.statut === 'publie').length }}</div>
+            <div class="cm-hkpi-lbl">Annonces</div>
+          </div>
+          <div class="cm-hkpi cm-hkpi--orange">
+            <div class="cm-hkpi-val">{{ annonces.filter(a => a.statut === 'brouillon').length }}</div>
+            <div class="cm-hkpi-lbl">Brouillons</div>
+          </div>
+        </div>
+        <div class="cm-hero-actions">
+          <a href="/notifications" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:#E30613;color:#fff;font-size:12px;font-weight:600;text-decoration:none;">
+            🔔 Notifications
+          </a>
+          <button v-if="canWrite" @click="showModalAnnonce = true" class="cm-hero-btn cm-hero-btn--ghost">
+            <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
+            </svg>
+            Annonce
+          </button>
+          <button @click="openNouveauMsg()" class="cm-hero-btn">
+            <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Nouveau message
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Corps 3 colonnes -->
     <div class="cm-body">
@@ -367,6 +493,9 @@ function toggleChip(arr: string[], val: string) {
               <p class="cm-chat-name">{{ convName(activeConversation) }}</p>
               <p v-if="membresLabel(activeConversation)" class="cm-chat-sub">{{ membresLabel(activeConversation) }}</p>
             </div>
+            <button class="cm-delete-conv-btn" @click="deleteConversation(activeConversation)" title="Supprimer la discussion">
+              🗑 Supprimer la discussion
+            </button>
           </div>
 
           <!-- Zone messages -->
@@ -387,9 +516,12 @@ function toggleChip(arr: string[], val: string) {
                   <div class="cm-bubble" :class="msg.is_mine ? 'cm-bubble--mine' : 'cm-bubble--other'">
                     {{ msg.contenu }}
                   </div>
-                  <p class="cm-msg-time" :class="msg.is_mine ? 'cm-msg-time--right' : ''">
-                    {{ new Date(msg.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) }}
-                  </p>
+                  <div class="cm-msg-footer" :class="msg.is_mine ? 'cm-msg-footer--right' : ''">
+                    <p class="cm-msg-time">
+                      {{ new Date(msg.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) }}
+                    </p>
+                    <button class="cm-del-msg-btn" @click="deleteMessage(msg.id)" title="Supprimer">🗑</button>
+                  </div>
                 </div>
               </div>
             </template>
@@ -503,23 +635,85 @@ function toggleChip(arr: string[], val: string) {
   </UcModal>
 
   <!-- ── Modal : Nouveau message ──────────────────────────────────── -->
-  <UcModal v-model="showModalNouveauMsg" title="Nouveau message" width="420px" @close="showModalNouveauMsg = false">
+  <UcModal v-model="showModalNouveauMsg" title="✉️ Nouveau message" width="480px" @close="showModalNouveauMsg = false">
     <div class="cm-modal-form-body">
-      <UcFormGroup label="Destinataire(s)" :required="true">
-        <input v-model="formMsg.destinataires" type="text" placeholder="Nom, groupe ou filière…" class="cm-input" />
+
+      <!-- Cible -->
+      <UcFormGroup label="Envoyer à" :required="true">
+        <div class="cm-cible-chips">
+          <button v-for="opt in (isEnseignant
+            ? [
+                { k:'classe',   label:'🏫 Une classe' },
+                { k:'personne', label:'👤 Un étudiant' },
+              ]
+            : [
+                { k:'tous',     label:'🌍 Tout le monde' },
+                { k:'classe',   label:'🏫 Une classe' },
+                { k:'filiere',  label:'📚 Une filière' },
+                { k:'personne', label:'👤 Une personne' },
+              ]
+          )" :key="opt.k"
+            class="cm-cible-chip"
+            :class="{ 'cm-cible-chip--active': formMsg.cible === opt.k }"
+            @click="formMsg.cible = opt.k as any; formMsg.cible_id = ''; formMsg.recherche = ''">
+            {{ opt.label }}
+          </button>
+        </div>
       </UcFormGroup>
+
+      <!-- Sélecteur classe -->
+      <UcFormGroup v-if="formMsg.cible === 'classe'" label="Classe" :required="true">
+        <select v-model="formMsg.cible_id" class="cm-input">
+          <option value="">— Sélectionner une classe —</option>
+          <option v-for="c in classesList" :key="c.id" :value="String(c.id)">{{ c.nom }}</option>
+        </select>
+      </UcFormGroup>
+
+      <!-- Sélecteur filière -->
+      <UcFormGroup v-if="formMsg.cible === 'filiere'" label="Filière" :required="true">
+        <select v-model="formMsg.cible_id" class="cm-input">
+          <option value="">— Sélectionner une filière —</option>
+          <option v-for="f in filieresList" :key="f.id" :value="String(f.id)">{{ f.nom }}</option>
+        </select>
+      </UcFormGroup>
+
+      <!-- Recherche personne -->
+      <UcFormGroup v-if="formMsg.cible === 'personne'" label="Rechercher" :required="true">
+        <div style="position:relative">
+          <input v-model="formMsg.recherche" type="text" placeholder="Nom de l'enseignant ou étudiant…" class="cm-input" />
+          <div v-if="usersFiltered.length" class="cm-autocomplete">
+            <div v-for="u in usersFiltered" :key="u.id"
+              class="cm-autocomplete-item"
+              @click="formMsg.cible_id = String(u.id); formMsg.recherche = u.prenom + ' ' + u.nom">
+              <span class="cm-ac-role" :style="u.role === 'enseignant' ? 'background:#dbeafe;color:#1d4ed8' : 'background:#dcfce7;color:#15803d'">
+                {{ u.role === 'enseignant' ? 'Prof' : 'Étud.' }}
+              </span>
+              {{ u.prenom }} {{ u.nom }}
+            </div>
+          </div>
+        </div>
+      </UcFormGroup>
+
+      <!-- Info "tout le monde" -->
+      <div v-if="formMsg.cible === 'tous'" class="cm-info-box">
+        📢 Ce message sera envoyé à <strong>tous les enseignants et étudiants</strong> de l'établissement.
+      </div>
+
       <UcFormGroup label="Sujet (optionnel)">
-        <input v-model="formMsg.sujet" type="text" class="cm-input" />
+        <input v-model="formMsg.sujet" type="text" placeholder="Ex : Réunion pédagogique vendredi" class="cm-input" />
       </UcFormGroup>
       <UcFormGroup label="Message" :required="true">
-        <textarea v-model="formMsg.message" rows="5" class="cm-input" style="resize:none"></textarea>
+        <textarea v-model="formMsg.message" rows="5" class="cm-input" placeholder="Rédigez votre message…" style="resize:vertical;min-height:100px"></textarea>
       </UcFormGroup>
     </div>
 
     <template #footer>
       <button @click="showModalNouveauMsg = false" class="cm-btn-cancel">Annuler</button>
-      <button @click="sendNewMessage" :disabled="!formMsg.message.trim() || sendingNewMsg" class="uc-btn-primary" :style="(!formMsg.message.trim() || sendingNewMsg) ? 'opacity:0.4' : ''">
-        {{ sendingNewMsg ? 'Envoi…' : 'Envoyer' }}
+      <button @click="sendNewMessage"
+        :disabled="!formMsg.message.trim() || sendingNewMsg || (formMsg.cible !== 'tous' && !formMsg.cible_id)"
+        class="uc-btn-primary"
+        :style="(!formMsg.message.trim() || sendingNewMsg || (formMsg.cible !== 'tous' && !formMsg.cible_id)) ? 'opacity:0.4' : ''">
+        {{ sendingNewMsg ? 'Envoi en cours…' : '📤 Envoyer' }}
       </button>
     </template>
   </UcModal>
@@ -560,6 +754,14 @@ function toggleChip(arr: string[], val: string) {
 .cm-no-conv { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; }
 .cm-no-conv-text { font-size:13px; color:#bbb; }
 .cm-chat-header { display:flex; align-items:center; gap:10px; padding:10px 16px; background:#fff; border-bottom:1px solid #eee; flex-shrink:0; }
+.cm-delete-conv-btn {
+  margin-left:auto; display:flex; align-items:center; gap:6px;
+  padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer;
+  background: linear-gradient(135deg,#ef4444,#dc2626); color:#fff;
+  font-size:12px; font-weight:600; font-family:'Poppins',sans-serif;
+  transition: opacity 0.15s; box-shadow: 0 2px 8px rgba(239,68,68,0.3);
+}
+.cm-delete-conv-btn:hover { opacity:0.85; }
 .cm-chat-info { flex:1; min-width:0; }
 .cm-chat-name { font-size:13.5px; font-weight:600; color:#111; }
 .cm-chat-sub { font-size:12px; color:#888; margin-top:1px; }
@@ -573,8 +775,16 @@ function toggleChip(arr: string[], val: string) {
 .cm-bubble { padding:8px 12px; border-radius:18px; font-size:13.5px; }
 .cm-bubble--mine { background:#E30613; color:#fff; border-bottom-right-radius:4px; }
 .cm-bubble--other { background:#fff; color:#111; border:1px solid #eee; border-bottom-left-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
-.cm-msg-time { font-size:11px; color:#aaa; margin-top:3px; padding-left:4px; }
-.cm-msg-time--right { text-align:right; padding-left:0; padding-right:4px; }
+.cm-msg-footer { display:flex; align-items:center; gap:6px; margin-top:3px; }
+.cm-msg-footer--right { flex-direction:row-reverse; }
+.cm-msg-time { font-size:11px; color:#aaa; padding-left:4px; }
+.cm-del-msg-btn {
+  background: #fee2e2; border: none; cursor:pointer;
+  font-size:11px; color:#ef4444;
+  padding: 2px 6px; border-radius: 4px;
+  transition: background 0.15s;
+}
+.cm-del-msg-btn:hover { background: #fca5a5; }
 .cm-input-zone { display:flex; align-items:flex-end; gap:10px; padding:12px 14px; background:#fff; border-top:1px solid #eee; flex-shrink:0; }
 .cm-msg-input { flex:1; resize:none; font-size:13.5px; border:1px solid #eee; border-radius:10px; padding:9px 14px; outline:none; font-family:inherit; max-height:128px; }
 .cm-msg-input:focus { border-color:#E30613; }
@@ -626,6 +836,38 @@ function toggleChip(arr: string[], val: string) {
 /* Modal footer buttons */
 .cm-btn-cancel { padding:8px 14px; font-size:13px; color:#555; border:1px solid #ddd; background:#fff; border-radius:7px; cursor:pointer; }
 .cm-btn-cancel:hover { background:#f9f9f9; }
+
+/* Cible chips */
+.cm-cible-chips { display:flex; flex-wrap:wrap; gap:8px; }
+.cm-cible-chip {
+  padding:7px 14px; font-size:12px; font-weight:600; border-radius:20px;
+  border:2px solid #e5e7eb; background:#fff; cursor:pointer; color:#374151;
+  transition:all 0.15s;
+}
+.cm-cible-chip:hover { border-color:#6366f1; color:#6366f1; }
+.cm-cible-chip--active { border-color:#E30613; background:#fff1f2; color:#E30613; }
+
+/* Info box */
+.cm-info-box {
+  padding:10px 14px; background:#eff6ff; border:1px solid #bfdbfe;
+  border-radius:8px; font-size:13px; color:#1d4ed8; line-height:1.5;
+}
+
+/* Autocomplete */
+.cm-autocomplete {
+  position:absolute; top:100%; left:0; right:0; z-index:50;
+  background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+  box-shadow:0 4px 16px rgba(0,0,0,0.1); max-height:200px; overflow-y:auto; margin-top:2px;
+}
+.cm-autocomplete-item {
+  display:flex; align-items:center; gap:8px;
+  padding:9px 12px; cursor:pointer; font-size:13px; color:#1e293b;
+  transition:background 0.1s;
+}
+.cm-autocomplete-item:hover { background:#f8fafc; }
+.cm-ac-role {
+  font-size:10px; font-weight:700; padding:2px 7px; border-radius:20px; flex-shrink:0;
+}
 .cm-btn-draft { padding:8px 14px; font-size:13px; color:#444; border:1px solid #ddd; background:#fff; border-radius:7px; cursor:pointer; }
 .cm-btn-draft:hover { background:#f9f9f9; }
 .cm-btn-draft:disabled { opacity:0.4; cursor:not-allowed; }
@@ -637,5 +879,102 @@ function toggleChip(arr: string[], val: string) {
   .cm-body { flex-direction: column; overflow: auto; }
   .cm-col-left { width: 100%; flex-shrink: 0; max-height: 280px; border-right: none; border-bottom: 1px solid #eee; }
   .cm-conv-list { max-height: 200px; }
+}
+
+/* ════════════════════════════════════════════════════════
+   HERO COMMUNICATION
+════════════════════════════════════════════════════════ */
+.cm-hero {
+  position: relative;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0d1117 100%);
+  border-radius: 16px;
+  margin: 16px 16px 0;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(15,23,42,0.18);
+  flex-shrink: 0;
+}
+.cm-hero-glow {
+  position: absolute;
+  top: -50px; right: -40px;
+  width: 240px; height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99,102,241,0.2) 0%, transparent 70%);
+  pointer-events: none;
+}
+.cm-hero-content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 24px;
+  flex-wrap: wrap;
+}
+.cm-hero-left { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.cm-hero-icon {
+  width: 44px; height: 44px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  border: 1px solid rgba(255,255,255,0.1);
+  flex-shrink: 0;
+}
+.cm-hero-title { font-size: 18px; font-weight: 800; color: #fff; margin: 0 0 2px; font-family: 'Poppins', sans-serif; }
+.cm-hero-sub { font-size: 11.5px; color: rgba(255,255,255,0.45); margin: 0; }
+
+.cm-hero-kpis { display: flex; gap: 8px; flex-wrap: wrap; }
+.cm-hkpi {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 9px;
+  padding: 8px 13px;
+  text-align: center;
+  min-width: 72px;
+}
+.cm-hkpi--red    { border-color: rgba(227,6,19,0.35); }
+.cm-hkpi--green  { border-color: rgba(34,197,94,0.35); }
+.cm-hkpi--orange { border-color: rgba(249,115,22,0.35); }
+.cm-hkpi-val {
+  font-size: 16px; font-weight: 800; color: #fff;
+  line-height: 1.1; font-family: 'Poppins', sans-serif;
+}
+.cm-hkpi--red   .cm-hkpi-val { color: #f87171; }
+.cm-hkpi--green .cm-hkpi-val { color: #4ade80; }
+.cm-hkpi--orange .cm-hkpi-val { color: #fb923c; }
+.cm-hkpi-lbl {
+  font-size: 9.5px; color: rgba(255,255,255,0.4);
+  font-weight: 600; margin-top: 2px;
+  text-transform: uppercase; letter-spacing: .04em;
+  white-space: nowrap;
+}
+
+.cm-hero-actions { margin-left: auto; display: flex; gap: 8px; }
+.cm-hero-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 16px;
+  background: linear-gradient(135deg, #E30613, #c0050f);
+  border: none; border-radius: 9px;
+  color: #fff; font-size: 12.5px; font-weight: 700;
+  cursor: pointer; font-family: 'Poppins', sans-serif;
+  box-shadow: 0 4px 12px rgba(227,6,19,0.3);
+  transition: opacity 0.15s;
+}
+.cm-hero-btn:hover { opacity: 0.88; }
+.cm-hero-btn--ghost {
+  background: rgba(255,255,255,0.08);
+  box-shadow: none;
+  border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.8);
+}
+.cm-hero-btn--ghost:hover { background: rgba(255,255,255,0.15); opacity: 1; }
+
+@media (max-width: 900px) {
+  .cm-hero { margin: 12px 12px 0; }
+  .cm-hero-content { padding: 14px 16px; gap: 10px; }
+}
+@media (max-width: 640px) {
+  .cm-hero-kpis { display: grid; grid-template-columns: repeat(2,1fr); width: 100%; }
+  .cm-hero-actions { width: 100%; }
+  .cm-hero-btn { flex: 1; justify-content: center; }
 }
 </style>

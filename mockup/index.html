@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Espace Étudiant — Mobile</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: #eef2f7;
+  width: 100%; max-width: 390px; margin: 0 auto;
+  height: 100vh; overflow: hidden;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+}
+.app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* ═══ TOPBAR — dark slate comme la sidebar ═══ */
+.topbar {
+  background: #0d1117;
+  color: #fff; display: flex; align-items: center;
+  justify-content: space-between; padding: 0 16px; height: 54px; flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.burger { font-size: 17px; background: none; border: none; color: rgba(255,255,255,0.7); cursor: pointer; }
+.topbar-title { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: -0.2px; }
+.topbar-right { display: flex; align-items: center; gap: 14px; }
+.topbar-icon { position: relative; cursor: pointer; font-size: 16px; }
+.topbar-icon .notif-dot {
+  position: absolute; top: -3px; right: -5px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #E30613; border: 2px solid #0d1117;
+}
+.topbar-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: linear-gradient(135deg, #E30613, #b91c1c);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; color: #fff; cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.12);
+}
+
+/* ═══ SCROLLABLE ═══ */
+.content { flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+
+/* ═══ HERO — dark slate avec lueur rouge ═══ */
+.hero {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #1a0505 100%);
+  color: #fff; padding: 20px 18px 22px;
+  position: relative; overflow: hidden;
+}
+.hero::after {
+  content: ''; position: absolute; top: -20px; right: -30px;
+  width: 160px; height: 160px; border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(227,6,19,0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-top { display: flex; align-items: center; gap: 14px; position: relative; z-index: 1; }
+.hero-avatar {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: linear-gradient(135deg, #E30613, #b91c1c);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; font-weight: 800; color: #fff; flex-shrink: 0;
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.1);
+}
+.hero-greeting { font-size: 11px; color: rgba(255,255,255,0.45); font-weight: 500; }
+.hero-name { font-size: 17px; font-weight: 800; margin: 1px 0 5px; letter-spacing: -0.3px; }
+.hero-tags { display: flex; gap: 5px; flex-wrap: wrap; }
+.hero-tag {
+  font-size: 9px; font-weight: 600; padding: 2.5px 9px;
+  border-radius: 20px; white-space: nowrap;
+}
+.hero-tag.main { background: #E30613; color: #fff; }
+.hero-tag.ghost { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.65); }
+
+/* Hero KPIs */
+.hero-kpis {
+  display: flex; justify-content: space-between;
+  margin-top: 16px; gap: 7px; position: relative; z-index: 1;
+}
+.hero-kpi {
+  flex: 1; text-align: center; padding: 9px 4px;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+}
+.hero-kpi-val { font-size: 17px; font-weight: 800; line-height: 1.1; color: #fff; }
+.hero-kpi-val.ok { color: #4ade80; }
+.hero-kpi-val.warn { color: #fbbf24; }
+.hero-kpi-val.bad { color: #f87171; }
+.hero-kpi-lbl {
+  font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.4);
+  text-transform: uppercase; letter-spacing: 0.3px; margin-top: 2px;
+}
+
+/* ═══ ALERT ═══ */
+.alert-banner {
+  margin: 10px 12px 0; padding: 10px 14px;
+  background: #fef2f2; border: 1px solid #fecaca;
+  border-radius: 10px; display: flex; align-items: center; gap: 10px;
+}
+.alert-icon { font-size: 16px; flex-shrink: 0; }
+.alert-text { flex: 1; font-size: 10.5px; color: #b91c1c; font-weight: 500; line-height: 1.4; }
+.alert-text strong { font-weight: 700; display: block; font-size: 11px; }
+.alert-btn {
+  font-size: 10px; font-weight: 700; color: #fff;
+  background: #E30613; border: none; border-radius: 6px;
+  padding: 5px 12px; cursor: pointer; flex-shrink: 0;
+}
+
+/* ═══ QUICK ACTIONS — même style que desktop ee-qa ═══ */
+.actions-section { padding: 10px 12px 0; }
+.actions-grid { display: flex; gap: 8px; }
+.action-item {
+  flex: 1; background: #fff; border-radius: 12px; padding: 12px 4px 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  border: 1.5px solid #e2e8f0; cursor: pointer;
+  transition: all 0.12s; position: relative;
+}
+.action-item:active { border-color: #E30613; background: #fff5f5; }
+.action-icon {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.action-icon.i-plan { background: #eff6ff; }
+.action-icon.i-notes { background: #fdf4ff; }
+.action-icon.i-money { background: #f0fdf4; }
+.action-icon.i-msg { background: #fff8f0; }
+.action-label { font-size: 9.5px; font-weight: 600; color: #475569; text-align: center; }
+.action-badge {
+  position: absolute; top: 5px; right: 5px;
+  min-width: 16px; height: 16px; border-radius: 8px;
+  background: #E30613; color: #fff; font-size: 9px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; padding: 0 4px;
+}
+
+/* ═══ PROCHAIN COURS ═══ */
+.next-course {
+  margin: 10px 12px 0; padding: 12px 14px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  border-radius: 12px; color: #fff; display: flex;
+  align-items: center; justify-content: space-between;
+  box-shadow: 0 4px 14px rgba(16,185,129,0.2);
+}
+.nc-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.nc-icon { font-size: 22px; flex-shrink: 0; }
+.nc-info { min-width: 0; }
+.nc-label { font-size: 8px; font-weight: 700; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.5px; }
+.nc-name { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nc-time { font-size: 10px; opacity: 0.75; font-weight: 500; }
+.nc-countdown { text-align: right; flex-shrink: 0; padding-left: 8px; }
+.nc-cd-val { font-size: 15px; font-weight: 800; }
+.nc-cd-lbl { font-size: 7.5px; opacity: 0.55; font-weight: 600; text-transform: uppercase; }
+
+/* ═══ SECTION LISTE — reprend .ee-card ═══ */
+.list-section { padding: 10px 12px 14px; }
+.list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.list-title { font-size: 12px; font-weight: 700; color: #334155; }
+.list-link { font-size: 10.5px; font-weight: 600; color: #E30613; cursor: pointer; }
+
+.list-card {
+  background: #fff; border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+  overflow: hidden;
+}
+.list-row {
+  display: flex; align-items: center; padding: 10px 14px; gap: 10px;
+  border-bottom: 1px solid #f1f5f9; cursor: pointer;
+}
+.list-row:last-child { border-bottom: none; }
+.list-row:active { background: #f8fafc; }
+.lr-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; flex-shrink: 0;
+}
+.lr-info { flex: 1; min-width: 0; }
+.lr-title { font-size: 12px; font-weight: 600; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lr-sub { font-size: 10px; color: #94a3b8; font-weight: 500; }
+.lr-right { text-align: right; flex-shrink: 0; }
+.lr-badge {
+  font-size: 8.5px; font-weight: 700; padding: 2px 7px;
+  border-radius: 10px; display: inline-block;
+}
+
+/* ═══ BOTTOM NAV ═══ */
+.bottom-nav {
+  background: #fff; border-top: 1px solid #e2e8f0;
+  display: flex; justify-content: space-around;
+  padding: 5px 0 8px; flex-shrink: 0;
+}
+.nav-item {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  cursor: pointer; opacity: 0.4; transition: opacity 0.15s;
+  position: relative;
+}
+.nav-item.active { opacity: 1; }
+.nav-item.active .nav-label { color: #E30613; }
+.nav-icon { font-size: 17px; }
+.nav-label { font-size: 8.5px; font-weight: 600; color: #64748b; }
+.nav-item.active::after {
+  content: ''; position: absolute; top: -5px; left: 50%; transform: translateX(-50%);
+  width: 18px; height: 2.5px; border-radius: 2px; background: #E30613;
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══ TOPBAR dark ═══ -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <button class="burger">☰</button>
+      <span class="topbar-title">Mon espace</span>
+    </div>
+    <div class="topbar-right">
+      <span class="topbar-icon">💬<span class="notif-dot"></span></span>
+      <span class="topbar-icon">🔔</span>
+      <div class="topbar-avatar">AS</div>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ═══ HERO dark slate ═══ -->
+    <div class="hero">
+      <div class="hero-top">
+        <div class="hero-avatar">AS</div>
+        <div>
+          <p class="hero-greeting">Bonjour 👋</p>
+          <h1 class="hero-name">Adja Marie SOW</h1>
+          <div class="hero-tags">
+            <span class="hero-tag main">BTS Informatique</span>
+            <span class="hero-tag ghost">Classe L1-A</span>
+            <span class="hero-tag ghost">2025-2026</span>
+          </div>
+        </div>
+      </div>
+      <div class="hero-kpis">
+        <div class="hero-kpi">
+          <div class="hero-kpi-val ok">14.5</div>
+          <div class="hero-kpi-lbl">Moyenne</div>
+        </div>
+        <div class="hero-kpi">
+          <div class="hero-kpi-val ok">92%</div>
+          <div class="hero-kpi-lbl">Assiduité</div>
+        </div>
+        <div class="hero-kpi">
+          <div class="hero-kpi-val warn">4/6</div>
+          <div class="hero-kpi-lbl">UEs validées</div>
+        </div>
+        <div class="hero-kpi">
+          <div class="hero-kpi-val bad">150k</div>
+          <div class="hero-kpi-lbl">FCFA restant</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ ALERTE ═══ -->
+    <div class="alert-banner">
+      <span class="alert-icon">⚠️</span>
+      <div class="alert-text">
+        <strong>Solde impayé : 150 000 FCFA</strong>
+        Régularisez avant le 30 mars.
+      </div>
+      <button class="alert-btn">Voir</button>
+    </div>
+
+    <!-- ═══ ACTIONS ═══ -->
+    <div class="actions-section">
+      <div class="actions-grid">
+        <div class="action-item">
+          <div class="action-icon i-plan">📅</div>
+          <span class="action-label">Planning</span>
+        </div>
+        <div class="action-item">
+          <div class="action-icon i-notes">📋</div>
+          <span class="action-label">Notes</span>
+        </div>
+        <div class="action-item">
+          <div class="action-icon i-money">💰</div>
+          <span class="action-label">Finances</span>
+        </div>
+        <div class="action-item">
+          <div class="action-icon i-msg">💬</div>
+          <span class="action-label">Messages</span>
+          <span class="action-badge">2</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ PROCHAIN COURS ═══ -->
+    <div class="next-course">
+      <div class="nc-left">
+        <span class="nc-icon">🏫</span>
+        <div class="nc-info">
+          <div class="nc-label">Prochain cours</div>
+          <div class="nc-name">Algorithmique avancée</div>
+          <div class="nc-time">14:00 — 16:00 · Salle B2</div>
+        </div>
+      </div>
+      <div class="nc-countdown">
+        <div class="nc-cd-val">1h 23min</div>
+        <div class="nc-cd-lbl">avant le cours</div>
+      </div>
+    </div>
+
+    <!-- ═══ COURS DU JOUR ═══ -->
+    <div class="list-section">
+      <div class="list-header">
+        <span class="list-title">Aujourd'hui</span>
+        <span class="list-link">Semaine →</span>
+      </div>
+      <div class="list-card">
+        <div class="list-row">
+          <div class="lr-icon" style="background:#dcfce7;">✅</div>
+          <div class="lr-info">
+            <div class="lr-title">Base de données</div>
+            <div class="lr-sub">08:00 — 10:00 · M. Diallo</div>
+          </div>
+          <div class="lr-right">
+            <span class="lr-badge" style="background:#dcfce7;color:#15803d;">Présent</span>
+          </div>
+        </div>
+        <div class="list-row">
+          <div class="lr-icon" style="background:#fef3c7;">⚠️</div>
+          <div class="lr-info">
+            <div class="lr-title">Réseau & Télécom</div>
+            <div class="lr-sub">10:15 — 12:15 · Mme Seck</div>
+          </div>
+          <div class="lr-right">
+            <span class="lr-badge" style="background:#fef3c7;color:#92400e;">Retard</span>
+          </div>
+        </div>
+        <div class="list-row">
+          <div class="lr-icon" style="background:#eff6ff;">🏫</div>
+          <div class="lr-info">
+            <div class="lr-title">Algorithmique avancée</div>
+            <div class="lr-sub">14:00 — 16:00 · M. Fall</div>
+          </div>
+          <div class="lr-right">
+            <span class="lr-badge" style="background:#f1f5f9;color:#94a3b8;">À venir</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ BOTTOM NAV ═══ -->
+  <div class="bottom-nav">
+    <div class="nav-item active">
+      <span class="nav-icon">🏠</span>
+      <span class="nav-label">Accueil</span>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">📅</span>
+      <span class="nav-label">Planning</span>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">📋</span>
+      <span class="nav-label">Notes</span>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">💰</span>
+      <span class="nav-label">Finances</span>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">⚙️</span>
+      <span class="nav-label">Plus</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

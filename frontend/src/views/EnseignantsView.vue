@@ -27,6 +27,7 @@ const annees = ref<AnneeAcademique[]>([])
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
+const refsError = ref('')
 const showForm = ref(false)
 const editTarget = ref<Enseignant | null>(null)
 const search = ref('')
@@ -40,7 +41,7 @@ const lastPage = ref(1)
 const form = ref({
   nom: '', prenom: '', email: '', telephone: '',
   specialite: '', grade: '', type_contrat: 'vacataire', tarif_horaire: 0,
-  statut: 'en_attente', annee_academique_id: null as number | null,
+  statut: 'en_attente', annee_academique_id: '' as number | string | null,
 })
 
 const statutConfig: Record<string, { label: string; cls: string }> = {
@@ -60,7 +61,7 @@ function openCreate() {
     nom: '', prenom: '', email: '', telephone: '',
     specialite: '', grade: '', type_contrat: 'vacataire', tarif_horaire: 0,
     statut: 'en_attente',
-    annee_academique_id: anneeActive?.id ?? annees.value[0]?.id ?? null,
+    annee_academique_id: anneeActive?.id ?? annees.value[0]?.id ?? '',
   }
   error.value = ''
   showForm.value = true
@@ -110,8 +111,12 @@ async function load() {
 }
 
 async function loadRefs() {
-  const { data } = await api.get('/annees-academiques')
-  annees.value = data
+  try {
+    const { data } = await api.get('/annees-academiques')
+    annees.value = Array.isArray(data) ? data : []
+  } catch (e: any) {
+    refsError.value = 'Impossible de charger les années académiques'
+  }
 }
 
 async function save() {
@@ -125,7 +130,7 @@ async function save() {
       type_contrat: form.value.type_contrat,
       tarif_horaire: Number(form.value.tarif_horaire) || 0,
       statut: form.value.statut,
-      annee_academique_id: form.value.annee_academique_id,
+      annee_academique_id: form.value.annee_academique_id || null,
     }
     if (editTarget.value) {
       const { data } = await api.put(`/enseignants/${editTarget.value.id}`, payload)
@@ -160,6 +165,15 @@ onMounted(async () => { await Promise.all([load(), loadRefs()]) })
 
     <UcPageHeader title="Enseignants" subtitle="Formateurs, vacataires et intervenants">
       <template #actions>
+        <a href="/emargement" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:#E30613;color:#fff;font-size:12px;font-weight:600;text-decoration:none;">
+          ✍️ Émargement
+        </a>
+        <a href="/suivi-emargements" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:#1e293b;color:#fff;font-size:12px;font-weight:600;text-decoration:none;">
+          📊 Suivi émargements
+        </a>
+        <a href="/cahier-de-textes" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:#1e293b;color:#fff;font-size:12px;font-weight:600;text-decoration:none;">
+          📓 Cahier de textes
+        </a>
         <button v-if="canWrite" @click="openCreate" class="ens-btn-add">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:15px;height:15px;">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
@@ -376,7 +390,9 @@ onMounted(async () => { await Promise.all([load(), loadRefs()]) })
         </UcFormGrid>
 
         <UcFormGroup v-if="!editTarget" label="Année académique" :required="true">
-          <select v-model="form.annee_academique_id" required>
+          <div v-if="refsError" style="color:#b91c1c;font-size:12px;margin-bottom:4px;">{{ refsError }} — <button type="button" @click="loadRefs" style="color:#E30613;background:none;border:none;cursor:pointer;padding:0;font-size:12px;text-decoration:underline;">Réessayer</button></div>
+          <select v-model="form.annee_academique_id" required :disabled="annees.length === 0">
+            <option value="" disabled>-- Sélectionner une année --</option>
             <option v-for="a in annees" :key="a.id" :value="a.id">{{ a.libelle }}</option>
           </select>
         </UcFormGroup>

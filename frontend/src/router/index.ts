@@ -59,6 +59,11 @@ const router = createRouter({
           component: () => import('@/views/FilieresView.vue'),
         },
         {
+          path: 'filieres/:id/maquette',
+          name: 'maquette-filiere',
+          component: () => import('@/views/MaquetteView.vue'),
+        },
+        {
           path: 'enseignants',
           name: 'enseignants',
           component: () => import('@/views/EnseignantsView.vue'),
@@ -79,9 +84,29 @@ const router = createRouter({
           component: () => import('@/views/PaiementsView.vue'),
         },
         {
+          path: 'suivi-paiements',
+          name: 'suivi-paiements',
+          component: () => import('@/views/SuiviPaiementsView.vue'),
+        },
+        {
           path: 'depenses',
           name: 'depenses',
           component: () => import('@/views/DepensesView.vue'),
+        },
+        {
+          path: 'caisse',
+          name: 'caisse',
+          component: () => import('@/views/CaisseView.vue'),
+        },
+        {
+          path: 'vacations',
+          name: 'vacations',
+          component: () => import('@/views/VacationsView.vue'),
+        },
+        {
+          path: 'formations-individuelles',
+          name: 'formations-individuelles',
+          component: () => import('@/views/FormationsIndividuellesView.vue'),
         },
         {
           path: 'emplois-du-temps',
@@ -92,6 +117,21 @@ const router = createRouter({
           path: 'emargement',
           name: 'emargement',
           component: () => import('@/views/EmargementView.vue'),
+        },
+        {
+          path: 'suivi-emargements',
+          name: 'suivi-emargements',
+          component: () => import('@/views/SuiviEmargementsView.vue'),
+        },
+        {
+          path: 'cahier-de-textes',
+          name: 'cahier-de-textes',
+          component: () => import('@/views/CahierDeTextesView.vue'),
+        },
+        {
+          path: 'absences',
+          name: 'absences',
+          component: () => import('@/views/AbsencesView.vue'),
         },
         {
           path: 'notes-bulletins',
@@ -133,14 +173,21 @@ const router = createRouter({
           name: 'parametres',
           component: () => import('@/views/ParametresView.vue'),
         },
-      ],
-    },
-    {
-      path: '/espace-etudiant',
-      component: () => import('@/layouts/EtudiantLayout.vue'),
-      meta: { requiresAuth: true },
-      children: [
-        { path: '', name: 'espace-etudiant', component: () => import('@/views/EspaceEtudiantView.vue') },
+        {
+          path: 'rapports-ministere',
+          name: 'rapports-ministere',
+          component: () => import('@/views/RapportsMinistereView.vue'),
+        },
+        {
+          path: 'notifications',
+          name: 'notifications',
+          component: () => import('@/views/NotificationsView.vue'),
+        },
+        {
+          path: 'espace-etudiant',
+          name: 'espace-etudiant',
+          component: () => import('@/views/EspaceEtudiantView.vue'),
+        },
       ],
     },
     {
@@ -149,6 +196,13 @@ const router = createRouter({
       component: () => import('@/views/VerifyView.vue'),
       meta: { public: true },
     },
+    {
+      path: '/verify-attestation/:ref',
+      name: 'verify-attestation',
+      component: () => import('@/views/VerifyAttestationView.vue'),
+      meta: { public: true },
+    },
+    { path: '/utilisateurs', redirect: '/users' },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
   ],
 })
@@ -177,12 +231,12 @@ router.beforeEach(async (to) => {
     return '/setup'
   }
 
-  // Étudiant → toujours redirigé vers espace-etudiant (sauf pages publiques)
+  // Étudiant → redirigé vers espace-etudiant (sauf pages autorisées)
+  const etudiantAllowed = ['/espace-etudiant', '/emplois-du-temps', '/communication', '/verify']
   if (
     auth.isAuthenticated &&
     auth.user?.role === 'etudiant' &&
-    !to.path.startsWith('/espace-etudiant') &&
-    !to.path.startsWith('/verify') &&
+    !etudiantAllowed.some(p => to.path.startsWith(p)) &&
     to.name !== 'login' &&
     to.name !== 'setup'
   ) {

@@ -10,6 +10,7 @@ import UcTable from '@/components/ui/UcTable.vue'
 
 const auth = useAuthStore()
 const isEnseignant = computed(() => auth.user?.role === 'enseignant')
+const isDG = computed(() => auth.user?.role === 'dg')
 const canWrite = computed(() =>
   ['dg', 'dir_peda', 'coordinateur', 'enseignant'].includes(auth.user?.role ?? '')
 )
@@ -44,7 +45,13 @@ interface Note { id?: number; inscription_id: number; ue_id: number; note: numbe
 
 const activeTab = ref<'saisie' | 'jury' | 'bulletins'>('saisie')
 
-const classes = ref<{ id: number; nom: string }[]>([])
+const classes = ref<{ id: number; nom: string; annee_academique_id?: number; annee_academique?: string }[]>([])
+const anneesAcademiques = ref<{ id: number; libelle: string; actif: boolean }[]>([])
+const filterAnneeNotes = ref('')
+const classesFiltreesParAnnee = computed(() => {
+  if (!filterAnneeNotes.value) return classes.value
+  return classes.value.filter(c => String(c.annee_academique_id) === filterAnneeNotes.value)
+})
 const ues = ref<UE[]>([])
 const uesTronc = computed(() => ues.value.filter(u => u.is_tronc_commun))
 const uesSpecifiques = computed(() => ues.value.filter(u => !u.is_tronc_commun))
@@ -61,6 +68,15 @@ const filterClasse = ref('')
 const filterSession = ref<'normale' | 'rattrapage'>('normale')
 const filterSemestre = ref<number | null>(null)   // null = tous
 const bulletinSemestre = ref<number | null>(null) // null = année complète
+
+// Saisie séparée contrôle / examen pour FP
+const localControles = ref<Record<number, Record<number, string>>>({})
+const localExamens   = ref<Record<number, Record<number, string>>>({})
+
+// La classe est FP si au moins un étudiant n'a pas le bac
+const classeEstFP = computed(() =>
+  inscriptions.value.some(i => (i as any).niveau_entree?.est_superieur_bac === false)
+)
 
 // UEs visibles dans la grille saisie (filtre semestre si actif) — triées par groupe UE puis par ordre
 const uesVisible = computed(() => {
@@ -110,18 +126,23 @@ function isLMD(inscriptionId: number): boolean {
 // Priorité : filiere_matiere > UE directe
 function getWeight(ue: UE, inscriptionId: number): number {
   const lmd = isLMD(inscriptionId)
-  return lmd ? (parseFloat(String(ue.credits_ects)) || 1) : (parseFloat(String(ue.coefficient)) || 1)
+  if (lmd) return parseFloat(String(ue.credits_ects)) || 1
+  // Pour FP : respecter coef=0 (ne pas forcer à 1)
+  const coef = parseFloat(String(ue.coefficient))
+  return isNaN(coef) ? 1 : coef
 }
 
 // Moyenne pondérée pour un étudiant (poids = crédit si LMD, coefficient sinon)
+// Les matières avec coef=0 sont exclues du calcul
 function moyennePonderee(inscriptionId: number): number | null {
   let totalPts = 0, totalWeight = 0
   let hasNote = false
   for (const ue of ues.value) {
+    const w = getWeight(ue, inscriptionId)
+    if (w === 0) continue  // ignorer matières coef=0
     const v = localNotes.value[inscriptionId]?.[ue.id]
     if (v !== '' && v !== undefined && v !== null) {
       const n = parseFloat(v)
-      const w = getWeight(ue, inscriptionId)
       if (!isNaN(n)) { totalPts += n * w; totalWeight += w; hasNote = true }
     }
   }
@@ -495,16 +516,26 @@ async function loadNotes() {
     notesData.value = data.notes
     filierePivots.value = data.filiere_pivots ?? {}
 
-    // Initialiser localNotes
+    // Initialiser localNotes + controles + examens
     localNotes.value = {}
+    localControles.value = {}
+    localExamens.value = {}
     inscriptions.value.forEach(i => {
       const noteMap: Record<number, string> = {}
-      ues.value.forEach(ue => { noteMap[ue.id] = '' })
+      const controleMap: Record<number, string> = {}
+      const examenMap: Record<number, string> = {}
+      ues.value.forEach(ue => { noteMap[ue.id] = ''; controleMap[ue.id] = ''; examenMap[ue.id] = '' })
       localNotes.value[i.id] = noteMap
+      localControles.value[i.id] = controleMap
+      localExamens.value[i.id] = examenMap
     })
-    notesData.value.forEach((n: Note) => {
+    notesData.value.forEach((n: any) => {
       const noteMap = localNotes.value[n.inscription_id]
       if (noteMap) noteMap[n.ue_id] = String(n.note)
+      const cm = localControles.value[n.inscription_id]
+      if (cm && n.note_controle != null) cm[n.ue_id] = String(n.note_controle)
+      const em = localExamens.value[n.inscription_id]
+      if (em && n.note_examen != null) em[n.ue_id] = String(n.note_examen)
     })
   } finally {
     loading.value = false
@@ -517,14 +548,24 @@ async function enregistrerNotes() {
   saving.value = true
   saved.value = false
   try {
-    const payload: Note[] = []
+    const payload: any[] = []
     inscriptions.value.forEach(i => {
       ues.value.forEach(ue => {
-        const v = localNotes.value[i.id]?.[ue.id]
-        if (v !== '' && v !== undefined) {
-          const n = parseFloat(v)
-          if (!isNaN(n)) {
-            payload.push({ inscription_id: i.id, ue_id: ue.id, note: n, session: filterSession.value })
+        if (classeEstFP.value) {
+          // Mode FP : on envoie contrôle + examen (la note finale est calculée côté API)
+          const vc = localControles.value[i.id]?.[ue.id]
+          const ve = localExamens.value[i.id]?.[ue.id]
+          const nc = vc !== '' && vc !== undefined ? parseFloat(vc) : null
+          const ne = ve !== '' && ve !== undefined ? parseFloat(ve) : null
+          if (nc !== null || ne !== null) {
+            payload.push({ inscription_id: i.id, ue_id: ue.id, note_controle: isNaN(nc!) ? null : nc, note_examen: isNaN(ne!) ? null : ne, session: filterSession.value })
+          }
+        } else {
+          // Mode LMD : note unique
+          const v = localNotes.value[i.id]?.[ue.id]
+          if (v !== '' && v !== undefined) {
+            const n = parseFloat(v)
+            if (!isNaN(n)) payload.push({ inscription_id: i.id, ue_id: ue.id, note: n, session: filterSession.value })
           }
         }
       })
@@ -582,6 +623,16 @@ const ueGroupes = computed(() => {
   return Object.values(groups)
 })
 
+// Niveau de la classe sélectionnée → plage de semestres
+const classeNiveauActuel = computed<number>(() => {
+  const c = classes.value.find((cl: any) => String(cl.id) === filterClasse.value) as any
+  return c?.niveau || 1
+})
+const classeSemestres = computed<number[]>(() => {
+  const n = classeNiveauActuel.value
+  return [n * 2 - 1, n * 2]   // niveau 2 → [3, 4]
+})
+
 // Gestion des groupes UE
 const showGroupForm = ref(false)
 const editingGroupCode = ref<string | null>(null) // null = nouveau groupe
@@ -590,7 +641,7 @@ const savingGroup = ref(false)
 
 function openGroupeCreate() {
   editingGroupCode.value = null
-  groupForm.value = { code: '', intitule: '', semestre: '1', ec_ids: [] }
+  groupForm.value = { code: '', intitule: '', semestre: String(classeSemestres.value[0] ?? 1), ec_ids: [] }
   showGroupForm.value = true
 }
 function openGroupeEdit(g: { code: string; intitule: string; ecs: UE[] }) {
@@ -652,7 +703,7 @@ async function deleteGroupeUE(code: string) {
 
 async function openUeCreate() {
   editUeId.value = null
-  ueForm.value = { code: '', intitule: '', coefficient: '1', credits_ects: '0', ordre: String(ues.value.length), enseignant_id: '', semestre: '1', categorie_ue: '', intitule_ue: '' }
+  ueForm.value = { code: '', intitule: '', coefficient: '1', credits_ects: '0', ordre: String(ues.value.length), enseignant_id: '', semestre: String(classeSemestres.value[0] ?? 1), categorie_ue: '', intitule_ue: '' }
   showUeModal.value = true
 }
 async function openUeEdit(ue: UE) {
@@ -750,12 +801,15 @@ async function exportBulletinPdf() {
     // ── Chargement logo ─────────────────────────────────────────────────
     let logoDataUrl: string | null = null
     try {
-      const blob = await fetch('/icons/icon-192.png').then(r => r.blob())
-      logoDataUrl = await new Promise<string>((res) => {
-        const reader = new FileReader()
-        reader.onload = () => res(reader.result as string)
-        reader.readAsDataURL(blob)
-      })
+      const resp = await fetch('/logo-normal.png')
+      if (resp.ok) {
+        const blob = await resp.blob()
+        logoDataUrl = await new Promise<string>((res) => {
+          const reader = new FileReader()
+          reader.onload = () => res(reader.result as string)
+          reader.readAsDataURL(blob)
+        })
+      }
     } catch { logoDataUrl = null }
 
     // ── En-tête style UGB ───────────────────────────────────────────────
@@ -768,43 +822,43 @@ async function exportBulletinPdf() {
     doc.text('Ministere de l\'Enseignement Superieur,', mL, y + 8.5)
     doc.text('de la Recherche et de l\'Innovation', mL, y + 12)
 
-    // Colonne centre : Logo + Nom de l'établissement
+    // Colonne centre : Logo + Nom officiel de l'établissement
     const cx = PW / 2
+    const institNom1 = 'Institut Superieur de Formation aux'
+    const institNom2 = 'Nouveaux Metiers de l\'Informatique'
+    const institNom3 = 'et de la Communication'
+    let logoOk = false
     if (logoDataUrl) {
-      doc.addImage(logoDataUrl, 'PNG', cx - 10, y - 1, 20, 20)
-      doc.setFontSize(11); doc.setFont('times', 'bold')
-      doc.text('UPTECH CAMPUS', cx, y + 22, { align: 'center' })
-      doc.setFontSize(8); doc.setFont('times', 'normal')
-      doc.text('Institut d\'Enseignement Superieur Prive', cx, y + 27, { align: 'center' })
-      doc.text('Dakar - Senegal', cx, y + 31, { align: 'center' })
+      try { doc.addImage(logoDataUrl, 'PNG', cx - 20, y, 40, 13); logoOk = true } catch { logoOk = false }
+    }
+    if (logoOk) {
+      doc.setFontSize(7.5); doc.setFont('times', 'normal')
+      doc.text(institNom1, cx, y + 17, { align: 'center' })
+      doc.text(institNom2, cx, y + 21, { align: 'center' })
+      doc.text(institNom3, cx, y + 25, { align: 'center' })
     } else {
-      doc.setFontSize(13); doc.setFont('times', 'bold')
-      doc.text('UPTECH CAMPUS', cx, y + 6, { align: 'center' })
-      doc.setFontSize(8); doc.setFont('times', 'normal')
-      doc.text('Institut d\'Enseignement Superieur Prive', cx, y + 11, { align: 'center' })
-      doc.text('Dakar - Senegal', cx, y + 15, { align: 'center' })
+      doc.setFontSize(12); doc.setFont('times', 'bold')
+      doc.text('UPTECH CAMPUS', cx, y + 5, { align: 'center' })
+      doc.setFontSize(7.5); doc.setFont('times', 'normal')
+      doc.text(institNom1, cx, y + 10, { align: 'center' })
+      doc.text(institNom2, cx, y + 14, { align: 'center' })
+      doc.text(institNom3, cx, y + 18, { align: 'center' })
     }
 
-    // Colonne droite : Filière / Niveau
+    // Colonne droite : Filière + Année académique
     doc.setFontSize(8); doc.setFont('times', 'normal')
     doc.text('Filiere :', PW - mR, y, { align: 'right' })
     doc.setFont('times', 'bold')
     doc.text(filiere, PW - mR, y + 4, { align: 'right' })
     doc.setFont('times', 'normal')
-    doc.text('Niveau :', PW - mR, y + 9, { align: 'right' })
+    doc.text('Annee Academique :', PW - mR, y + 9, { align: 'right' })
     doc.setFont('times', 'bold')
-    doc.text(niveau, PW - mR, y + 13, { align: 'right' })
+    doc.text(annee, PW - mR, y + 13, { align: 'right' })
 
-    y += logoDataUrl ? 35 : 20
+    y += logoDataUrl ? 30 : 22
 
-    // ── Ligne séparatrice double ────────────────────────────────────────
-    doc.setDrawColor(0); doc.setLineWidth(0.8)
-    doc.line(mL, y, PW - mR, y)
-    doc.setLineWidth(0.3)
-    doc.line(mL, y + 1.2, PW - mR, y + 1.2)
-    y += 5
-
-    // ── Titre RELEVÉ DE NOTES ───────────────────────────────────────────
+    // ── Titre RELEVÉ DE NOTES — avec marge suffisante ──────────────────
+    y += 4
     doc.setFontSize(15); doc.setFont('times', 'bold')
     doc.text('RELEVE DE NOTES', PW / 2, y, { align: 'center' })
     y += 5
@@ -812,38 +866,38 @@ async function exportBulletinPdf() {
     doc.text('Annee Academique : ' + annee, PW / 2, y, { align: 'center' })
     y += 2
     // Soulignement titre
-    doc.setLineWidth(0.5)
+    doc.setLineWidth(0.5); doc.setDrawColor(0)
     const titreW = doc.getTextWidth('RELEVE DE NOTES')
     doc.line(PW / 2 - titreW / 2, y, PW / 2 + titreW / 2, y)
-    y += 4
+    y += 6
 
-    // ── Fiche identité étudiant (tableau avec bordures) ─────────────────
+    // ── Fiche identité étudiant (Nom, Matricule, Naissance, Filière, Année)
     autoTable(doc, {
       startY: y, margin: { left: mL, right: mR },
       body: [
         [
-          { content: 'Nom & Prenom :', styles: { fontStyle: 'bold', cellWidth: 28, fontSize: 8 } },
-          { content: nom, styles: { fontStyle: 'bold', fontSize: 9, cellWidth: 55 } },
-          { content: 'N° Matricule :', styles: { fontStyle: 'bold', cellWidth: 25, fontSize: 8 } },
-          { content: numEtd, styles: { fontStyle: 'bold', fontSize: 8.5, textColor: [0,0,0] } },
+          { content: 'Nom & Prenom :', styles: { fontStyle: 'bold', cellWidth: 30, fontSize: 8 } },
+          { content: nom, styles: { fontStyle: 'bold', fontSize: 9 } },
+          { content: 'N° Matricule :', styles: { fontStyle: 'bold', cellWidth: 28, fontSize: 8 } },
+          { content: numEtd, styles: { fontStyle: 'bold', fontSize: 8.5 } },
         ],
         [
           { content: 'Ne(e) le :', styles: { fontStyle: 'bold', fontSize: 8 } },
           { content: dateNaiss, styles: { fontSize: 8 } },
-          { content: 'A (Lieu) :', styles: { fontStyle: 'bold', fontSize: 8 } },
+          { content: 'Lieu de naissance :', styles: { fontStyle: 'bold', fontSize: 8 } },
           { content: lieuNaiss, styles: { fontSize: 8 } },
         ],
         [
-          { content: 'Classe :', styles: { fontStyle: 'bold', fontSize: 8 } },
-          { content: classe, styles: { fontSize: 8 } },
-          { content: 'Rang :', styles: { fontStyle: 'bold', fontSize: 8 } },
-          { content: rangStr, styles: { fontSize: 8 } },
+          { content: 'Filiere :', styles: { fontStyle: 'bold', fontSize: 8 } },
+          { content: filiere, styles: { fontSize: 8 } },
+          { content: 'Niveau d\'etudes :', styles: { fontStyle: 'bold', fontSize: 8 } },
+          { content: '1ere Annee / L1', styles: { fontStyle: 'bold', fontSize: 8 } },
         ],
       ],
       theme: 'grid',
-      styles: { font: 'times', cellPadding: 2, textColor: [0,0,0], fillColor: [255,255,255] },
+      styles: { font: 'times', cellPadding: 2.5, textColor: [0,0,0], fillColor: [255,255,255] },
     })
-    y = (doc as any).lastAutoTable.finalY + 5
+    y = (doc as any).lastAutoTable.finalY + 6
 
     // ── Semestres ───────────────────────────────────────────────────────
     const allUes: any[] = b.ues ?? []
@@ -866,11 +920,11 @@ async function exportBulletinPdf() {
     }
 
     for (const sem of sems) {
-      // Header semestre
-      doc.setFillColor(26, 58, 107)
+      // Header semestre — rouge Uptech, texte centré
+      doc.setFillColor(227, 6, 19)
       doc.rect(mL, y, cW, 6, 'F')
       doc.setTextColor(255, 255, 255); doc.setFontSize(9); doc.setFont('times', 'bold')
-      doc.text('SEMESTRE ' + sem.numero, mL + 3, y + 4.2)
+      doc.text('SEMESTRE ' + sem.numero, mL + cW / 2, y + 4.2, { align: 'center' })
       doc.setTextColor(0, 0, 0)
       y += 6
 
@@ -977,10 +1031,10 @@ async function exportBulletinPdf() {
       const mentAnn = b.mention ?? '—'
       const decText = b.decision === 'admis' ? 'ADMIS(E)' : b.decision === 'passif' ? 'PASSIF(VE)' : b.decision === 'rattrapage' ? 'ADMIS(E) EN RATTRAPAGE' : b.decision === 'redoublant' ? 'REDOUBLANT(E)' : '—'
 
-      doc.setFillColor(26, 58, 107)
+      doc.setFillColor(227, 6, 19)
       doc.rect(mL, y, cW, 6, 'F')
       doc.setTextColor(255, 255, 255); doc.setFontSize(9); doc.setFont('times', 'bold')
-      doc.text('RÉSULTAT ANNUEL', mL + 3, y + 4.2)
+      doc.text('RESULTAT ANNUEL', mL + cW / 2, y + 4.2, { align: 'center' })
       doc.setTextColor(0, 0, 0)
       y += 6
 
@@ -1018,110 +1072,267 @@ async function exportBulletinPdf() {
     return
   }
 
-  // ─── Formation Professionnelle : HTML → popup print ───────────────────
-  let html = ''
+  // ─── Formation Professionnelle : jsPDF style UGB ─────────────────────
   {
-    const allUes: any[] = b.ues ?? []
-    const moyColor = (b.moyenne ?? 0) >= 10 ? '#16a34a' : '#E30613'
-    const moyenne = b.moyenne !== null ? Number(b.moyenne).toFixed(2) : '—'
-    const mention = b.mention ?? '—'
-    const decText = b.decision === 'admis' ? '✓ Acquis' : b.decision === 'redoublant' ? '✗ À renforcer' : b.decision === 'rattrapage' ? '↻ Rattrapage' : '⏳ En attente'
-    const decColor = b.decision === 'admis' ? '#16a34a' : b.decision === 'redoublant' ? '#E30613' : '#c2410c'
+    const { jsPDF } = await import('jspdf')
+    const { default: autoTable } = await import('jspdf-autotable')
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+    const PW = doc.internal.pageSize.getWidth()
+    const mL = 14, mR = 14
+    const cW = PW - mL - mR
+    let y = 10
 
-    function appreciationFP2(n: number | null): string {
-      if (n === null) return '—'
-      if (n < 10) return 'Insuffisant'
-      if (n < 12) return 'Passable'
-      if (n < 14) return 'Assez Bien'
-      if (n < 16) return 'Bien'
-      return 'Très Bien'
+    // ── Logo ────────────────────────────────────────────────────────────
+    let logoDataUrlFP: string | null = null
+    try {
+      const resp = await fetch('/logo-normal.png')
+      if (resp.ok) {
+        const blob = await resp.blob()
+        logoDataUrlFP = await new Promise<string>((res) => {
+          const reader = new FileReader()
+          reader.onload = () => res(reader.result as string)
+          reader.readAsDataURL(blob)
+        })
+      }
+    } catch { logoDataUrlFP = null }
+
+    // ── En-tête style UGB Formation Professionnelle ─────────────────────
+    const cx = PW / 2
+    // Gauche : République
+    doc.setFontSize(8); doc.setFont('times', 'bold')
+    doc.text('REPUBLIQUE DU SENEGAL', mL, y)
+    doc.setFont('times', 'italic'); doc.setFontSize(7.5)
+    doc.text('Un Peuple - Un But - Une Foi', mL, y + 4)
+    doc.setFont('times', 'normal'); doc.setFontSize(7)
+    doc.text('Ministere de la Formation Professionnelle,', mL, y + 8.5)
+    doc.text('de l\'Apprentissage et de l\'Insertion', mL, y + 12)
+
+    // Centre : Logo + Institut
+    const instFP1 = 'Institut Superieur de Formation aux'
+    const instFP2 = 'Nouveaux Metiers de l\'Informatique'
+    const instFP3 = 'et de la Communication'
+    let logoFPOk = false
+    if (logoDataUrlFP) {
+      try { doc.addImage(logoDataUrlFP, 'PNG', cx - 20, y, 40, 13); logoFPOk = true } catch { logoFPOk = false }
+    }
+    if (logoFPOk) {
+      doc.setFontSize(7.5); doc.setFont('times', 'normal')
+      doc.text(instFP1, cx, y + 17, { align: 'center' })
+      doc.text(instFP2, cx, y + 21, { align: 'center' })
+      doc.text(instFP3, cx, y + 25, { align: 'center' })
+    } else {
+      doc.setFontSize(12); doc.setFont('times', 'bold')
+      doc.text('UPTECH CAMPUS', cx, y + 5, { align: 'center' })
+      doc.setFontSize(7.5); doc.setFont('times', 'normal')
+      doc.text(instFP1, cx, y + 10, { align: 'center' })
+      doc.text(instFP2, cx, y + 14, { align: 'center' })
+      doc.text(instFP3, cx, y + 18, { align: 'center' })
     }
 
-    const ueRows = allUes.map((ue: any) => {
-      const nc = (ue.note ?? 0) >= 10 ? '#16a34a' : '#E30613'
-      const resColor = ue.valide ? '#16a34a' : ue.note !== null ? '#E30613' : '#999'
-      return `<tr>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;">${ue.code} — ${ue.intitule}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:11px;color:#555;">${ue.coefficient ?? ue.coef_effectif ?? '—'}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:center;font-weight:bold;font-size:12px;color:${nc};">${ue.note !== null ? ue.note : '—'}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:10px;color:#555;">${appreciationFP2(ue.note)}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:10px;font-weight:bold;color:${resColor};">${ue.note !== null ? (ue.valide ? 'Acquis' : 'À renforcer') : '—'}</td>
-      </tr>`
-    }).join('')
+    // Droite : Filière + Année
+    doc.setFontSize(8); doc.setFont('times', 'normal')
+    doc.text('Filiere :', PW - mR, y, { align: 'right' })
+    doc.setFont('times', 'bold')
+    doc.text(filiere, PW - mR, y + 4, { align: 'right' })
+    doc.setFont('times', 'normal')
+    doc.text('Annee Academique :', PW - mR, y + 9, { align: 'right' })
+    doc.setFont('times', 'bold')
+    doc.text(annee, PW - mR, y + 13, { align: 'right' })
 
-    html = `<!DOCTYPE html><html lang="fr"><head>
-  <meta charset="UTF-8">
-  <title>Bulletin — ${nom}</title>
-  <style>
-    @page { size: A4; margin: 15mm 15mm 20mm 15mm; }
-    body { font-family:'Segoe UI',Arial,sans-serif; margin:0; padding:0; color:#111; }
-    * { box-sizing:border-box; }
-    @media print { body { print-color-adjust:exact; -webkit-print-color-adjust:exact; } }
-  </style>
-</head><body>
-  <div style="background:linear-gradient(135deg,#E30613 0%,#b91c1c 100%);color:#fff;padding:20px 24px;border-radius:10px;margin-bottom:16px;display:flex;align-items:center;gap:16px;">
-    <div style="flex:1;">
-      <div style="font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;opacity:.7;margin-bottom:4px;">Uptech Campus</div>
-      <div style="font-size:22px;font-weight:800;">Bulletin de Notes</div>
-      <div style="font-size:12px;opacity:.8;margin-top:4px;">Formation Professionnelle · ${annee}</div>
-    </div>
-    <div style="text-align:right;font-size:11px;opacity:.8;line-height:1.7;">
-      <div>Filière : <strong style="opacity:1;">${filiere}</strong></div>
-      <div>Niveau : <strong style="opacity:1;">${niveau}</strong></div>
-    </div>
-  </div>
-  <table style="width:100%;border-collapse:collapse;background:#f8fafc;border-radius:8px;margin-bottom:14px;font-size:12px;">
-    <tr>
-      <td style="padding:9px 16px;width:25%;color:#64748b;font-weight:600;">Étudiant</td>
-      <td style="padding:9px 16px;font-weight:700;font-size:14px;">${nom}</td>
-      <td style="padding:9px 16px;width:25%;color:#64748b;font-weight:600;">N° Étudiant</td>
-      <td style="padding:9px 16px;font-family:monospace;color:#E30613;font-weight:700;">${numEtd}</td>
-    </tr>
-    <tr style="background:#f1f5f9;">
-      <td style="padding:7px 16px;color:#64748b;font-weight:600;">Filière</td>
-      <td style="padding:7px 16px;">${filiere}</td>
-      <td style="padding:7px 16px;color:#64748b;font-weight:600;">Rang</td>
-      <td style="padding:7px 16px;">${rangStr}</td>
-    </tr>
-  </table>
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
-    <div style="background:#fff;border:1.5px solid #e5e7eb;border-top:3px solid ${moyColor};border-radius:8px;padding:12px;text-align:center;">
-      <div style="font-size:24px;font-weight:800;color:${moyColor};">${moyenne}</div>
-      <div style="font-size:10px;color:#888;margin-top:3px;text-transform:uppercase;">Moyenne générale</div>
-    </div>
-    <div style="background:#fff;border:1.5px solid #e5e7eb;border-top:3px solid #8b5cf6;border-radius:8px;padding:12px;text-align:center;">
-      <div style="font-size:20px;font-weight:800;color:#6d28d9;">${mention}</div>
-      <div style="font-size:10px;color:#888;margin-top:3px;text-transform:uppercase;">Appréciation</div>
-    </div>
-    <div style="background:#fff;border:1.5px solid #e5e7eb;border-top:3px solid ${decColor};border-radius:8px;padding:12px;text-align:center;">
-      <div style="font-size:16px;font-weight:800;color:${decColor};">${decText}</div>
-      <div style="font-size:10px;color:#888;margin-top:3px;text-transform:uppercase;">Résultat</div>
-    </div>
-  </div>
-  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px;">
-    <thead><tr style="background:#1a1a2e;color:#fff;">
-      <th style="padding:8px;text-align:left;font-size:10px;">Module / Matière</th>
-      <th style="padding:8px;text-align:center;font-size:10px;width:60px;">Coef.</th>
-      <th style="padding:8px;text-align:center;font-size:10px;width:70px;">Note /20</th>
-      <th style="padding:8px;text-align:center;font-size:10px;width:90px;">Appréciation</th>
-      <th style="padding:8px;text-align:center;font-size:10px;width:90px;">Résultat</th>
-    </tr></thead>
-    <tbody>${ueRows}</tbody>
-  </table>
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:24px;">
-    <div style="text-align:center;"><div style="border-top:1.5px solid #ccc;padding-top:8px;font-size:11px;color:#888;">Le Directeur Pédagogique</div></div>
-    <div style="text-align:center;"><div style="border-top:1.5px solid #ccc;padding-top:8px;font-size:11px;color:#888;">Le Directeur Général</div></div>
-    <div style="text-align:center;"><div style="border-top:1.5px solid #ccc;padding-top:8px;font-size:11px;color:#888;">Cachet de l'établissement</div></div>
-  </div>
-</body></html>`
+    y += logoFPOk ? 30 : 22
+
+    // ── Titre ───────────────────────────────────────────────────────────
+    y += 4
+    doc.setFontSize(14); doc.setFont('times', 'bold')
+    doc.text('RELEVE DE NOTES', PW / 2, y, { align: 'center' })
+    y += 5
+    doc.setFontSize(9); doc.setFont('times', 'normal')
+    // Semestre en cours ou année
+    const semLabel = bulletinSemestre.value !== null ? `Semestre ${bulletinSemestre.value}` : 'Annee Complète'
+    doc.text(semLabel + '  —  ' + annee, PW / 2, y, { align: 'center' })
+    y += 2
+    doc.setLineWidth(0.5); doc.setDrawColor(0)
+    const tW = doc.getTextWidth('RELEVE DE NOTES')
+    doc.line(PW / 2 - tW / 2, y, PW / 2 + tW / 2, y)
+    y += 6
+
+    // ── Fiche étudiant ──────────────────────────────────────────────────
+    autoTable(doc, {
+      startY: y, margin: { left: mL, right: mR },
+      body: [
+        [
+          { content: 'Nom & Prenom :', styles: { fontStyle: 'bold', cellWidth: 30, fontSize: 8 } },
+          { content: nom, styles: { fontStyle: 'bold', fontSize: 9 } },
+          { content: 'N° Matricule :', styles: { fontStyle: 'bold', cellWidth: 28, fontSize: 8 } },
+          { content: numEtd, styles: { fontStyle: 'bold', fontSize: 8.5 } },
+        ],
+        [
+          { content: 'Ne(e) le :', styles: { fontStyle: 'bold', fontSize: 8 } },
+          { content: dateNaiss, styles: { fontSize: 8 } },
+          { content: 'Lieu de naissance :', styles: { fontStyle: 'bold', fontSize: 8 } },
+          { content: lieuNaiss, styles: { fontSize: 8 } },
+        ],
+        [
+          { content: 'Filiere :', styles: { fontStyle: 'bold', fontSize: 8 } },
+          { content: filiere, styles: { fontSize: 8 } },
+          { content: 'Niveau :', styles: { fontStyle: 'bold', fontSize: 8 } },
+          { content: niveau, styles: { fontSize: 8 } },
+        ],
+      ],
+      theme: 'grid',
+      styles: { font: 'times', cellPadding: 2.5, textColor: [0,0,0], fillColor: [255,255,255] },
+    })
+    y = (doc as any).lastAutoTable.finalY + 6
+
+    // ── Tableau des matières groupées par domaine ────────────────────────
+    // Filtrer coef = 0 + filtre semestre si sélectionné
+    const allUesFP: any[] = (b.ues ?? []).filter((u: any) => {
+      const coef = u.coef_effectif != null ? parseFloat(u.coef_effectif) : parseFloat(u.coefficient) || 0
+      if (coef === 0) return false
+      if (bulletinSemestre.value !== null && (u.semestre ?? 1) !== bulletinSemestre.value) return false
+      return true
+    })
+
+    // Grouper par domaine (categorie_ue)
+    const domainesMap: Record<string, { intitule: string; matieres: any[] }> = {}
+    const sansdomaine: any[] = []
+    for (const ue of allUesFP) {
+      const key = ue.categorie_ue ?? null
+      if (key) {
+        if (!domainesMap[key]) domainesMap[key] = { intitule: ue.intitule_ue ?? key, matieres: [] }
+        domainesMap[key].matieres.push(ue)
+      } else {
+        sansdomaine.push(ue)
+      }
+    }
+
+    const BK: [number,number,number] = [0,0,0]
+    const WH: [number,number,number] = [255,255,255]
+    const bodyRowsFP: any[][] = []
+
+    // Bandeau semestre si filtré
+    if (bulletinSemestre.value !== null) {
+      doc.setFillColor(227, 6, 19)
+      doc.rect(mL, y, cW, 6, 'F')
+      doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('times', 'bold')
+      doc.text('SEMESTRE ' + bulletinSemestre.value, mL + cW / 2, y + 4.2, { align: 'center' })
+      doc.setTextColor(0,0,0)
+      y += 6
+    }
+
+    const domaines = Object.values(domainesMap)
+    for (const dom of domaines) {
+      const mats = dom.matieres
+      const nbMats = mats.length
+      mats.forEach((mat: any, idx: number) => {
+        const coef = parseFloat(mat.coefficient) || parseFloat(mat.coef_effectif) || 1
+        const ccStr = mat.note_controle != null ? Number(mat.note_controle).toFixed(2) : '—'
+        const exStr = mat.note_examen != null ? Number(mat.note_examen).toFixed(2) : '—'
+        const noteStr = mat.note !== null ? Number(mat.note).toFixed(2) : '—'
+        const apprStr = appreciationFP(mat.note)  // appréciation par matière
+
+        if (idx === 0) {
+          bodyRowsFP.push([
+            { content: dom.intitule, rowSpan: nbMats, styles: { valign: 'middle', fontStyle: 'bold', fontSize: 8, fillColor: WH, textColor: BK } },
+            { content: mat.intitule, styles: { fontSize: 7.5, fillColor: WH, textColor: BK } },
+            { content: String(coef), styles: { halign: 'center', fontSize: 8, fillColor: WH, textColor: BK } },
+            { content: ccStr, styles: { halign: 'center', fontSize: 8, fillColor: WH, textColor: BK } },
+            { content: exStr, styles: { halign: 'center', fontSize: 8, fillColor: WH, textColor: BK } },
+            { content: noteStr, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8, fillColor: WH, textColor: BK } },
+            { content: apprStr, styles: { halign: 'center', fontSize: 7.5, fillColor: WH, textColor: BK } },
+          ])
+        } else {
+          bodyRowsFP.push([
+            { content: mat.intitule, styles: { fontSize: 7.5, fillColor: WH, textColor: BK } },
+            { content: String(coef), styles: { halign: 'center', fontSize: 8, fillColor: WH, textColor: BK } },
+            { content: ccStr, styles: { halign: 'center', fontSize: 8, fillColor: WH, textColor: BK } },
+            { content: exStr, styles: { halign: 'center', fontSize: 8, fillColor: WH, textColor: BK } },
+            { content: noteStr, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8, fillColor: WH, textColor: BK } },
+            { content: apprStr, styles: { halign: 'center', fontSize: 7.5, fillColor: WH, textColor: BK } },
+          ])
+        }
+      })
+    }
+
+    // Matières sans domaine (coef > 0 déjà filtré)
+    for (const mat of sansdomaine) {
+      const coef = parseFloat(mat.coefficient) || parseFloat(mat.coef_effectif) || 1
+      const ccStr = mat.note_controle != null ? Number(mat.note_controle).toFixed(2) : '—'
+      const exStr = mat.note_examen != null ? Number(mat.note_examen).toFixed(2) : '—'
+      const noteStr = mat.note !== null ? Number(mat.note).toFixed(2) : '—'
+      bodyRowsFP.push([
+        { content: '—', styles: { halign: 'center', fillColor: WH, textColor: BK } },
+        { content: mat.intitule, styles: { fontSize: 7.5, fillColor: WH, textColor: BK } },
+        { content: String(coef), styles: { halign: 'center', fontSize: 8, fillColor: WH, textColor: BK } },
+        { content: ccStr, styles: { halign: 'center', fontSize: 8, fillColor: WH, textColor: BK } },
+        { content: exStr, styles: { halign: 'center', fontSize: 8, fillColor: WH, textColor: BK } },
+        { content: noteStr, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8, fillColor: WH, textColor: BK } },
+        { content: appreciationFP(mat.note), styles: { halign: 'center', fontSize: 7.5, fillColor: WH, textColor: BK } },
+      ])
+    }
+
+    autoTable(doc, {
+      startY: y, margin: { left: mL, right: mR },
+      head: [['Domaine', 'Matiere', 'Coef.', 'Controle', 'Examen', 'Moyenne', 'Appreciation']],
+      body: bodyRowsFP,
+      theme: 'grid',
+      headStyles: { fillColor: BK, textColor: [255,255,255], fontStyle: 'bold', fontSize: 7.5, font: 'times', halign: 'center' },
+      bodyStyles: { fontSize: 8, font: 'times', fillColor: WH, textColor: BK },
+      columnStyles: {
+        0: { cellWidth: 30 },
+        1: { cellWidth: 'auto' },
+        2: { cellWidth: 12, halign: 'center' },
+        3: { cellWidth: 18, halign: 'center' },
+        4: { cellWidth: 18, halign: 'center' },
+        5: { cellWidth: 18, halign: 'center' },
+        6: { cellWidth: 24, halign: 'center' },
+      },
+    })
+    y = (doc as any).lastAutoTable.finalY
+
+    // ── Pied : Moyenne + Appréciation (filtrée si semestre)
+    const semUesFP = allUesFP
+    let fpPts = 0, fpW = 0
+    for (const u of semUesFP) { const w = u.coef_effectif != null ? parseFloat(u.coef_effectif) : parseFloat(u.coefficient) || 1; if (u.note !== null) { fpPts += u.note * w; fpW += w } }
+    const moyFP = fpW > 0 ? (Math.round(fpPts / fpW * 100) / 100).toFixed(2) : (b.moyenne !== null ? Number(b.moyenne).toFixed(2) : '—')
+    const mentFP = fpW > 0 ? appreciationFP(fpW > 0 ? fpPts / fpW : null) : (b.mention ?? '—')
+    autoTable(doc, {
+      startY: y, margin: { left: mL, right: mR },
+      body: [[
+        { content: 'Moyenne semestrielle : ' + moyFP + ' / 20', styles: { fontStyle: 'bold', fontSize: 9 } },
+        { content: 'Appreciation generale : ' + mentFP, styles: { fontStyle: 'bold', fontSize: 9 } },
+        { content: 'Observations :', styles: { fontSize: 8 } },
+      ]],
+      theme: 'grid',
+      bodyStyles: { font: 'times', fillColor: [245,245,245], textColor: BK },
+      columnStyles: { 0: { cellWidth: cW * 0.35 }, 1: { cellWidth: cW * 0.35 }, 2: { cellWidth: cW * 0.30 } },
+    })
+    y = (doc as any).lastAutoTable.finalY + 8
+
+    // ── Mention légale ──────────────────────────────────────────────────
+    doc.setFontSize(7.5); doc.setFont('times', 'italic')
+    doc.text('NB : Il n\'est delivre que l\'original du present document. Merci d\'en prendre soin et d\'en faire des copies legalisees.', PW / 2, y, { align: 'center' })
+    y += 5
+
+    // ── Date + Lieu ─────────────────────────────────────────────────────
+    const today = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+    doc.setFont('times', 'normal'); doc.setFontSize(8)
+    doc.text('Fait a Dakar, le ' + today, PW - mR, y, { align: 'right' })
+    y += 10
+
+    // ── Signatures ──────────────────────────────────────────────────────
+    const sigY2 = Math.max(y, doc.internal.pageSize.getHeight() - 35)
+    const col2 = cW / 3
+    ;['Le Responsable Pedagogique', 'Le Directeur General', "Cachet de l'etablissement"].forEach((label, i) => {
+      const x = mL + i * col2 + col2 / 2
+      doc.setLineWidth(0.3); doc.setDrawColor(100)
+      doc.line(mL + i * col2 + 5, sigY2, mL + (i + 1) * col2 - 5, sigY2)
+      doc.setFontSize(8); doc.setFont('times', 'normal')
+      doc.text(label, x, sigY2 + 4, { align: 'center' })
+    })
+
+    doc.save(`releve-notes-FP-${nom.replace(/\s+/g, '-')}.pdf`)
   }
-
-  const pw = window.open('', '_blank', 'width=800,height=700')
-  if (!pw) return
-  pw.document.write(html)
-  pw.document.close()
-  pw.focus()
-  setTimeout(() => { pw.print() }, 400)
 }
 
 function mentionColor(m: string | null) {
@@ -1143,15 +1354,1464 @@ async function load() {
         await loadNotes()
       }
     } else {
-      // Admin : charger toutes les classes + enseignants
-      const [cRes, iRes] = await Promise.all([api.get('/classes'), api.get('/enseignants')])
+      // Admin : charger toutes les classes + enseignants + années
+      const [cRes, iRes, aaRes] = await Promise.all([api.get('/classes'), api.get('/enseignants'), api.get('/annees-academiques')])
       classes.value = cRes.data
       enseignants.value = iRes.data
+      anneesAcademiques.value = aaRes.data
+      // Pré-sélectionner l'année active
+      const anneeActive = anneesAcademiques.value.find(a => a.actif)
+      if (anneeActive) filterAnneeNotes.value = String(anneeActive.id)
     }
   } finally { loading.value = false }
 }
 
 onMounted(load)
+
+// ─── Jury ─────────────────────────────────────────────────────────────────────
+const juryStep = ref<1|2|3>(1)
+const juryData = ref<any>(null)
+const juryMembres = ref<{nom:string; fonction:string}[]>([
+  {nom:'', fonction:'Président du jury'},
+  {nom:'', fonction:'Secrétaire'},
+])
+const juryDateDeliberation = ref('')
+const juryDecisions = ref<Record<number, {decision:string; observation:string}>>({})
+const loadingJury = ref(false)
+const savingJury = ref(false)
+const loadingSuggests = ref(false)
+const enseignantsSuggests = ref<{ id: number; nom: string; prenom: string; specialite: string; nb_seances: number; source: string }[]>([])
+
+// Charge les enseignants suggérés pour la classe
+async function loadEnseignantsSuggests() {
+  if (!filterClasse.value) return
+  loadingSuggests.value = true
+  try {
+    const classeObj = classes.value.find(c => String(c.id) === filterClasse.value)
+    const anneeId = classeObj?.annee_academique_id ?? null
+    const { data } = await api.get(`/jurys/classe/${filterClasse.value}/enseignants-suggests`, {
+      params: anneeId ? { annee_id: anneeId } : {},
+    })
+    enseignantsSuggests.value = data
+  } catch { enseignantsSuggests.value = [] }
+  finally { loadingSuggests.value = false }
+}
+
+// Injecte les enseignants suggérés comme membres du jury
+function appliquerSuggests() {
+  if (!enseignantsSuggests.value.length) return
+  juryMembres.value = enseignantsSuggests.value.map((e, i) => ({
+    nom: `${e.prenom} ${e.nom}`.trim(),
+    fonction: i === 0 ? 'Président du jury' : 'Membre',
+  }))
+  // Garder une ligne Secrétaire en 2e position si plus d'un
+  if (juryMembres.value.length >= 2) {
+    juryMembres.value.splice(1, 0, { nom: '', fonction: 'Secrétaire' })
+  }
+}
+
+async function loadJury() {
+  if (!filterClasse.value) return
+  loadingJury.value = true
+  try {
+    const [juryRes] = await Promise.all([
+      api.get(`/jurys/classe/${filterClasse.value}`, { params: { session: filterSession.value } }),
+      loadEnseignantsSuggests(),
+    ])
+    const data = juryRes.data
+    juryData.value = data
+    if (data) {
+      juryDateDeliberation.value = data.date_deliberation ? data.date_deliberation.slice(0, 10) : ''
+      // Si des membres existent → on les garde, sinon auto-remplissage depuis les enseignants
+      if (data.membres && data.membres.length) {
+        juryMembres.value = data.membres.map((m: any) => ({ nom: m.nom ?? '', fonction: m.fonction ?? '' }))
+      } else if (enseignantsSuggests.value.length) {
+        appliquerSuggests()
+      } else {
+        juryMembres.value = [{ nom: '', fonction: 'Président du jury' }, { nom: '', fonction: 'Secrétaire' }]
+      }
+      // Load decisions
+      const dRes = await api.get(`/jurys/${data.id}/decisions`)
+      const decisions: Record<number, {decision:string; observation:string}> = {}
+      for (const d of dRes.data) {
+        decisions[d.inscription_id] = { decision: d.decision, observation: d.observation ?? '' }
+      }
+      juryDecisions.value = decisions
+    } else {
+      juryDateDeliberation.value = ''
+      // Nouveau jury → auto-remplissage si enseignants disponibles
+      if (enseignantsSuggests.value.length) {
+        appliquerSuggests()
+      } else {
+        juryMembres.value = [{ nom: '', fonction: 'Président du jury' }, { nom: '', fonction: 'Secrétaire' }]
+      }
+      juryDecisions.value = {}
+    }
+  } catch { /* ignore */ }
+  finally { loadingJury.value = false }
+}
+
+function juryAutoDecision(inscriptionId: number): string {
+  const moy = moyennePonderee(inscriptionId)
+  if (moy === null) return 'rattrapage'
+  if (isLMD(inscriptionId)) {
+    const d = decisionLMD(inscriptionId)
+    if (d === 'Admis') return 'admis'
+    if (d === 'Passif') return 'passif'
+    return 'redoublant'
+  }
+  if (moy >= 10) return 'admis'
+  if (moy >= 8) return 'rattrapage'
+  return 'redoublant'
+}
+
+function getJuryDecision(inscriptionId: number): string {
+  return juryDecisions.value[inscriptionId]?.decision ?? juryAutoDecision(inscriptionId)
+}
+
+function setJuryDecision(inscriptionId: number, decision: string) {
+  if (!juryDecisions.value[inscriptionId]) {
+    juryDecisions.value[inscriptionId] = { decision, observation: '' }
+  } else {
+    juryDecisions.value[inscriptionId].decision = decision
+  }
+}
+
+function getJuryObservation(inscriptionId: number): string {
+  return juryDecisions.value[inscriptionId]?.observation ?? ''
+}
+
+function setJuryObservation(inscriptionId: number, obs: string) {
+  if (!juryDecisions.value[inscriptionId]) {
+    juryDecisions.value[inscriptionId] = { decision: juryAutoDecision(inscriptionId), observation: obs }
+  } else {
+    juryDecisions.value[inscriptionId].observation = obs
+  }
+}
+
+async function saveJuryConstitution() {
+  if (!filterClasse.value) return
+  savingJury.value = true
+  try {
+    let jury = juryData.value
+    if (!jury) {
+      const { data } = await api.post('/jurys', {
+        classe_id: Number(filterClasse.value),
+        session: filterSession.value,
+        date_deliberation: juryDateDeliberation.value || null,
+      })
+      jury = data
+      juryData.value = jury
+    } else {
+      const { data } = await api.put(`/jurys/${jury.id}`, {
+        date_deliberation: juryDateDeliberation.value || null,
+        statut: jury.statut ?? 'ouvert',
+      })
+      juryData.value = data
+    }
+    await api.post(`/jurys/${jury.id}/membres`, { membres: juryMembres.value })
+    juryStep.value = 2
+  } finally { savingJury.value = false }
+}
+
+async function saveDecisions() {
+  if (!juryData.value) return
+  savingJury.value = true
+  try {
+    const decisions = inscriptions.value.map(i => ({
+      inscription_id: i.id,
+      decision: getJuryDecision(i.id),
+      observation: getJuryObservation(i.id),
+    }))
+    await api.post(`/jurys/${juryData.value.id}/decisions`, { decisions })
+    await loadJury()
+  } finally { savingJury.value = false }
+}
+
+async function cloturerJury() {
+  if (!juryData.value) return
+  if (!confirm('Clôturer le jury ? Cette action est irréversible.')) return
+  savingJury.value = true
+  try {
+    const { data } = await api.put(`/jurys/${juryData.value.id}/cloturer`, {})
+    juryData.value = data
+    juryStep.value = 3
+  } finally { savingJury.value = false }
+}
+
+async function rouvrirJury() {
+  if (!juryData.value) return
+  if (!confirm('Rouvrir ce jury clôturé ? Les décisions redeviendront modifiables.')) return
+  savingJury.value = true
+  try {
+    const { data } = await api.put(`/jurys/${juryData.value.id}/rouvrir`, {})
+    juryData.value = data
+    juryStep.value = 1
+  } catch (e: any) {
+    alert(e?.response?.data?.error ?? 'Erreur lors de la réouverture')
+  } finally { savingJury.value = false }
+}
+
+async function supprimerJury() {
+  if (!juryData.value) return
+  if (!confirm(`Supprimer définitivement ce jury (${juryData.value.session}) ? Toutes les décisions seront perdues.`)) return
+  savingJury.value = true
+  try {
+    await api.delete(`/jurys/${juryData.value.id}`)
+    juryData.value = null
+    juryStep.value = 1
+    juryMembres.value = [{ nom: '', fonction: 'Président du jury' }, { nom: '', fonction: 'Secrétaire' }]
+    juryDateDeliberation.value = ''
+    juryDecisions.value = {}
+  } catch (e: any) {
+    alert(e?.response?.data?.error ?? 'Erreur lors de la suppression')
+  } finally { savingJury.value = false }
+}
+
+const generatingFiche = ref<number | null>(null)
+
+async function generateFicheNotes(ue: any) {
+  generatingFiche.value = ue.id
+  try {
+    const classeObj = classes.value.find(c => String(c.id) === filterClasse.value)
+    const { data } = await api.get('/fiches-notes', {
+      params: {
+        classe_id: filterClasse.value,
+        ue_id: ue.id,
+        session: filterSession.value,
+        annee_id: classeObj?.annee_academique_id ?? undefined,
+      },
+    })
+
+    const { jsPDF } = await import('jspdf')
+    const { default: autoTable } = await import('jspdf-autotable')
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const W = 297
+    const H = 210
+    const ML = 12
+    const MR = 12
+    const CW = W - ML - MR
+    const RED = '#E30613'
+    const BK  = '#111111'
+    let y = 10
+
+    const nomEtab    = data.params?.nom_etablissement || 'UPTECH Campus'
+    const adresse    = data.params?.adresse           || ''
+    const tel        = data.params?.telephone         || ''
+    const classeNom  = data.classe?.classe_nom        || ''
+    const filiereNom = data.classe?.filiere_nom       || ''
+    const anneeLib   = data.annee_libelle             || ''
+    const session    = data.session === 'rattrapage' ? 'Rattrapage' : 'Normale'
+    const ueCode     = data.ue?.code                  || ''
+    const ueIntitule = data.ue?.intitule_ue || data.ue?.intitule || ''
+    const vht        = data.ue?.volume_horaire        || ''
+    const cm         = data.ue?.cm                    || 0
+    const td         = data.ue?.td                    || 0
+    const tp         = data.ue?.tp                    || 0
+    const coef       = data.ue?.coefficient           || 1
+    const credits    = data.ue?.credits_ects          || 0
+    const ensNom     = data.ue?.ens_nom ? `${data.ue.ens_prenom} ${data.ue.ens_nom}` : 'Non assigné'
+    const totalSean  = data.total_seances             || 0
+    const today      = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+
+    // ── EN-TÊTE ────────────────────────────────────────────────────
+    // Bloc gauche : République
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(BK)
+    doc.text('RÉPUBLIQUE DU SÉNÉGAL', ML, y)
+    y += 4
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
+    doc.setTextColor('#555')
+    doc.text('Un Peuple – Un But – Une Foi', ML, y)
+    y += 4
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.setTextColor(BK)
+    doc.text(nomEtab.toUpperCase(), ML, y)
+    y += 4
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor('#666')
+    if (adresse) { doc.text(adresse, ML, y); y += 3.5 }
+    if (tel) { doc.text(`Tél : ${tel}`, ML, y); y += 3.5 }
+
+    // Titre centré
+    const titleY = 14
+    doc.setFillColor(RED)
+    doc.rect(ML + 60, titleY - 5, CW - 120, 18, 'F')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.setTextColor('#ffffff')
+    doc.text('FICHE DE NOTES', W / 2, titleY + 2, { align: 'center' })
+    doc.setFontSize(8)
+    doc.text(`Session : ${session}  –  Année : ${anneeLib}`, W / 2, titleY + 8, { align: 'center' })
+    doc.setTextColor(BK)
+
+    // Date en haut à droite
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor('#888')
+    doc.text(`Dakar, le ${today}`, W - MR, 12, { align: 'right' })
+    doc.setTextColor(BK)
+
+    y = 34
+
+    // ── BANDEAU INFO ───────────────────────────────────────────────
+    doc.setFillColor('#f5f5f5')
+    doc.rect(ML, y, CW, 16, 'F')
+    doc.setDrawColor('#e0e0e0')
+    doc.setLineWidth(0.3)
+    doc.rect(ML, y, CW, 16)
+
+    const col1 = ML + 3
+    const col2 = ML + CW * 0.28
+    const col3 = ML + CW * 0.56
+
+    const infoY1 = y + 5.5
+    const infoY2 = y + 11.5
+
+    // Col 1
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5)
+    doc.text('Classe :', col1, infoY1)
+    doc.setFont('helvetica', 'normal')
+    doc.text(classeNom, col1 + 14, infoY1)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Filière :', col1, infoY2)
+    doc.setFont('helvetica', 'normal')
+    doc.text(filiereNom, col1 + 14, infoY2)
+
+    // Col 2
+    doc.setFont('helvetica', 'bold')
+    doc.text('Matière :', col2, infoY1)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`[${ueCode}] ${ueIntitule}`, col2 + 16, infoY1)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Enseignant :', col2, infoY2)
+    doc.setFont('helvetica', 'normal')
+    doc.text(ensNom, col2 + 22, infoY2)
+
+    // Col 3
+    doc.setFont('helvetica', 'bold')
+    doc.text('VHT :', col3, infoY1)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`${vht}h  (CM:${cm}h  TD:${td}h  TP:${tp}h)`, col3 + 10, infoY1)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Coef / Crédits :', col3, infoY2)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`${coef} / ${credits}  —  Séances effectuées : ${totalSean}`, col3 + 28, infoY2)
+
+    y += 20
+
+    // ── TABLEAU ÉTUDIANTS ──────────────────────────────────────────
+    const etudiants: any[] = data.etudiants ?? []
+
+    const bodyRows = etudiants.map((et: any, i: number) => [
+      i + 1,
+      et.numero_etudiant || '—',
+      `${et.nom.toUpperCase()} ${et.prenom}`,
+      `${et.nb_presences} / ${totalSean}`,
+      '', // Note contrôle (vide → à remplir)
+      '', // Note examen  (vide → à remplir)
+      '', // Note finale  (vide → à remplir)
+      '', // Signature
+    ])
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: ML, right: MR },
+      head: [[
+        { content: 'N°',            styles: { halign: 'center' } },
+        { content: 'Matricule',     styles: { halign: 'center' } },
+        { content: 'Nom & Prénoms', styles: { halign: 'left'   } },
+        { content: `Présences\n(/ ${totalSean} séances)`, styles: { halign: 'center' } },
+        { content: 'Note\nContrôle\n(/20)', styles: { halign: 'center' } },
+        { content: 'Note\nExamen\n(/20)',   styles: { halign: 'center' } },
+        { content: 'Note\nFinale\n(/20)',   styles: { halign: 'center' } },
+        { content: 'Signature\nétudiant',   styles: { halign: 'center' } },
+      ]],
+      body: bodyRows,
+      styles: { fontSize: 8.5, cellPadding: { top: 3, bottom: 3, left: 2, right: 2 }, lineColor: '#cccccc', lineWidth: 0.2 },
+      headStyles: { fillColor: [30, 30, 30], textColor: '#ffffff', fontStyle: 'bold', fontSize: 8, halign: 'center' },
+      alternateRowStyles: { fillColor: '#fafafa' },
+      columnStyles: {
+        0: { cellWidth: 9,  halign: 'center' },
+        1: { cellWidth: 26, halign: 'center', font: 'courier', fontSize: 8 },
+        2: { cellWidth: 72, halign: 'left',   fontStyle: 'bold' },
+        3: { cellWidth: 30, halign: 'center' },
+        4: { cellWidth: 25, halign: 'center' },
+        5: { cellWidth: 25, halign: 'center' },
+        6: { cellWidth: 25, halign: 'center' },
+        7: { cellWidth: 41, halign: 'center' },
+      },
+      didParseCell(data) {
+        // Colonnes notes : fond légèrement bleu pour différencier
+        if (data.section === 'body' && [4, 5, 6].includes(data.column.index)) {
+          data.cell.styles.fillColor = '#f0f6ff'
+        }
+      },
+    })
+
+    const finalY = (doc as any).lastAutoTable.finalY + 10
+
+    // ── PIED DE PAGE : signatures ──────────────────────────────────
+    const sigY = Math.min(finalY, H - 28)
+    doc.setDrawColor('#cccccc')
+    doc.setLineWidth(0.3)
+
+    // Bloc enseignant
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(BK)
+    doc.text("Signature de l'enseignant :", ML, sigY)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor('#555')
+    doc.text(ensNom, ML, sigY + 4)
+    doc.line(ML, sigY + 14, ML + 65, sigY + 14)
+
+    // Bloc responsable pédagogique
+    const rpX = W / 2 - 30
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(BK)
+    doc.text('Responsable pédagogique :', rpX, sigY)
+    doc.line(rpX, sigY + 14, rpX + 65, sigY + 14)
+
+    // Cachet
+    const cachetX = W - MR - 55
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(BK)
+    doc.text('Cachet établissement :', cachetX, sigY)
+    doc.setDrawColor('#cccccc')
+    doc.setFillColor('#fafafa')
+    doc.rect(cachetX, sigY + 2, 55, 14)
+
+    // Numérotation
+    const totalPages = (doc as any).internal.getNumberOfPages()
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7)
+      doc.setTextColor('#aaa')
+      doc.text(`${nomEtab} — Fiche de notes [${ueCode}] — ${classeNom} — ${session} ${anneeLib}`, ML, H - 5)
+      doc.text(`Page ${i}/${totalPages}`, W - MR, H - 5, { align: 'right' })
+      doc.setDrawColor('#dddddd')
+      doc.setLineWidth(0.25)
+      doc.line(ML, H - 7, W - MR, H - 7)
+    }
+
+    const filename = `fiche-notes_${ueCode}_${classeNom}_${session}_${anneeLib.replace(/\//g, '-')}.pdf`
+      .replace(/\s+/g, '_').toLowerCase()
+    doc.save(filename)
+  } catch (e: any) {
+    alert('Erreur génération fiche : ' + (e?.response?.data?.error ?? e.message))
+  } finally {
+    generatingFiche.value = null
+  }
+}
+
+async function exportPVJury() {
+  const { jsPDF } = await import('jspdf')
+  const { default: autoTable } = await import('jspdf-autotable')
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+  const PW = doc.internal.pageSize.getWidth()
+  const mL = 14, mR = 14
+  const cW = PW - mL - mR
+  let y = 10
+
+  // Logo
+  let logoDataUrl: string | null = null
+  try {
+    const resp = await fetch('/logo-normal.png')
+    if (resp.ok) {
+      const blob = await resp.blob()
+      logoDataUrl = await new Promise<string>((res) => {
+        const reader = new FileReader()
+        reader.onload = () => res(reader.result as string)
+        reader.readAsDataURL(blob)
+      })
+    }
+  } catch { logoDataUrl = null }
+
+  // Header
+  const cx = PW / 2
+  doc.setFontSize(8); doc.setFont('times', 'bold')
+  doc.text('REPUBLIQUE DU SENEGAL', mL, y)
+  doc.setFont('times', 'italic'); doc.setFontSize(7.5)
+  doc.text('Un Peuple - Un But - Une Foi', mL, y + 4)
+
+  if (logoDataUrl) {
+    try { doc.addImage(logoDataUrl, 'PNG', cx - 20, y, 40, 13) } catch { /* skip */ }
+    doc.setFontSize(7.5); doc.setFont('times', 'normal')
+    doc.text('Institut Superieur de Formation', cx, y + 18, { align: 'center' })
+    doc.text('UPTECH CAMPUS', cx, y + 22, { align: 'center' })
+  } else {
+    doc.setFontSize(12); doc.setFont('times', 'bold')
+    doc.text('UPTECH CAMPUS', cx, y + 5, { align: 'center' })
+  }
+  y += 30
+
+  // Title
+  doc.setFontSize(14); doc.setFont('times', 'bold')
+  doc.text('PROCES-VERBAL DE JURY', cx, y, { align: 'center' })
+  y += 7
+
+  const nomClasse = classes.value.find(c => String(c.id) === filterClasse.value)?.nom ?? '—'
+  const dateDelib = juryData.value?.date_deliberation
+    ? new Date(juryData.value.date_deliberation).toLocaleDateString('fr-FR') : '—'
+  doc.setFontSize(9); doc.setFont('times', 'normal')
+  doc.text(`Classe : ${nomClasse}  |  Session : ${filterSession.value}  |  Date : ${dateDelib}`, cx, y, { align: 'center' })
+  y += 8
+
+  // Students table
+  const sorted = [...inscriptions.value].sort((a, b) => (moyennePonderee(b.id) ?? -1) - (moyennePonderee(a.id) ?? -1))
+  const tableBody = sorted.map((insc, idx) => {
+    const moy = moyennePonderee(insc.id)
+    const dec = getJuryDecision(insc.id)
+    return [
+      String(idx + 1),
+      insc.etudiant.nom.toUpperCase(),
+      insc.etudiant.prenom,
+      moy !== null ? moy.toFixed(2) : '—',
+      mention(moy),
+      dec.charAt(0).toUpperCase() + dec.slice(1),
+    ]
+  })
+
+  autoTable(doc, {
+    startY: y,
+    margin: { left: mL, right: mR },
+    head: [['Rang', 'Nom', 'Prénom', 'Moyenne', 'Mention', 'Décision']],
+    body: tableBody,
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [26, 58, 107], textColor: 255, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
+  })
+
+  y = (doc as any).lastAutoTable.finalY + 8
+
+  // Recap
+  const admis = sorted.filter(i => getJuryDecision(i.id) === 'admis').length
+  const ratt = sorted.filter(i => getJuryDecision(i.id) === 'rattrapage').length
+  const redoub = sorted.filter(i => getJuryDecision(i.id) === 'redoublant').length
+  const taux = sorted.length ? Math.round(admis / sorted.length * 100) : 0
+
+  doc.setFontSize(9); doc.setFont('times', 'bold')
+  doc.text(`Récapitulatif : Admis : ${admis}  |  Rattrapage : ${ratt}  |  Redoublant : ${redoub}  |  Taux de réussite : ${taux}%`, mL, y)
+  y += 10
+
+  // Signatures
+  const membres = juryMembres.value.filter(m => m.nom.trim())
+  const president = membres.find(m => m.fonction.toLowerCase().includes('président')) ?? membres[0]
+  const secretaire = membres.find(m => m.fonction.toLowerCase().includes('secrétaire')) ?? membres[1]
+  const autresMembres = membres.filter(m => m !== president && m !== secretaire)
+
+  const sigY = Math.max(y, doc.internal.pageSize.getHeight() - 45)
+  const col3 = cW / 3
+  const sigItems = [
+    { label: 'Le Président du jury', nom: president?.nom ?? '' },
+    { label: 'Le Secrétaire', nom: secretaire?.nom ?? '' },
+    { label: 'Membres', nom: autresMembres.map(m => m.nom).join(', ') },
+  ]
+  sigItems.forEach((s, i) => {
+    const x = mL + i * col3 + col3 / 2
+    doc.setLineWidth(0.3); doc.setDrawColor(100)
+    doc.line(mL + i * col3 + 5, sigY, mL + (i + 1) * col3 - 5, sigY)
+    doc.setFontSize(8); doc.setFont('times', 'bold')
+    doc.text(s.label, x, sigY + 5, { align: 'center' })
+    if (s.nom) { doc.setFont('times', 'normal'); doc.text(s.nom, x, sigY + 9, { align: 'center' }) }
+  })
+
+  doc.save(`PV-jury-${nomClasse.replace(/\s+/g,'-')}-${filterSession.value}.pdf`)
+}
+
+// ── Helpers design attestation ────────────────────────────────────────────
+function attCornerOrnament(doc: any, x: number, y: number, sz: number, fx: number, fy: number, gold: [number,number,number], navy: [number,number,number]) {
+  // Bracket L extérieur (navy)
+  doc.setDrawColor(...navy); doc.setLineWidth(1)
+  doc.line(x, y, x + fx * sz, y)
+  doc.line(x, y, x, y + fy * sz)
+  // Bracket L intérieur (gold, décalé 3mm)
+  doc.setDrawColor(...gold); doc.setLineWidth(0.5)
+  doc.line(x + fx * 3, y + fy * 3, x + fx * sz * 0.6, y + fy * 3)
+  doc.line(x + fx * 3, y + fy * 3, x + fx * 3, y + fy * sz * 0.6)
+  // Petit losange au coin
+  const d = 5
+  doc.setDrawColor(...gold); doc.setLineWidth(0.4)
+  doc.line(x + fx * d, y, x, y + fy * d)
+  doc.line(x + fx * d, y, x + fx * d * 2, y + fy * d)
+  doc.line(x, y + fy * d, x + fx * d, y + fy * d * 2)
+  doc.line(x + fx * d * 2, y + fy * d, x + fx * d, y + fy * d * 2)
+}
+
+function attSeal(doc: any, cx: number, cy: number, navy: [number,number,number], gold: [number,number,number], annee: string) {
+  // Cercle extérieur navy
+  doc.setDrawColor(...navy); doc.setLineWidth(0.8)
+  doc.circle(cx, cy, 16)
+  // Cercle intérieur gold
+  doc.setDrawColor(...gold); doc.setLineWidth(0.4)
+  doc.circle(cx, cy, 12)
+  // Rayons entre les 2 cercles
+  doc.setDrawColor(...navy); doc.setLineWidth(0.3)
+  for (let a = 0; a < 360; a += 20) {
+    const r = a * Math.PI / 180
+    doc.line(cx + Math.cos(r) * 12.5, cy + Math.sin(r) * 12.5, cx + Math.cos(r) * 15.5, cy + Math.sin(r) * 15.5)
+  }
+  // Texte intérieur
+  doc.setTextColor(...navy); doc.setFontSize(5.5); doc.setFont('times', 'bold')
+  doc.text("UP'TECH", cx, cy - 3, { align: 'center' })
+  doc.setFontSize(4.5); doc.setFont('times', 'normal')
+  doc.text('INSTITUT', cx, cy + 1, { align: 'center' })
+  doc.text(annee, cx, cy + 5, { align: 'center' })
+  doc.setTextColor(0,0,0)
+}
+
+function attSecurityHash(str: string): string {
+  let h = 0
+  for (let i = 0; i < str.length; i++) { h = ((h << 5) - h) + str.charCodeAt(i); h |= 0 }
+  return Math.abs(h).toString(16).toUpperCase().padStart(8, '0')
+}
+
+async function exportAttestations() {
+  const admisInscriptions = [...inscriptions.value]
+    .sort((a, b) => (moyennePonderee(b.id) ?? -1) - (moyennePonderee(a.id) ?? -1))
+    .filter(i => getJuryDecision(i.id) === 'admis')
+  if (!admisInscriptions.length) { alert('Aucun étudiant admis.'); return }
+
+  const { jsPDF } = await import('jspdf')
+  const QRCode = (await import('qrcode')).default
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+
+  // Palette officielle
+  const NAVY: [number,number,number] = [0, 0, 0]
+  const GOLD: [number,number,number] = [180, 145, 60]
+  const LIGHT_GOLD: [number,number,number] = [245, 238, 210]
+  const LIGHT_NAVY: [number,number,number] = [220, 220, 220]
+
+  // Charger le logo
+  let logoDataUrl: string | null = null
+  try {
+    const resp = await fetch('/logo-normal.png')
+    if (resp.ok) {
+      const blob = await resp.blob()
+      logoDataUrl = await new Promise<string>((res) => {
+        const reader = new FileReader()
+        reader.onload = () => res(reader.result as string)
+        reader.readAsDataURL(blob)
+      })
+    }
+  } catch { logoDataUrl = null }
+
+  const anneeEnCours = new Date().getFullYear()
+
+  for (let pi = 0; pi < admisInscriptions.length; pi++) {
+    const insc = admisInscriptions[pi]!
+    if (!insc) continue
+    if (pi > 0) doc.addPage()
+
+    const PW = doc.internal.pageSize.getWidth()
+    const PH = doc.internal.pageSize.getHeight()
+    const mL = 18, mR = 18
+    const cx = PW / 2
+
+    // ── 1. Filigrane diagonal (anti-reproduction) ─────────────────────
+    doc.setTextColor(235, 238, 248); doc.setFontSize(52); doc.setFont('times', 'bold')
+    doc.text("UP'TECH", cx, PH / 2 + 20, { align: 'center', angle: 45 })
+    doc.setTextColor(0,0,0)
+
+    // ── 2. Fond léger hachures diagonales ────────────────────────────
+    doc.setDrawColor(...LIGHT_NAVY); doc.setLineWidth(0.15)
+    for (let d = 0; d < PW + PH; d += 10) {
+      doc.line(Math.max(0, d - PH), Math.min(PH, d), Math.min(PW, d), Math.max(0, d - PW))
+    }
+
+    // ── 3. Double bordure Navy + Or ───────────────────────────────────
+    doc.setFillColor(255, 255, 255)
+    doc.rect(8, 8, PW - 16, PH - 16, 'F')          // fond blanc
+    doc.setDrawColor(...NAVY); doc.setLineWidth(2.5)
+    doc.rect(8, 8, PW - 16, PH - 16)               // bordure extérieure navy
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.6)
+    doc.rect(13, 13, PW - 26, PH - 26)             // bordure intérieure or
+
+    // ── 4. Ornements aux 4 coins ──────────────────────────────────────
+    attCornerOrnament(doc, 13, 13, 18, 1, 1, GOLD, NAVY)
+    attCornerOrnament(doc, PW - 13, 13, 18, -1, 1, GOLD, NAVY)
+    attCornerOrnament(doc, 13, PH - 13, 18, 1, -1, GOLD, NAVY)
+    attCornerOrnament(doc, PW - 13, PH - 13, 18, -1, -1, GOLD, NAVY)
+
+    // ── 5. REF unique + QR + hash sécurité ───────────────────────────
+    const numEtd = (insc as any).etudiant?.numero_etudiant ?? String(insc.id)
+    const ref = `ATT-${anneeEnCours}-${numEtd}-${String(pi + 1).padStart(3, '0')}`
+    const verifyUrl = `https://uptechcampus.vercel.app/verify-attestation/${ref}`
+    const nomEtd = `${insc.etudiant.prenom} ${insc.etudiant.nom.toUpperCase()}`
+    const secHash = attSecurityHash(ref + nomEtd)
+
+    // Calculs pour sauvegarde
+    const moyInsc = moyennePonderee(insc.id)
+    const mentionInsc = moyInsc != null ? mention(moyInsc) : null
+    const nomClasse = classes.value.find(c => String(c.id) === filterClasse.value)?.nom ?? ''
+    const nomFiliere = (insc.filiere as any)?.nom ?? ''
+    const expiresAt = new Date(anneeEnCours + 2, 0, 1).toISOString().slice(0, 10) // +2 ans
+
+    let qrDataUrl: string | null = null
+    try {
+      qrDataUrl = await QRCode.toDataURL(verifyUrl, {
+        width: 220, margin: 1,
+        color: { dark: '#0f285a', light: '#ffffff' }
+      })
+    } catch { qrDataUrl = null }
+
+    // ── Sauvegarde automatique en DB ─────────────────────────────────
+    try {
+      await api.post('/attestations', {
+        reference: ref,
+        etudiant_nom: insc.etudiant.nom,
+        etudiant_prenom: insc.etudiant.prenom,
+        numero_etudiant: numEtd,
+        filiere: nomFiliere,
+        classe: nomClasse,
+        annee_academique: String(anneeEnCours),
+        type_attestation: 'reussite',
+        mention: mentionInsc,
+        moyenne: moyInsc,
+        session: filterSession.value,
+        expires_at: expiresAt,
+      })
+    } catch { /* non bloquant */ }
+
+    let y = 18
+
+    // ── 6. Logo centré en haut ────────────────────────────────────────
+    if (logoDataUrl) {
+      try { doc.addImage(logoDataUrl, 'PNG', cx - 30, y, 60, 20) } catch { /* skip */ }
+      y += 24
+    } else {
+      doc.setFontSize(18); doc.setFont('times', 'bold'); doc.setTextColor(...NAVY)
+      doc.text("UP'TECH", cx, y + 10, { align: 'center' })
+      doc.setTextColor(0,0,0); y += 18
+    }
+
+    // ── 7. Ligne or fine sous logo ────────────────────────────────────
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.5)
+    doc.line(mL + 10, y, PW - mR - 10, y); y += 5
+
+    // ── 8. En-tête institution ────────────────────────────────────────
+    doc.setTextColor(...NAVY); doc.setFont('times', 'bold'); doc.setFontSize(9)
+    doc.text("Institut Superieur de Formation aux Nouveaux Metiers de l'Informatique et de la Communication", cx, y, { align: 'center' })
+    y += 5
+    doc.setFont('times', 'normal'); doc.setFontSize(7.5); doc.setTextColor(60,60,60)
+    doc.text('NINEA 006118310  |  BP 50281 RP DAKAR  |  Agree par l\'Etat : N\u00B000014191/MFPAA/SG/DFPT  |  RepSEN/Ensup-priv/AP/387-2021', cx, y, { align: 'center' })
+    y += 9; doc.setTextColor(0,0,0)
+
+    // ── 9. Bandeau titre navy ─────────────────────────────────────────
+    doc.setFillColor(...NAVY)
+    doc.rect(mL + 2, y, PW - mL - mR - 4, 13, 'F')
+    // Liseré or au dessus et dessous du bandeau
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.6)
+    doc.line(mL + 2, y, PW - mR - 2, y)
+    doc.line(mL + 2, y + 13, PW - mR - 2, y + 13)
+    // Texte blanc
+    doc.setTextColor(255,255,255); doc.setFontSize(17); doc.setFont('times', 'bold')
+    doc.text('ATTESTATION  DE  REUSSITE', cx, y + 9, { align: 'center' })
+    doc.setTextColor(0,0,0); y += 19
+
+    // ── 10. REF + sécurité ────────────────────────────────────────────
+    doc.setFontSize(8.5); doc.setFont('times', 'normal'); doc.setTextColor(...NAVY)
+    doc.text(`REF : ${ref}`, mL + 4, y)
+    doc.setTextColor(150,150,150); doc.setFontSize(7)
+    doc.text(`CODE : ${secHash}`, PW - mR - 4, y, { align: 'right' })
+    doc.setTextColor(0,0,0); y += 10
+
+    // ── 11. Corps du texte ────────────────────────────────────────────
+    const filiereLabel = (insc as any).filiere?.nom ?? (insc as any).classe?.filiere?.nom ?? '—'
+    const niveauLabel  = (insc as any).niveau_entree?.nom ?? '—'
+    const anneeLabel   = (insc as any).annee_academique?.libelle ?? `${anneeEnCours-1}-${anneeEnCours}`
+
+    doc.setFontSize(11); doc.setFont('times', 'normal')
+    const introLines = doc.splitTextToSize(
+      "Nous, soussignes, Institut Superieur de Formation aux Nouveaux Metiers de l'Informatique et de la communication (UP'TECH) attestons que :",
+      PW - mL - mR - 8
+    )
+    doc.text(introLines, mL + 4, y); y += introLines.length * 6 + 5
+
+    // Nom — navy gras grand
+    doc.setFontSize(16); doc.setFont('times', 'bold'); doc.setTextColor(...NAVY)
+    doc.text(nomEtd, cx, y, { align: 'center' })
+    // Ligne décorative sous le nom
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.4)
+    const nw = doc.getTextWidth(nomEtd)
+    doc.line(cx - nw/2, y + 1.5, cx + nw/2, y + 1.5)
+    doc.setTextColor(0,0,0); y += 9
+
+    // né(e) le
+    const dateNaiss = (insc as any).etudiant?.date_naissance
+      ? new Date((insc as any).etudiant.date_naissance).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null
+    const lieuNaiss = (insc as any).etudiant?.lieu_naissance ?? null
+    if (dateNaiss || lieuNaiss) {
+      doc.setFontSize(11); doc.setFont('times', 'normal')
+      let xc = mL + 4
+      doc.text('ne(e) le', xc, y); xc += doc.getTextWidth('ne(e) le') + 3
+      if (dateNaiss) { doc.setFont('times', 'bold'); doc.text(dateNaiss, xc, y); xc += doc.getTextWidth(dateNaiss) + 3; doc.setFont('times', 'normal') }
+      if (lieuNaiss) { doc.text('a', xc, y); xc += doc.getTextWidth('a') + 3; doc.setFont('times', 'bold'); doc.text(`${lieuNaiss.toUpperCase()} (SENEGAL)`, xc, y); doc.setFont('times', 'normal') }
+      y += 10
+    } else { y += 4 }
+
+    // a régulièrement suivi
+    const suiviLines = doc.splitTextToSize(
+      `a regulierement suivi notre programme de formation en ${filiereLabel} et satisfait aux conditions d'obtention de la ${niveauLabel}`,
+      PW - mL - mR - 8
+    )
+    doc.setFontSize(11); doc.setFont('times', 'normal')
+    doc.text(suiviLines, mL + 4, y); y += suiviLines.length * 6 + 8
+
+    // ── 12. Tableau détails (fond léger) ──────────────────────────────
+    const moy  = moyennePonderee(insc.id)
+    const ment = mention(moy)
+    const sessionLabel = filterSession.value === 'rattrapage' ? 'Deuxieme' : 'Premiere'
+    const details: [string, string][] = [
+      ['Specialite :', filiereLabel],
+      ['Session    :', sessionLabel],
+      ['Mention    :', ment],
+    ]
+    const padI = 5  // padding intérieur du cadre
+
+    // Trait séparateur au-dessus du bloc
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.5)
+    doc.line(mL + 4, y - 3, mL + 4 + 105, y - 3)
+    y += 3
+    const tabH = details.length * 8 + padI * 2
+    doc.setFillColor(...LIGHT_GOLD)
+    doc.rect(mL + 4, y - padI, 105, tabH, 'F')
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.4)
+    doc.rect(mL + 4, y - padI, 105, tabH)
+    for (const [label, valeur] of details) {
+      doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(80,80,80)
+      doc.text(label, mL + 4 + padI, y)
+      doc.setFont('times', 'bold'); doc.setTextColor(...NAVY)
+      doc.text(valeur, mL + 4 + padI + 42, y)
+      doc.setTextColor(0,0,0); y += 8
+    }
+    y += padI + 8
+
+    // ── 13. En foi de quoi ────────────────────────────────────────────
+    const enFoiLines = doc.splitTextToSize(
+      'En foi de quoi, la presente attestation lui est delivree pour servir et valoir ce que de droit.',
+      PW - mL - mR - 8
+    )
+    doc.setFontSize(11); doc.setFont('times', 'normal'); doc.setTextColor(0,0,0)
+    doc.text(enFoiLines, mL + 4, y); y += enFoiLines.length * 6 + 12
+
+    // ── 14. Sceau + Signature ─────────────────────────────────────────
+    const sealCX = PW - mR - 28
+    const sealCY = y + 8
+    attSeal(doc, sealCX, sealCY, NAVY, GOLD, anneeLabel)
+
+    const today = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+    doc.setFontSize(10); doc.setFont('times', 'normal'); doc.setTextColor(0,0,0)
+    doc.text(`Fait a Dakar, le ${today}`, mL + 4, y)
+    y += 6; doc.setFont('times', 'bold')
+    doc.text('Le Directeur General', mL + 4, y)
+    y += 22
+    doc.setLineWidth(0.4); doc.setDrawColor(...NAVY)
+    doc.line(mL + 4, y, mL + 60, y)
+
+    // ── 15. QR code + validité ────────────────────────────────────────
+    const qrSize = 26
+    const qrY = PH - 50
+    if (qrDataUrl) {
+      try { doc.addImage(qrDataUrl, 'PNG', mL + 4, qrY, qrSize, qrSize) } catch { /* skip */ }
+    } else {
+      doc.setDrawColor(...NAVY); doc.setLineWidth(0.4); doc.rect(mL + 4, qrY, qrSize, qrSize)
+    }
+    doc.setFontSize(7); doc.setFont('times', 'bold'); doc.setTextColor(...NAVY)
+    doc.text('Verifier l\'authenticite sur :', mL + qrSize + 7, qrY + 5)
+    doc.setFont('times', 'normal'); doc.setTextColor(60,60,60)
+    doc.text(verifyUrl, mL + qrSize + 7, qrY + 10)
+    doc.setFont('times', 'italic')
+    doc.text('Duree de validite : 2 ans', mL + qrSize + 7, qrY + 16)
+    doc.text('www.uptechformation.com', mL + qrSize + 7, qrY + 21)
+    doc.setTextColor(0,0,0)
+
+    // ── 16. Ligne pointillée + footer ─────────────────────────────────
+    const footerY = PH - 14
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.4)
+    for (let x = mL + 4; x < PW - mR - 4; x += 5) {
+      doc.line(x, footerY - 4, Math.min(x + 2.5, PW - mR - 4), footerY - 4)
+    }
+    doc.setFontSize(6.5); doc.setFont('times', 'normal'); doc.setTextColor(80,80,80)
+    doc.text(
+      'Sicap Amitie 1, Villa N\u00B03031 _ Tel : 33 821 34 25  |  (+221) 77 841 50 44  |  uptechformation@gmail.com  |  www.uptechformation.com',
+      cx, footerY, { align: 'center' }
+    )
+    // Microtext anti-copie (hash visible seulement à la loupe)
+    doc.setFontSize(3.5); doc.setTextColor(180,180,180)
+    const microtext = `${secHash} UPTECH-CAMPUS-OFFICIEL `.repeat(18)
+    doc.text(microtext.substring(0, 200), cx, footerY + 5, { align: 'center' })
+    doc.setTextColor(0,0,0)
+  }
+
+  const nomClasse = classes.value.find(c => String(c.id) === filterClasse.value)?.nom ?? 'Classe'
+  doc.save(`attestations-${nomClasse.replace(/\s+/g,'-')}.pdf`)
+}
+
+// ── Certificat de réussite — Formation Certifiée (avec jury) ─────────────────
+async function exportCertificatsFC() {
+  const admisInscriptions = [...inscriptions.value]
+    .sort((a, b) => (moyennePonderee(b.id) ?? -1) - (moyennePonderee(a.id) ?? -1))
+    .filter(i => getJuryDecision(i.id) === 'admis')
+  if (!admisInscriptions.length) { alert('Aucun étudiant admis.'); return }
+
+  const { jsPDF } = await import('jspdf')
+  const QRCode = (await import('qrcode')).default
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+
+  const NAVY: [number,number,number]       = [15, 40, 90]
+  const GOLD: [number,number,number]       = [180, 145, 60]
+  const LIGHT_GOLD: [number,number,number] = [245, 238, 210]
+  const LIGHT_NAVY: [number,number,number] = [220, 220, 220]
+  const BURGUNDY: [number,number,number]   = [100, 20, 20]  // couleur distincte FC
+
+  let logoDataUrl: string | null = null
+  try {
+    const resp = await fetch('/logo-normal.png')
+    if (resp.ok) {
+      const blob = await resp.blob()
+      logoDataUrl = await new Promise<string>((res) => {
+        const reader = new FileReader()
+        reader.onload = () => res(reader.result as string)
+        reader.readAsDataURL(blob)
+      })
+    }
+  } catch { logoDataUrl = null }
+
+  const anneeEnCours = new Date().getFullYear()
+  const nomClasse  = classes.value.find((c: any) => String(c.id) === filterClasse.value)?.nom ?? 'Classe'
+
+  for (let pi = 0; pi < admisInscriptions.length; pi++) {
+    const insc = admisInscriptions[pi]!
+    if (!insc) continue
+    if (pi > 0) doc.addPage()
+
+    const PW = doc.internal.pageSize.getWidth()   // ~297mm en paysage
+    const PH = doc.internal.pageSize.getHeight()  // ~210mm en paysage
+    const mL = 20, mR = 20
+    const cx = PW / 2
+
+    // Filigrane
+    doc.setTextColor(235, 238, 248); doc.setFontSize(60); doc.setFont('times', 'bold')
+    doc.text("UP'TECH", cx, PH / 2, { align: 'center', angle: 35 })
+    doc.setTextColor(0,0,0)
+
+    // Hachures fond
+    doc.setDrawColor(...LIGHT_NAVY); doc.setLineWidth(0.15)
+    for (let d = 0; d < PW + PH; d += 10) {
+      doc.line(Math.max(0, d - PH), Math.min(PH, d), Math.min(PW, d), Math.max(0, d - PW))
+    }
+
+    // Double bordure Bordeaux + Or
+    doc.setFillColor(255, 255, 255)
+    doc.rect(8, 8, PW - 16, PH - 16, 'F')
+    doc.setDrawColor(...BURGUNDY); doc.setLineWidth(2.5)
+    doc.rect(8, 8, PW - 16, PH - 16)
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.6)
+    doc.rect(13, 13, PW - 26, PH - 26)
+
+    // Ornements coins
+    attCornerOrnament(doc, 13, 13, 18, 1, 1, GOLD, BURGUNDY)
+    attCornerOrnament(doc, PW - 13, 13, 18, -1, 1, GOLD, BURGUNDY)
+    attCornerOrnament(doc, 13, PH - 13, 18, 1, -1, GOLD, BURGUNDY)
+    attCornerOrnament(doc, PW - 13, PH - 13, 18, -1, -1, GOLD, BURGUNDY)
+
+    // Référence unique
+    const numEtd = (insc as any).etudiant?.numero_etudiant ?? String(insc.id)
+    const ref = `CERT-FC-${anneeEnCours}-${numEtd}-${String(pi + 1).padStart(3, '0')}`
+    const verifyUrl = `https://uptechcampus.vercel.app/verify-attestation/${ref}`
+    const nomEtd = `${(insc as any).etudiant.prenom} ${(insc as any).etudiant.nom.toUpperCase()}`
+    const secHash = attSecurityHash(ref + nomEtd)
+
+    let qrDataUrl: string | null = null
+    try {
+      qrDataUrl = await QRCode.toDataURL(verifyUrl, { width: 220, margin: 1, color: { dark: '#640a0a', light: '#ffffff' } })
+    } catch { qrDataUrl = null }
+
+    // Sauvegarde DB
+    const moyInsc = moyennePonderee(insc.id)
+    const mentionInsc = moyInsc != null ? mention(moyInsc) : null
+    try {
+      await api.post('/attestations', {
+        reference: ref,
+        etudiant_nom: (insc as any).etudiant.nom,
+        etudiant_prenom: (insc as any).etudiant.prenom,
+        numero_etudiant: numEtd,
+        filiere: (insc as any).filiere?.nom ?? '',
+        classe: nomClasse,
+        annee_academique: String(anneeEnCours),
+        type_attestation: 'certificat',
+        mention: mentionInsc,
+        moyenne: moyInsc,
+        session: filterSession.value,
+        expires_at: new Date(anneeEnCours + 2, 0, 1).toISOString().slice(0, 10),
+      })
+    } catch { /* non bloquant */ }
+
+    let y = 18
+
+    // Logo
+    if (logoDataUrl) {
+      try { doc.addImage(logoDataUrl, 'PNG', cx - 30, y, 60, 18) } catch { /* skip */ }
+      y += 22
+    } else {
+      doc.setFontSize(18); doc.setFont('times', 'bold'); doc.setTextColor(...BURGUNDY)
+      doc.text("UP'TECH", cx, y + 10, { align: 'center' })
+      doc.setTextColor(0,0,0); y += 16
+    }
+
+    // Ligne or
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.5)
+    doc.line(mL + 10, y, PW - mR - 10, y); y += 4
+
+    // En-tête institution (plus compact en paysage)
+    doc.setTextColor(...NAVY); doc.setFont('times', 'bold'); doc.setFontSize(8.5)
+    doc.text("Institut Superieur de Formation aux Nouveaux Metiers de l'Informatique et de la Communication", cx, y, { align: 'center' })
+    y += 4.5
+    doc.setFont('times', 'normal'); doc.setFontSize(7); doc.setTextColor(60,60,60)
+    doc.text("NINEA 006118310  |  BP 50281 RP DAKAR  |  Agree par l'Etat : N\u00B000014191/MFPAA/SG/DFPT  |  RepSEN/Ensup-priv/AP/387-2021", cx, y, { align: 'center' })
+    y += 7; doc.setTextColor(0,0,0)
+
+    // Bandeau titre bordeaux
+    doc.setFillColor(...BURGUNDY)
+    doc.rect(mL + 2, y, PW - mL - mR - 4, 14, 'F')
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.6)
+    doc.line(mL + 2, y, PW - mR - 2, y)
+    doc.line(mL + 2, y + 14, PW - mR - 2, y + 14)
+    doc.setTextColor(255,255,255); doc.setFontSize(19); doc.setFont('times', 'bold')
+    doc.text('CERTIFICAT  DE  REUSSITE', cx, y + 10, { align: 'center' })
+    doc.setTextColor(0,0,0); y += 20
+
+    // REF + sécurité
+    doc.setFontSize(8); doc.setFont('times', 'normal'); doc.setTextColor(...BURGUNDY)
+    doc.text(`REF : ${ref}`, mL + 4, y)
+    doc.setTextColor(150,150,150); doc.setFontSize(7)
+    doc.text(`CODE : ${secHash}`, PW - mR - 4, y, { align: 'right' })
+    doc.setTextColor(0,0,0); y += 9
+
+    // Corps texte
+    const filiereLabel = (insc as any).filiere?.nom ?? (insc as any).classe?.filiere?.nom ?? '—'
+    const niveauLabel  = (insc as any).niveau_entree?.nom ?? '—'
+    const anneeLabel   = (insc as any).annee_academique?.libelle ?? `${anneeEnCours-1}-${anneeEnCours}`
+
+    doc.setFontSize(11); doc.setFont('times', 'normal')
+    const introLines = doc.splitTextToSize(
+      "Nous, soussignes, Institut Superieur de Formation aux Nouveaux Metiers de l'Informatique et de la communication (UP'TECH) certifions que :",
+      PW - mL - mR - 8
+    )
+    doc.text(introLines, mL + 4, y); y += introLines.length * 5.5 + 4
+
+    // Nom étudiant
+    doc.setFontSize(18); doc.setFont('times', 'bold'); doc.setTextColor(...BURGUNDY)
+    doc.text(nomEtd, cx, y, { align: 'center' })
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.4)
+    const nw = doc.getTextWidth(nomEtd)
+    doc.line(cx - nw/2, y + 1.5, cx + nw/2, y + 1.5)
+    doc.setTextColor(0,0,0); y += 8
+
+    // né(e) le
+    const dateNaiss = (insc as any).etudiant?.date_naissance
+      ? new Date((insc as any).etudiant.date_naissance).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null
+    const lieuNaiss = (insc as any).etudiant?.lieu_naissance ?? null
+    if (dateNaiss || lieuNaiss) {
+      doc.setFontSize(11); doc.setFont('times', 'normal')
+      let xc = mL + 4
+      doc.text('ne(e) le', xc, y); xc += doc.getTextWidth('ne(e) le') + 3
+      if (dateNaiss) { doc.setFont('times', 'bold'); doc.text(dateNaiss, xc, y); xc += doc.getTextWidth(dateNaiss) + 3; doc.setFont('times', 'normal') }
+      if (lieuNaiss) { doc.text('a', xc, y); xc += doc.getTextWidth('a') + 3; doc.setFont('times', 'bold'); doc.text(`${lieuNaiss.toUpperCase()} (SENEGAL)`, xc, y); doc.setFont('times', 'normal') }
+      y += 8
+    } else { y += 3 }
+
+    // Texte certification
+    const suiviLines = doc.splitTextToSize(
+      `a suivi avec succes notre programme de formation certifiee en ${filiereLabel} (classe : ${nomClasse}), annee academique ${anneeLabel}, et a satisfait a toutes les conditions requises pour l'obtention du ${niveauLabel}.`,
+      PW - mL - mR - 8
+    )
+    doc.setFontSize(11); doc.setFont('times', 'normal')
+    doc.text(suiviLines, mL + 4, y); y += suiviLines.length * 5.5 + 6
+
+    // Tableau détails (2 colonnes pour exploiter la largeur paysage)
+    const moy  = moyennePonderee(insc.id)
+    const ment = mention(moy)
+    const sessionLabel = filterSession.value === 'rattrapage' ? 'Deuxieme' : 'Premiere'
+    const details: [string, string][] = [
+      ['Specialite :', filiereLabel],
+      ['Session    :', sessionLabel],
+      ['Mention    :', ment],
+      ['Type       :', 'Formation Certifiee'],
+    ]
+    const colW = (PW - mL - mR - 8) / 2 - 5
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.5)
+    doc.line(mL + 4, y - 3, mL + 4 + colW * 2 + 10, y - 3)
+    y += 3
+    const tabH = Math.ceil(details.length / 2) * 8 + 10
+    doc.setFillColor(...LIGHT_GOLD)
+    doc.rect(mL + 4, y - 5, colW * 2 + 10, tabH, 'F')
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.4)
+    doc.rect(mL + 4, y - 5, colW * 2 + 10, tabH)
+    // 2 colonnes : gauche col 0,2 / droite col 1,3
+    const leftPairs  = details.filter((_, i) => i % 2 === 0)
+    const rightPairs = details.filter((_, i) => i % 2 === 1)
+    const maxRows = Math.max(leftPairs.length, rightPairs.length)
+    for (let ri = 0; ri < maxRows; ri++) {
+      const yRow = y + ri * 8
+      if (leftPairs[ri]) {
+        const [lbl, val] = leftPairs[ri]!
+        doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(80,80,80)
+        doc.text(lbl, mL + 4 + 5, yRow)
+        doc.setFont('times', 'bold'); doc.setTextColor(...BURGUNDY)
+        doc.text(val, mL + 4 + 5 + 38, yRow)
+      }
+      if (rightPairs[ri]) {
+        const [lbl, val] = rightPairs[ri]!
+        doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(80,80,80)
+        doc.text(lbl, mL + 4 + colW + 10, yRow)
+        doc.setFont('times', 'bold'); doc.setTextColor(...BURGUNDY)
+        doc.text(val, mL + 4 + colW + 10 + 38, yRow)
+      }
+    }
+    doc.setTextColor(0,0,0)
+    y += tabH + 5
+
+    // En foi de quoi + signature + sceau sur même ligne
+    const enFoiLines = doc.splitTextToSize(
+      'En foi de quoi, le present certificat lui est delivre pour servir et valoir ce que de droit.',
+      (PW - mL - mR) * 0.55
+    )
+    doc.setFontSize(11); doc.setFont('times', 'normal')
+    doc.text(enFoiLines, mL + 4, y); y += enFoiLines.length * 5.5 + 5
+
+    const todayStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+    doc.setFontSize(10); doc.setFont('times', 'normal')
+    doc.text(`Fait a Dakar, le ${todayStr}`, mL + 4, y)
+    y += 5; doc.setFont('times', 'bold')
+    doc.text('Le Directeur General', mL + 4, y)
+    y += 14
+    doc.setLineWidth(0.4); doc.setDrawColor(...BURGUNDY)
+    doc.line(mL + 4, y, mL + 55, y)
+
+    // Sceau à droite du bloc signature
+    const sealCX = PW - mR - 35
+    const sealCY = y - 14
+    attSeal(doc, sealCX, sealCY, BURGUNDY, GOLD, anneeLabel)
+
+    // QR code en bas à droite
+    const qrSize = 24
+    const qrY = PH - 42
+    if (qrDataUrl) {
+      try { doc.addImage(qrDataUrl, 'PNG', mL + 4, qrY, qrSize, qrSize) } catch { /* skip */ }
+    } else {
+      doc.setDrawColor(...BURGUNDY); doc.setLineWidth(0.4); doc.rect(mL + 4, qrY, qrSize, qrSize)
+    }
+    doc.setFontSize(7); doc.setFont('times', 'bold'); doc.setTextColor(...BURGUNDY)
+    doc.text("Verifier l'authenticite sur :", mL + qrSize + 5, qrY + 5)
+    doc.setFont('times', 'normal'); doc.setTextColor(60,60,60)
+    doc.text(verifyUrl, mL + qrSize + 5, qrY + 10)
+    doc.setFont('times', 'italic')
+    doc.text('Duree de validite : 2 ans  |  www.uptechformation.com', mL + qrSize + 5, qrY + 16)
+    doc.setTextColor(0,0,0)
+
+    // Footer
+    const footerY = PH - 13
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.4)
+    for (let x = mL + 4; x < PW - mR - 4; x += 5) {
+      doc.line(x, footerY - 4, Math.min(x + 2.5, PW - mR - 4), footerY - 4)
+    }
+    doc.setFontSize(6.5); doc.setFont('times', 'normal'); doc.setTextColor(80,80,80)
+    doc.text(
+      'Sicap Amitie 1, Villa N\u00B03031 _ Tel : 33 821 34 25  |  (+221) 77 841 50 44  |  uptechformation@gmail.com  |  www.uptechformation.com',
+      cx, footerY, { align: 'center' }
+    )
+    doc.setFontSize(3.5); doc.setTextColor(180,180,180)
+    const microtext = `${secHash} UPTECH-CAMPUS-OFFICIEL `.repeat(22)
+    doc.text(microtext.substring(0, 250), cx, footerY + 5, { align: 'center' })
+    doc.setTextColor(0,0,0)
+  }
+
+  doc.save(`certificats-FC-${nomClasse.replace(/\s+/g,'-')}.pdf`)
+}
+
+// ── Attestation de formation — Formation Accélérée (sans notes, sans jury) ───
+async function exportAttestationsFA() {
+  const inscritsActifs = inscriptions.value.filter((i: any) =>
+    ['inscrit_actif', 'pre_inscrit'].includes(i.statut)
+  )
+  if (!inscritsActifs.length) { alert('Aucun étudiant inscrit dans cette classe.'); return }
+
+  const { jsPDF } = await import('jspdf')
+  const QRCode = (await import('qrcode')).default
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+
+  const NAVY: [number,number,number] = [0, 0, 0]
+  const GOLD: [number,number,number] = [180, 145, 60]
+  const LIGHT_GOLD: [number,number,number] = [245, 238, 210]
+  const LIGHT_NAVY: [number,number,number] = [220, 220, 220]
+
+  // Charger logo
+  let logoDataUrl: string | null = null
+  try {
+    const resp = await fetch('/logo-normal.png')
+    if (resp.ok) {
+      const blob = await resp.blob()
+      logoDataUrl = await new Promise<string>((res) => {
+        const reader = new FileReader()
+        reader.onload = () => res(reader.result as string)
+        reader.readAsDataURL(blob)
+      })
+    }
+  } catch { logoDataUrl = null }
+
+  const anneeEnCours = new Date().getFullYear()
+  const nomClasse = classes.value.find((c: any) => String(c.id) === filterClasse.value)?.nom ?? 'Classe'
+
+  for (let pi = 0; pi < inscritsActifs.length; pi++) {
+    const insc = inscritsActifs[pi]!
+    if (pi > 0) doc.addPage()
+
+    const PW = doc.internal.pageSize.getWidth()
+    const PH = doc.internal.pageSize.getHeight()
+    const mL = 18, mR = 18
+    const cx = PW / 2
+
+    // Filigrane
+    doc.setTextColor(235, 238, 248); doc.setFontSize(52); doc.setFont('times', 'bold')
+    doc.text("UP'TECH", cx, PH / 2 + 20, { align: 'center', angle: 45 })
+    doc.setTextColor(0,0,0)
+
+    // Hachures fond
+    doc.setDrawColor(...LIGHT_NAVY); doc.setLineWidth(0.15)
+    for (let d = 0; d < PW + PH; d += 10) {
+      doc.line(Math.max(0, d - PH), Math.min(PH, d), Math.min(PW, d), Math.max(0, d - PW))
+    }
+
+    // Double bordure
+    doc.setFillColor(255, 255, 255)
+    doc.rect(8, 8, PW - 16, PH - 16, 'F')
+    doc.setDrawColor(...NAVY); doc.setLineWidth(2.5)
+    doc.rect(8, 8, PW - 16, PH - 16)
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.6)
+    doc.rect(13, 13, PW - 26, PH - 26)
+
+    // Ornements coins
+    attCornerOrnament(doc, 13, 13, 18, 1, 1, GOLD, NAVY)
+    attCornerOrnament(doc, PW - 13, 13, 18, -1, 1, GOLD, NAVY)
+    attCornerOrnament(doc, 13, PH - 13, 18, 1, -1, GOLD, NAVY)
+    attCornerOrnament(doc, PW - 13, PH - 13, 18, -1, -1, GOLD, NAVY)
+
+    // Référence unique
+    const numEtd = (insc as any).etudiant?.numero_etudiant ?? String(insc.id)
+    const ref = `ATT-FA-${anneeEnCours}-${numEtd}-${String(pi + 1).padStart(3, '0')}`
+    const verifyUrl = `https://uptechcampus.vercel.app/verify-attestation/${ref}`
+    const nomEtd = `${(insc as any).etudiant.prenom} ${(insc as any).etudiant.nom.toUpperCase()}`
+    const secHash = attSecurityHash(ref + nomEtd)
+
+    let qrDataUrl: string | null = null
+    try {
+      qrDataUrl = await QRCode.toDataURL(verifyUrl, { width: 220, margin: 1, color: { dark: '#0f285a', light: '#ffffff' } })
+    } catch { qrDataUrl = null }
+
+    // Sauvegarde DB
+    try {
+      await api.post('/attestations', {
+        reference: ref,
+        etudiant_nom: (insc as any).etudiant.nom,
+        etudiant_prenom: (insc as any).etudiant.prenom,
+        numero_etudiant: numEtd,
+        filiere: (insc as any).filiere?.nom ?? '',
+        classe: nomClasse,
+        annee_academique: String(anneeEnCours),
+        type_attestation: 'formation',
+        expires_at: new Date(anneeEnCours + 2, 0, 1).toISOString().slice(0, 10),
+      })
+    } catch { /* non bloquant */ }
+
+    let y = 18
+
+    // Logo
+    if (logoDataUrl) {
+      try { doc.addImage(logoDataUrl, 'PNG', cx - 30, y, 60, 20) } catch { /* skip */ }
+      y += 24
+    } else {
+      doc.setFontSize(18); doc.setFont('times', 'bold'); doc.setTextColor(...NAVY)
+      doc.text("UP'TECH", cx, y + 10, { align: 'center' })
+      doc.setTextColor(0,0,0); y += 18
+    }
+
+    // Ligne or
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.5)
+    doc.line(mL + 10, y, PW - mR - 10, y); y += 5
+
+    // En-tête institution
+    doc.setTextColor(...NAVY); doc.setFont('times', 'bold'); doc.setFontSize(9)
+    doc.text("Institut Superieur de Formation aux Nouveaux Metiers de l'Informatique et de la Communication", cx, y, { align: 'center' })
+    y += 5
+    doc.setFont('times', 'normal'); doc.setFontSize(7.5); doc.setTextColor(60,60,60)
+    doc.text("NINEA 006118310  |  BP 50281 RP DAKAR  |  Agree par l'Etat : N\u00B000014191/MFPAA/SG/DFPT  |  RepSEN/Ensup-priv/AP/387-2021", cx, y, { align: 'center' })
+    y += 9; doc.setTextColor(0,0,0)
+
+    // Bandeau titre — vert foncé pour distinguer des réussites
+    const TEAL: [number,number,number] = [5, 90, 70]
+    doc.setFillColor(...TEAL)
+    doc.rect(mL + 2, y, PW - mL - mR - 4, 13, 'F')
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.6)
+    doc.line(mL + 2, y, PW - mR - 2, y)
+    doc.line(mL + 2, y + 13, PW - mR - 2, y + 13)
+    doc.setTextColor(255,255,255); doc.setFontSize(17); doc.setFont('times', 'bold')
+    doc.text('ATTESTATION  DE  FORMATION', cx, y + 9, { align: 'center' })
+    doc.setTextColor(0,0,0); y += 19
+
+    // REF + sécurité
+    doc.setFontSize(8.5); doc.setFont('times', 'normal'); doc.setTextColor(...NAVY)
+    doc.text(`REF : ${ref}`, mL + 4, y)
+    doc.setTextColor(150,150,150); doc.setFontSize(7)
+    doc.text(`CODE : ${secHash}`, PW - mR - 4, y, { align: 'right' })
+    doc.setTextColor(0,0,0); y += 10
+
+    // Corps texte
+    const filiereLabel = (insc as any).filiere?.nom ?? (insc as any).classe?.filiere?.nom ?? '—'
+    const anneeLabel   = (insc as any).annee_academique?.libelle ?? `${anneeEnCours-1}-${anneeEnCours}`
+
+    doc.setFontSize(11); doc.setFont('times', 'normal')
+    const introLines = doc.splitTextToSize(
+      "Nous, soussignes, Institut Superieur de Formation aux Nouveaux Metiers de l'Informatique et de la communication (UP'TECH) attestons que :",
+      PW - mL - mR - 8
+    )
+    doc.text(introLines, mL + 4, y); y += introLines.length * 6 + 5
+
+    // Nom étudiant
+    doc.setFontSize(16); doc.setFont('times', 'bold'); doc.setTextColor(...NAVY)
+    doc.text(nomEtd, cx, y, { align: 'center' })
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.4)
+    const nw = doc.getTextWidth(nomEtd)
+    doc.line(cx - nw/2, y + 1.5, cx + nw/2, y + 1.5)
+    doc.setTextColor(0,0,0); y += 9
+
+    // Date/lieu naissance
+    const dateNaiss = (insc as any).etudiant?.date_naissance
+      ? new Date((insc as any).etudiant.date_naissance).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null
+    const lieuNaiss = (insc as any).etudiant?.lieu_naissance ?? null
+    if (dateNaiss || lieuNaiss) {
+      doc.setFontSize(11); doc.setFont('times', 'normal')
+      let xc = mL + 4
+      doc.text('ne(e) le', xc, y); xc += doc.getTextWidth('ne(e) le') + 3
+      if (dateNaiss) { doc.setFont('times', 'bold'); doc.text(dateNaiss, xc, y); xc += doc.getTextWidth(dateNaiss) + 3; doc.setFont('times', 'normal') }
+      if (lieuNaiss) { doc.text('a', xc, y); xc += doc.getTextWidth('a') + 3; doc.setFont('times', 'bold'); doc.text(`${lieuNaiss.toUpperCase()} (SENEGAL)`, xc, y); doc.setFont('times', 'normal') }
+      y += 10
+    } else { y += 4 }
+
+    // Texte formation
+    const suiviLines = doc.splitTextToSize(
+      `a regulierement suivi et valide notre programme de formation acceleree en ${filiereLabel} (classe : ${nomClasse}), annee academique ${anneeLabel}.`,
+      PW - mL - mR - 8
+    )
+    doc.setFontSize(11); doc.setFont('times', 'normal')
+    doc.text(suiviLines, mL + 4, y); y += suiviLines.length * 6 + 8
+
+    // Tableau détails
+    const details: [string, string][] = [
+      ['Specialite :', filiereLabel],
+      ['Classe     :', nomClasse],
+      ['Annee acad.:', anneeLabel],
+      ['Type       :', 'Formation Acceleree'],
+    ]
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.5)
+    doc.line(mL + 4, y - 3, mL + 4 + 105, y - 3)
+    y += 3
+    const tabH = details.length * 8 + 10
+    doc.setFillColor(...LIGHT_GOLD)
+    doc.rect(mL + 4, y - 5, 105, tabH, 'F')
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.4)
+    doc.rect(mL + 4, y - 5, 105, tabH)
+    for (const [label, valeur] of details) {
+      doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(80,80,80)
+      doc.text(label, mL + 4 + 5, y)
+      doc.setFont('times', 'bold'); doc.setTextColor(...NAVY)
+      doc.text(valeur, mL + 4 + 5 + 42, y)
+      doc.setTextColor(0,0,0); y += 8
+    }
+    y += 13
+
+    // En foi de quoi
+    const enFoiLines = doc.splitTextToSize(
+      'En foi de quoi, la presente attestation lui est delivree pour servir et valoir ce que de droit.',
+      PW - mL - mR - 8
+    )
+    doc.setFontSize(11); doc.setFont('times', 'normal'); doc.setTextColor(0,0,0)
+    doc.text(enFoiLines, mL + 4, y); y += enFoiLines.length * 6 + 12
+
+    // Sceau + signature
+    const sealCX = PW - mR - 28
+    const sealCY = y + 8
+    attSeal(doc, sealCX, sealCY, NAVY, GOLD, anneeLabel)
+    const todayStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+    doc.setFontSize(10); doc.setFont('times', 'normal'); doc.setTextColor(0,0,0)
+    doc.text(`Fait a Dakar, le ${todayStr}`, mL + 4, y)
+    y += 6; doc.setFont('times', 'bold')
+    doc.text('Le Directeur General', mL + 4, y)
+    y += 22
+    doc.setLineWidth(0.4); doc.setDrawColor(...NAVY)
+    doc.line(mL + 4, y, mL + 60, y)
+
+    // QR code
+    const qrSize = 26
+    const qrY = PH - 50
+    if (qrDataUrl) {
+      try { doc.addImage(qrDataUrl, 'PNG', mL + 4, qrY, qrSize, qrSize) } catch { /* skip */ }
+    } else {
+      doc.setDrawColor(...NAVY); doc.setLineWidth(0.4); doc.rect(mL + 4, qrY, qrSize, qrSize)
+    }
+    doc.setFontSize(7); doc.setFont('times', 'bold'); doc.setTextColor(...NAVY)
+    doc.text("Verifier l'authenticite sur :", mL + qrSize + 7, qrY + 5)
+    doc.setFont('times', 'normal'); doc.setTextColor(60,60,60)
+    doc.text(verifyUrl, mL + qrSize + 7, qrY + 10)
+    doc.setFont('times', 'italic')
+    doc.text('Duree de validite : 2 ans', mL + qrSize + 7, qrY + 16)
+    doc.text('www.uptechformation.com', mL + qrSize + 7, qrY + 21)
+    doc.setTextColor(0,0,0)
+
+    // Footer
+    const footerY = PH - 14
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.4)
+    for (let x = mL + 4; x < PW - mR - 4; x += 5) {
+      doc.line(x, footerY - 4, Math.min(x + 2.5, PW - mR - 4), footerY - 4)
+    }
+    doc.setFontSize(6.5); doc.setFont('times', 'normal'); doc.setTextColor(80,80,80)
+    doc.text(
+      'Sicap Amitie 1, Villa N\u00B03031 _ Tel : 33 821 34 25  |  (+221) 77 841 50 44  |  uptechformation@gmail.com  |  www.uptechformation.com',
+      cx, footerY, { align: 'center' }
+    )
+    doc.setFontSize(3.5); doc.setTextColor(180,180,180)
+    const microtext = `${secHash} UPTECH-CAMPUS-OFFICIEL `.repeat(18)
+    doc.text(microtext.substring(0, 200), cx, footerY + 5, { align: 'center' })
+    doc.setTextColor(0,0,0)
+  }
+
+  doc.save(`attestations-FA-${nomClasse.replace(/\s+/g,'-')}.pdf`)
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'jury') loadJury()
+})
+
+watch(filterClasse, () => {
+  if (activeTab.value === 'jury') loadJury()
+})
+
+watch(filterSession, () => {
+  if (activeTab.value === 'jury') loadJury()
+})
 </script>
 
 <template>
@@ -1178,9 +2838,15 @@ onMounted(load)
     <!-- Toolbar modernisée -->
     <div class="nb-toolbar">
       <div class="nb-toolbar-left">
+        <select v-if="!isEnseignant && anneesAcademiques.length" v-model="filterAnneeNotes" class="nb-select" style="font-weight:600;color:#E30613;" @change="filterClasse=''">
+          <option value="">📅 Toutes les années</option>
+          <option v-for="a in anneesAcademiques" :key="a.id" :value="String(a.id)">{{ a.libelle }}{{ a.actif ? ' ✓' : '' }}</option>
+        </select>
         <select v-model="filterClasse" class="nb-select">
           <option value="">🏫 Sélectionner une classe…</option>
-          <option v-for="c in classes" :key="c.id" :value="String(c.id)">{{ c.nom }}</option>
+          <option v-for="c in classesFiltreesParAnnee" :key="c.id" :value="String(c.id)">
+            {{ c.nom }}{{ c.annee_academique && !filterAnneeNotes ? ` (${c.annee_academique})` : '' }}
+          </option>
         </select>
         <!-- Session toggle pill -->
         <div class="nb-session-toggle">
@@ -1196,10 +2862,10 @@ onMounted(load)
       <button @click="activeTab='saisie'" :class="['nb-tab', activeTab==='saisie' ? 'nb-tab--active' : '']">
         <span class="nb-tab-icon">✏️</span> Saisie des notes
       </button>
-      <button @click="activeTab='jury'" :class="['nb-tab', activeTab==='jury' ? 'nb-tab--active' : '']">
+      <button v-if="!isEnseignant" @click="activeTab='jury'" :class="['nb-tab', activeTab==='jury' ? 'nb-tab--active' : '']">
         <span class="nb-tab-icon">🏆</span> Jury
       </button>
-      <button @click="activeTab='bulletins'" :class="['nb-tab', activeTab==='bulletins' ? 'nb-tab--active' : '']">
+      <button v-if="!isEnseignant" @click="activeTab='bulletins'" :class="['nb-tab', activeTab==='bulletins' ? 'nb-tab--active' : '']">
         <span class="nb-tab-icon">📄</span> Bulletins
       </button>
     </div>
@@ -1273,10 +2939,26 @@ onMounted(load)
                     <span class="nb-ue-code">{{ ue.code }}</span>
                     <span class="nb-ue-name">{{ ue.intitule }}</span>
                     <span v-if="!isEnseignant" class="nb-ue-coef">
-                      <span v-if="ue.matiere_id">⚡ filière</span>
-                      <span v-else>Coef.{{ ue.coefficient }} / Créd.{{ ue.credits_ects }}</span>
+                      <span v-if="(parseFloat(String(ue.coefficient))||0) === 0 && (parseFloat(String(ue.credits_ects))||0) === 0"
+                        style="color:#E30613;font-weight:700;" title="Coefficient et crédits à 0 — cette EC n'apparaîtra pas dans les bulletins">
+                        ⚠️ Coef.0
+                      </span>
+                      <span v-else>
+                        <template v-if="(parseFloat(String(ue.credits_ects))||0) > 0">Créd.{{ ue.credits_ects }}</template>
+                        <template v-else>Coef.{{ ue.coefficient }}</template>
+                      </span>
                     </span>
-                    <span v-if="isEnseignant && !!monProfil && ue.enseignant && Number((ue.enseignant as any).id) !== Number(monProfil.id)" class="nb-ue-lock">🔒</span>
+                    <span v-if="isEnseignant && !!monProfil && (!ue.enseignant || Number((ue.enseignant as any).id) !== Number(monProfil.id))" class="nb-ue-lock">🔒</span>
+                    <button
+                      v-if="!isEnseignant"
+                      class="nb-ue-print-btn"
+                      :disabled="generatingFiche === ue.id"
+                      :title="`Imprimer fiche de notes — ${ue.intitule}`"
+                      @click.stop="generateFicheNotes(ue)"
+                    >
+                      <span v-if="generatingFiche === ue.id">⏳</span>
+                      <span v-else>🖨</span>
+                    </button>
                   </div>
                 </th>
                 <th class="nb-th-moy">Moyenne</th>
@@ -1298,27 +2980,56 @@ onMounted(load)
                 <td v-for="(ue, idx) in uesVisible" :key="ue.id" class="nb-td-note"
                   :style="{ background: ['#6366f1','#10b981','#f97316','#3b82f6','#ec4899','#14b8a6','#f59e0b','#8b5cf6'][idx % 8] + '11' }">
                   <div class="nb-note-cell">
-                    <input
-                      v-model="localNotes[insc.id]![ue.id]"
-                      type="number" min="0" max="20" step="0.25"
-                      :disabled="!canWrite || (isEnseignant && !!monProfil && !!ue.enseignant && Number((ue.enseignant as any).id) !== Number(monProfil.id))"
-                      :placeholder="(isEnseignant && !!monProfil && !!ue.enseignant && Number((ue.enseignant as any).id) !== Number(monProfil.id)) ? '🔒' : '—'"
-                      class="nb-note-input"
-                      :class="{
-                        'nb-note-locked': isEnseignant && !!monProfil && !!ue.enseignant && Number((ue.enseignant as any).id) !== Number(monProfil.id),
-                        'nb-note--fail': localNotes[insc.id]?.[ue.id] !== '' && localNotes[insc.id]?.[ue.id] !== undefined && parseFloat(localNotes[insc.id]![ue.id]!) < 10,
-                        'nb-note--warn': localNotes[insc.id]?.[ue.id] !== '' && localNotes[insc.id]?.[ue.id] !== undefined && parseFloat(localNotes[insc.id]![ue.id]!) >= 10 && parseFloat(localNotes[insc.id]![ue.id]!) < 14,
-                        'nb-note--pass': localNotes[insc.id]?.[ue.id] !== '' && localNotes[insc.id]?.[ue.id] !== undefined && parseFloat(localNotes[insc.id]![ue.id]!) >= 14,
-                      }"
-                    />
-                    <div class="nb-note-bar">
-                      <div class="nb-note-bar-fill"
-                        :style="{
-                          width: localNotes[insc.id]?.[ue.id] ? Math.min(100, parseFloat(localNotes[insc.id]![ue.id]!) / 20 * 100) + '%' : '0%',
-                          background: localNotes[insc.id]?.[ue.id] && parseFloat(localNotes[insc.id]![ue.id]!) >= 14 ? '#10b981' : localNotes[insc.id]?.[ue.id] && parseFloat(localNotes[insc.id]![ue.id]!) >= 10 ? '#f59e0b' : '#ef4444'
-                        }">
+                    <!-- Mode FP : 2 inputs Contrôle + Examen -->
+                    <template v-if="classeEstFP && !(insc as any).niveau_entree?.est_superieur_bac">
+                      <input v-model="localControles[insc.id]![ue.id]" type="number" min="0" max="20" step="0.25"
+                        :disabled="!canWrite || (isEnseignant && !!monProfil && (!ue.enseignant || Number((ue.enseignant as any).id) !== Number(monProfil.id)))"
+                        placeholder="CC" class="nb-note-input nb-note-input--half"
+                        style="width:46%;font-size:10px;" title="Contrôle continu"
+                      />
+                      <input v-model="localExamens[insc.id]![ue.id]" type="number" min="0" max="20" step="0.25"
+                        :disabled="!canWrite || (isEnseignant && !!monProfil && (!ue.enseignant || Number((ue.enseignant as any).id) !== Number(monProfil.id)))"
+                        placeholder="Ex" class="nb-note-input nb-note-input--half"
+                        style="width:46%;font-size:10px;" title="Examen final"
+                      />
+                      <!-- Aperçu moyenne calculée -->
+                      <div style="font-size:9px;color:#6366f1;font-weight:700;text-align:center;margin-top:1px;">
+                        <template v-if="localControles[insc.id]?.[ue.id] || localExamens[insc.id]?.[ue.id]">
+                          {{ (() => {
+                            const cc = parseFloat(localControles[insc.id]?.[ue.id] ?? '')
+                            const ex = parseFloat(localExamens[insc.id]?.[ue.id] ?? '')
+                            if (!isNaN(cc) && !isNaN(ex)) return ((cc + ex) / 2).toFixed(2)
+                            if (!isNaN(cc)) return cc.toFixed(2)
+                            if (!isNaN(ex)) return ex.toFixed(2)
+                            return ''
+                          })() }}
+                        </template>
                       </div>
-                    </div>
+                    </template>
+                    <!-- Mode LMD ou étudiant BAC dans classe mixte : 1 input -->
+                    <template v-else>
+                      <input
+                        v-model="localNotes[insc.id]![ue.id]"
+                        type="number" min="0" max="20" step="0.25"
+                        :disabled="!canWrite || (isEnseignant && !!monProfil && (!ue.enseignant || Number((ue.enseignant as any).id) !== Number(monProfil.id)))"
+                        :placeholder="(isEnseignant && !!monProfil && (!ue.enseignant || Number((ue.enseignant as any).id) !== Number(monProfil.id))) ? '🔒' : '—'"
+                        class="nb-note-input"
+                        :class="{
+                          'nb-note-locked': isEnseignant && !!monProfil && (!ue.enseignant || Number((ue.enseignant as any).id) !== Number(monProfil.id)),
+                          'nb-note--fail': localNotes[insc.id]?.[ue.id] !== '' && localNotes[insc.id]?.[ue.id] !== undefined && parseFloat(localNotes[insc.id]![ue.id]!) < 10,
+                          'nb-note--warn': localNotes[insc.id]?.[ue.id] !== '' && localNotes[insc.id]?.[ue.id] !== undefined && parseFloat(localNotes[insc.id]![ue.id]!) >= 10 && parseFloat(localNotes[insc.id]![ue.id]!) < 14,
+                          'nb-note--pass': localNotes[insc.id]?.[ue.id] !== '' && localNotes[insc.id]?.[ue.id] !== undefined && parseFloat(localNotes[insc.id]![ue.id]!) >= 14,
+                        }"
+                      />
+                      <div class="nb-note-bar">
+                        <div class="nb-note-bar-fill"
+                          :style="{
+                            width: localNotes[insc.id]?.[ue.id] ? Math.min(100, parseFloat(localNotes[insc.id]![ue.id]!) / 20 * 100) + '%' : '0%',
+                            background: localNotes[insc.id]?.[ue.id] && parseFloat(localNotes[insc.id]![ue.id]!) >= 14 ? '#10b981' : localNotes[insc.id]?.[ue.id] && parseFloat(localNotes[insc.id]![ue.id]!) >= 10 ? '#f59e0b' : '#ef4444'
+                          }">
+                        </div>
+                      </div>
+                    </template>
                   </div>
                 </td>
                 <td class="nb-td-moy">
@@ -1339,80 +3050,309 @@ onMounted(load)
     </div>
 
     <!-- TAB JURY -->
-    <div v-else-if="activeTab === 'jury'">
-      <div v-if="loading" class="nb-loading">Chargement…</div>
+    <div v-else-if="activeTab === 'jury' && !isEnseignant">
+      <div v-if="loading || loadingJury" class="nb-loading">Chargement…</div>
       <div v-else-if="!inscriptions.length" class="nb-empty-state">
         <div style="font-size:36px;margin-bottom:10px;">🏆</div>
         <div style="font-size:14px;color:#888;">Aucun étudiant inscrit dans cette classe.</div>
       </div>
       <div v-else class="nb-saisie-wrap">
-        <div class="nb-table-toolbar">
-          <span class="nb-table-info">Récapitulatif jury — Session <strong>{{ filterSession }}</strong></span>
-        </div>
-        <!-- Podium top 3 -->
-        <div class="nb-podium">
-          <div
-            v-for="(insc, idx) in [...inscriptions].sort((a,b) => (moyennePonderee(b.id) ?? -1) - (moyennePonderee(a.id) ?? -1)).slice(0,3)"
-            :key="insc.id"
-            class="nb-podium-card"
-            :class="idx===0?'nb-podium-card--or':idx===1?'nb-podium-card--argent':'nb-podium-card--bronze'"
-          >
-            <div class="nb-podium-medal">{{ idx===0?'🥇':idx===1?'🥈':'🥉' }}</div>
-            <div class="nb-podium-avatar">{{ insc.etudiant.prenom[0] }}{{ insc.etudiant.nom[0] }}</div>
-            <div class="nb-podium-nom">{{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}</div>
-            <div class="nb-podium-moy">{{ moyennePonderee(insc.id)?.toFixed(2) ?? '—' }}<span style="font-size:10px;opacity:0.6">/20</span></div>
-            <div class="nb-podium-mention">{{ mention(moyennePonderee(insc.id)) }}</div>
+        <!-- Step indicator -->
+        <div class="nb-jury-steps">
+          <div :class="['nb-jury-step', juryStep >= 1 ? 'nb-jury-step--active' : '']" @click="juryStep=1" style="cursor:pointer">
+            <span class="nb-jury-step-num">1</span>
+            <span class="nb-jury-step-label">Constitution</span>
+          </div>
+          <div class="nb-jury-step-arrow">→</div>
+          <div :class="['nb-jury-step', juryStep >= 2 ? 'nb-jury-step--active' : '']" @click="juryData && (juryStep=2)" :style="juryData ? 'cursor:pointer' : 'opacity:0.5'">
+            <span class="nb-jury-step-num">2</span>
+            <span class="nb-jury-step-label">Délibération</span>
+          </div>
+          <div class="nb-jury-step-arrow">→</div>
+          <div :class="['nb-jury-step', juryStep >= 3 ? 'nb-jury-step--active' : '']" @click="juryData && (juryStep=3)" :style="juryData ? 'cursor:pointer' : 'opacity:0.5'">
+            <span class="nb-jury-step-num">3</span>
+            <span class="nb-jury-step-label">Clôture &amp; Documents</span>
           </div>
         </div>
-        <!-- Table classement -->
-        <div class="nb-jury-table-wrap">
-          <table class="nb-table">
-            <thead>
-              <tr>
-                <th>Rang</th>
-                <th>Étudiant</th>
-                <th style="text-align:center">Moyenne</th>
-                <th style="text-align:center">Mention</th>
-                <th style="text-align:center">Crédits ECTS</th>
-                <th style="text-align:center">Décision</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(insc, idx) in [...inscriptions].sort((a,b) => (moyennePonderee(b.id) ?? -1) - (moyennePonderee(a.id) ?? -1))" :key="insc.id">
-                <td>
-                  <span class="nb-rang" :class="idx===0?'nb-rang--or':idx===1?'nb-rang--argent':idx===2?'nb-rang--bronze':''">
-                    {{ idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx+1}` }}
-                  </span>
-                </td>
-                <td><strong>{{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}</strong></td>
-                <td style="text-align:center">
-                  <span class="nb-moy-jury" :class="(moyennePonderee(insc.id)??0)>=10?'nb-moy-jury--ok':'nb-moy-jury--fail'">
-                    {{ moyennePonderee(insc.id)?.toFixed(2) ?? '—' }}<span style="font-size:10px;opacity:0.6">/20</span>
-                  </span>
-                </td>
-                <td style="text-align:center;font-weight:600" :class="mentionColor(mention(moyennePonderee(insc.id)))">
-                  {{ mention(moyennePonderee(insc.id)) }}
-                </td>
-                <td style="text-align:center;font-size:13px;color:#555">
-                  <span v-if="moyennePonderee(insc.id) !== null">
-                    {{ ues.filter(ue => { const v = localNotes[insc.id]?.[ue.id]; return v !== '' && !isNaN(parseFloat(v??'')) && parseFloat(v??'') >= 10 }).reduce((s,ue) => s + ue.credits_ects, 0) }}/{{ ues.reduce((s,ue) => s + ue.credits_ects, 0) }}
-                  </span>
-                  <span v-else style="color:#ccc">—</span>
-                </td>
-                <td style="text-align:center">
-                  <span class="nb-decision-badge" :class="decisionClass(moyennePonderee(insc.id), insc.id)">
-                    {{ decisionLabel(moyennePonderee(insc.id), insc.id) }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+
+        <!-- STEP 1 : Constitution du jury -->
+        <div v-if="juryStep === 1" class="nb-jury-panel">
+          <!-- Bannière enseignant lecture seule -->
+          <div v-if="isEnseignant" class="nb-jury-warning" style="background:#f0f9ff;border-color:#bae6fd;color:#0369a1;">
+            👁 Vous consultez la composition du jury en lecture seule.
+          </div>
+          <!-- Bannière jury clôturé (non-enseignant) -->
+          <div v-else-if="juryData?.statut === 'cloture'" class="nb-jury-warning" :style="isDG ? 'background:#fef9c3;border-color:#f59e0b;color:#92400e' : ''">
+            <span v-if="isDG">🔓 Jury clôturé — vous pouvez le modifier ou le rouvrir en tant que DG.</span>
+            <span v-else>⚠ Ce jury est clôturé. Les informations sont en lecture seule.</span>
+            <div v-if="isDG" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+              <button @click="rouvrirJury" :disabled="savingJury" class="nb-btn nb-btn--secondary" style="font-size:12px;height:30px;padding:0 12px;">
+                🔓 Rouvrir le jury
+              </button>
+              <button @click="supprimerJury" :disabled="savingJury" class="nb-btn nb-btn--danger" style="font-size:12px;height:30px;padding:0 12px;">
+                🗑 Supprimer le jury
+              </button>
+            </div>
+          </div>
+          <h3 class="nb-jury-panel-title">Constitution du jury</h3>
+          <div class="nb-jury-field-row">
+            <label class="nb-jury-label">Date de délibération</label>
+            <input
+              type="date"
+              v-model="juryDateDeliberation"
+              :disabled="juryData?.statut === 'cloture' && !isDG"
+              class="nb-jury-date-input"
+            />
+          </div>
+          <h4 class="nb-jury-sub-title" style="display:flex;align-items:center;justify-content:space-between;">
+            <span>Membres du jury</span>
+            <button
+              v-if="!isEnseignant && enseignantsSuggests.length > 0"
+              class="nb-jury-btn-suggests"
+              :disabled="loadingSuggests"
+              @click="appliquerSuggests"
+              title="Recharger automatiquement depuis les enseignants de cette classe"
+            >
+              {{ loadingSuggests ? '…' : '↺' }} {{ enseignantsSuggests.length }} enseignant(s) identifié(s)
+            </button>
+            <span v-else-if="loadingSuggests" style="font-size:11px;color:#aaa">Chargement…</span>
+            <span v-else style="font-size:11px;color:#aaa;font-weight:400">Aucun enseignant trouvé</span>
+          </h4>
+
+          <!-- Badges des enseignants de la classe -->
+          <div v-if="enseignantsSuggests.length" class="nb-jury-suggests-list">
+            <span
+              v-for="e in enseignantsSuggests" :key="e.id"
+              class="nb-jury-suggest-chip"
+              :class="e.source === 'seance' ? 'nb-jury-suggest-chip--actif' : 'nb-jury-suggest-chip--ue'"
+              :title="e.source === 'seance' ? `${e.nb_seances} séance(s) dans cette classe` : 'Assigné aux UE de la classe'"
+            >
+              {{ e.prenom }} {{ e.nom }}
+              <span style="opacity:0.65;font-size:10px">{{ e.source === 'seance' ? `×${e.nb_seances}` : 'UE' }}</span>
+            </span>
+          </div>
+
+          <div class="nb-jury-membres">
+            <div v-for="(m, i) in juryMembres" :key="i" class="nb-jury-membre-row">
+              <input
+                type="text"
+                v-model="m.nom"
+                placeholder="Nom complet"
+                :disabled="isEnseignant || (juryData?.statut === 'cloture' && !isDG)"
+                class="nb-jury-input"
+              />
+              <select v-model="m.fonction" :disabled="isEnseignant || (juryData?.statut === 'cloture' && !isDG)" class="nb-jury-select">
+                <option>Président du jury</option>
+                <option>Secrétaire</option>
+                <option>Membre</option>
+              </select>
+              <button
+                v-if="!isEnseignant && (juryData?.statut !== 'cloture' || isDG)"
+                @click="juryMembres.splice(i, 1)"
+                class="nb-jury-btn-remove"
+                title="Supprimer"
+              >✕</button>
+            </div>
+            <button
+              v-if="!isEnseignant && (juryData?.statut !== 'cloture' || isDG)"
+              @click="juryMembres.push({nom:'', fonction:'Membre'})"
+              class="nb-jury-btn-add"
+            >+ Ajouter un membre</button>
+          </div>
+          <div class="nb-jury-actions" v-if="!isEnseignant && (juryData?.statut !== 'cloture' || isDG)">
+            <button @click="saveJuryConstitution" :disabled="savingJury" class="nb-btn nb-btn--primary">
+              {{ savingJury ? 'Enregistrement…' : 'Enregistrer et continuer →' }}
+            </button>
+          </div>
+          <div class="nb-jury-actions" v-else>
+            <button @click="juryStep=2" class="nb-btn nb-btn--secondary">Voir la délibération →</button>
+          </div>
+        </div>
+
+        <!-- STEP 2 : Délibération -->
+        <div v-else-if="juryStep === 2" class="nb-jury-panel">
+          <div v-if="isEnseignant" class="nb-jury-warning" style="background:#f0f9ff;border-color:#bae6fd;color:#0369a1;">
+            👁 Vous consultez les délibérations en lecture seule.
+          </div>
+          <div v-else-if="juryData?.statut === 'cloture'" class="nb-jury-warning" :style="isDG ? 'background:#fef9c3;border-color:#f59e0b;color:#92400e' : ''">
+            <span v-if="isDG">🔓 Jury clôturé — vous pouvez modifier les décisions en tant que DG.</span>
+            <span v-else>⚠ Ce jury est clôturé. Les décisions sont en lecture seule.</span>
+          </div>
+          <h3 class="nb-jury-panel-title">Délibération — Session <strong>{{ filterSession }}</strong></h3>
+
+          <!-- Podium top 3 -->
+          <div class="nb-podium">
+            <div
+              v-for="(insc, idx) in [...inscriptions].sort((a,b) => (moyennePonderee(b.id) ?? -1) - (moyennePonderee(a.id) ?? -1)).slice(0,3)"
+              :key="insc.id"
+              class="nb-podium-card"
+              :class="idx===0?'nb-podium-card--or':idx===1?'nb-podium-card--argent':'nb-podium-card--bronze'"
+            >
+              <div class="nb-podium-medal">{{ idx===0?'🥇':idx===1?'🥈':'🥉' }}</div>
+              <div class="nb-podium-avatar">{{ insc.etudiant.prenom[0] }}{{ insc.etudiant.nom[0] }}</div>
+              <div class="nb-podium-nom">{{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}</div>
+              <div class="nb-podium-moy">{{ moyennePonderee(insc.id)?.toFixed(2) ?? '—' }}<span style="font-size:10px;opacity:0.6">/20</span></div>
+              <div class="nb-podium-mention">{{ mention(moyennePonderee(insc.id)) }}</div>
+            </div>
+          </div>
+
+          <!-- Deliberation table -->
+          <div class="nb-jury-table-wrap">
+            <table class="nb-table">
+              <thead>
+                <tr>
+                  <th>Rang</th>
+                  <th>Étudiant</th>
+                  <th style="text-align:center">Moyenne</th>
+                  <th style="text-align:center">Mention</th>
+                  <th style="text-align:center">Décision auto</th>
+                  <th style="text-align:center">Décision jury</th>
+                  <th>Observation</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(insc, idx) in [...inscriptions].sort((a,b) => (moyennePonderee(b.id) ?? -1) - (moyennePonderee(a.id) ?? -1))" :key="insc.id">
+                  <td>
+                    <span class="nb-rang" :class="idx===0?'nb-rang--or':idx===1?'nb-rang--argent':idx===2?'nb-rang--bronze':''">
+                      {{ idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx+1}` }}
+                    </span>
+                  </td>
+                  <td><strong>{{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}</strong></td>
+                  <td style="text-align:center">
+                    <span class="nb-moy-jury" :class="(moyennePonderee(insc.id)??0)>=10?'nb-moy-jury--ok':'nb-moy-jury--fail'">
+                      {{ moyennePonderee(insc.id)?.toFixed(2) ?? '—' }}<span style="font-size:10px;opacity:0.6">/20</span>
+                    </span>
+                  </td>
+                  <td style="text-align:center;font-weight:600" :class="mentionColor(mention(moyennePonderee(insc.id)))">
+                    {{ mention(moyennePonderee(insc.id)) }}
+                  </td>
+                  <td style="text-align:center">
+                    <span class="nb-decision-badge" :class="decisionClass(moyennePonderee(insc.id), insc.id)">
+                      {{ decisionLabel(moyennePonderee(insc.id), insc.id) }}
+                    </span>
+                  </td>
+                  <td style="text-align:center">
+                    <select
+                      v-if="!isEnseignant && (juryData?.statut !== 'cloture' || isDG)"
+                      :value="getJuryDecision(insc.id)"
+                      @change="setJuryDecision(insc.id, ($event.target as HTMLSelectElement).value)"
+                      class="nb-jury-decision-select"
+                    >
+                      <option value="admis">Admis</option>
+                      <option value="rattrapage">Rattrapage</option>
+                      <option value="redoublant">Redoublant</option>
+                      <option value="passif">Passif</option>
+                    </select>
+                    <span v-else class="nb-decision-badge" :class="getJuryDecision(insc.id)==='admis'?'bg-green-100 text-green-700':getJuryDecision(insc.id)==='rattrapage'?'bg-orange-100 text-orange-700':'bg-red-100 text-red-700'">
+                      {{ getJuryDecision(insc.id) }}
+                    </span>
+                  </td>
+                  <td>
+                    <input
+                      v-if="!isEnseignant && (juryData?.statut !== 'cloture' || isDG)"
+                      type="text"
+                      :value="getJuryObservation(insc.id)"
+                      @input="setJuryObservation(insc.id, ($event.target as HTMLInputElement).value)"
+                      placeholder="Observation…"
+                      class="nb-jury-obs-input"
+                    />
+                    <span v-else class="text-gray-500 text-sm">{{ getJuryObservation(insc.id) }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="nb-jury-actions" style="justify-content:space-between">
+            <button @click="juryStep=1" class="nb-btn nb-btn--secondary">← Retour</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <template v-if="!isEnseignant">
+                <button v-if="juryData?.statut !== 'cloture' || isDG" @click="saveDecisions" :disabled="savingJury" class="nb-btn nb-btn--primary">
+                  {{ savingJury ? 'Enregistrement…' : 'Enregistrer les décisions' }}
+                </button>
+                <button v-if="juryData?.statut !== 'cloture'" @click="cloturerJury" :disabled="savingJury" class="nb-btn nb-btn--danger">
+                  Clôturer le jury →
+                </button>
+                <button v-if="juryData?.statut === 'cloture' && isDG" @click="rouvrirJury" :disabled="savingJury" class="nb-btn nb-btn--secondary">
+                  🔓 Rouvrir
+                </button>
+                <button v-if="juryData?.statut === 'cloture' && isDG" @click="supprimerJury" :disabled="savingJury" class="nb-btn nb-btn--danger">
+                  🗑 Supprimer
+                </button>
+              </template>
+              <button @click="juryStep=3" class="nb-btn nb-btn--secondary">
+                Clôture &amp; Documents →
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 3 : Clôture & Documents -->
+        <div v-else-if="juryStep === 3" class="nb-jury-panel">
+          <h3 class="nb-jury-panel-title">Clôture &amp; Documents</h3>
+          <div v-if="juryData?.statut !== 'cloture'" class="nb-jury-warning" style="background:#fef3c7;border-color:#f59e0b;color:#92400e">
+            ⚠ Le jury n'est pas encore clôturé.
+          </div>
+          <div v-else class="nb-jury-success">
+            ✓ Jury clôturé le {{ juryData?.date_deliberation ? new Date(juryData.date_deliberation).toLocaleDateString('fr-FR') : '—' }}
+          </div>
+
+          <!-- Summary -->
+          <div class="nb-jury-recap">
+            <div class="nb-jury-recap-card nb-jury-recap-card--admis">
+              <div class="nb-jury-recap-val">{{ inscriptions.filter(i => getJuryDecision(i.id) === 'admis').length }}</div>
+              <div class="nb-jury-recap-label">Admis</div>
+            </div>
+            <div class="nb-jury-recap-card nb-jury-recap-card--ratt">
+              <div class="nb-jury-recap-val">{{ inscriptions.filter(i => getJuryDecision(i.id) === 'rattrapage').length }}</div>
+              <div class="nb-jury-recap-label">Rattrapage</div>
+            </div>
+            <div class="nb-jury-recap-card nb-jury-recap-card--redoub">
+              <div class="nb-jury-recap-val">{{ inscriptions.filter(i => getJuryDecision(i.id) === 'redoublant').length }}</div>
+              <div class="nb-jury-recap-label">Redoublant</div>
+            </div>
+            <div class="nb-jury-recap-card">
+              <div class="nb-jury-recap-val">{{ inscriptions.length ? Math.round(inscriptions.filter(i => getJuryDecision(i.id) === 'admis').length / inscriptions.length * 100) : 0 }}%</div>
+              <div class="nb-jury-recap-label">Taux réussite</div>
+            </div>
+          </div>
+
+          <!-- Members list with signature lines -->
+          <div v-if="juryMembres.filter(m => m.nom.trim()).length" class="nb-jury-signatures">
+            <h4 class="nb-jury-sub-title">Membres du jury</h4>
+            <div class="nb-jury-sig-grid">
+              <div v-for="(m, i) in juryMembres.filter(m => m.nom.trim())" :key="i" class="nb-jury-sig-item">
+                <div class="nb-jury-sig-line"></div>
+                <div class="nb-jury-sig-nom">{{ m.nom }}</div>
+                <div class="nb-jury-sig-fonction">{{ m.fonction }}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Export buttons -->
+          <div class="nb-jury-actions">
+            <button @click="exportPVJury" class="nb-btn nb-btn--primary">📄 Générer PV de jury</button>
+            <button @click="exportAttestations" class="nb-btn nb-btn--secondary">🏆 Attestations de réussite</button>
+            <button @click="exportCertificatsFC" class="nb-btn nb-btn--ghost" style="border-color:#640a0a;color:#640a0a;">
+              🎖️ Certificats de réussite (FC)
+            </button>
+            <button @click="exportAttestationsFA" class="nb-btn nb-btn--ghost" style="border-color:#0f766e;color:#0f766e;">
+              🎓 Attestations de formation (FA)
+            </button>
+          </div>
+          <div style="font-size:11px;color:#64748b;margin-top:6px;padding:0 4px;">
+            💡 <em>Attestations de réussite</em> : uniquement les étudiants <strong>admis</strong> (jury requis).
+            <em>Attestations de formation</em> : tous les inscrits actifs — idéal pour les <strong>formations accélérées</strong>.
+          </div>
+          <div class="nb-jury-actions" style="margin-top:0">
+            <button @click="juryStep=2" class="nb-btn nb-btn--ghost">← Retour délibération</button>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- TAB BULLETINS -->
-    <div v-else-if="activeTab === 'bulletins'">
+    <div v-else-if="activeTab === 'bulletins' && !isEnseignant">
       <div v-if="loading" class="nb-loading">Chargement…</div>
       <div v-else-if="!inscriptions.length" class="nb-empty-state">
         <div style="font-size:36px;margin-bottom:10px;">📄</div>
@@ -1546,8 +3486,7 @@ onMounted(load)
             </UcFormGroup>
             <UcFormGroup label="Semestre">
               <select v-model="groupForm.semestre" class="nb-input" style="width:100%;box-sizing:border-box;">
-                <option value="1">Semestre 1</option>
-                <option value="2">Semestre 2</option>
+                <option v-for="s in classeSemestres" :key="s" :value="String(s)">Semestre {{ s }}</option>
               </select>
             </UcFormGroup>
           </UcFormGrid>
@@ -1604,7 +3543,16 @@ onMounted(load)
             :style="ecsDoublons.some(g => g.some(e => e.id === ue.id)) ? 'display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:4px;' : 'display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:#f9f9f9;border-radius:4px;'">
             <div>
               <span style="font-size:12px;color:#333;"><strong>{{ ue.code }}</strong> — {{ ue.intitule }}</span>
-              <span style="font-size:10px;color:#aaa;margin-left:6px;">coef. {{ ue.coefficient }} · S{{ (ue as any).semestre ?? 1 }}</span>
+              <span style="font-size:10px;color:#aaa;margin-left:6px;">S{{ (ue as any).semestre ?? 1 }}</span>
+              <span v-if="(parseFloat(String(ue.coefficient))||0) === 0 && (parseFloat(String(ue.credits_ects))||0) === 0"
+                style="font-size:10px;background:#fee2e2;color:#b91c1c;border-radius:3px;padding:1px 5px;margin-left:4px;font-weight:700;"
+                title="Coefficient et crédits à 0 : cette EC sera invisible dans les bulletins. Cliquez sur ✏️ pour corriger.">
+                ⚠️ coef. 0
+              </span>
+              <span v-else style="font-size:10px;background:#f0fdf4;color:#15803d;border-radius:3px;padding:1px 5px;margin-left:4px;">
+                <template v-if="(parseFloat(String(ue.credits_ects))||0) > 0">{{ ue.credits_ects }} cr.</template>
+                <template v-else>coef. {{ ue.coefficient }}</template>
+              </span>
               <span v-if="(ue as any).categorie_ue" style="font-size:10px;background:#e0e7ff;color:#4338ca;border-radius:3px;padding:1px 5px;margin-left:4px;">{{ (ue as any).categorie_ue }}</span>
               <span v-else style="font-size:10px;background:#f3f4f6;color:#9ca3af;border-radius:3px;padding:1px 5px;margin-left:4px;">sans groupe</span>
               <span v-if="ue.matiere_id" style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:3px;padding:1px 5px;margin-left:2px;">filière</span>
@@ -1638,8 +3586,7 @@ onMounted(load)
         </UcFormGroup>
         <UcFormGroup label="Semestre">
           <select v-model="ueForm.semestre" class="nb-input" style="width:100%;box-sizing:border-box;">
-            <option value="1">Semestre 1</option>
-            <option value="2">Semestre 2</option>
+            <option v-for="s in classeSemestres" :key="s" :value="String(s)">Semestre {{ s }}</option>
           </select>
         </UcFormGroup>
       </UcFormGrid>
@@ -1743,7 +3690,7 @@ onMounted(load)
           <tbody>
             <!-- Mode UE → EC avec rowspan (style UGB) -->
             <template v-if="sem.has_groupes && sem.groupes_ue?.length">
-              <template v-for="ue in sem.groupes_ue" :key="ue.code">
+              <template v-for="ue in sem.groupes_ue.filter((u:any) => (parseFloat(u.credits_ue)||parseFloat(u.coefficient)||0) > 0)" :key="ue.code">
                 <!-- Une ligne par EC — UE cell + colonnes résumé fusionnées sur toutes les lignes ECs -->
                 <tr v-for="(ec, ecIdx) in (ue.ecs as any[])" :key="ec.id"
                   :style="{ background: (ecIdx as number) % 2 === 0 ? '#fafbff' : '#fff' }">
@@ -1786,7 +3733,7 @@ onMounted(load)
                 </tr>
               </template>
               <!-- ECs standalone (sans UE) -->
-              <tr v-for="ec in sem.ecs_standalone" :key="ec.id" style="background:#fffbf0;">
+              <tr v-for="ec in (sem.ecs_standalone ?? []).filter((e:any) => (parseFloat(e.coefficient)||parseFloat(e.credits_ects)||0) > 0)" :key="ec.id" style="background:#fffbf0;">
                 <td style="background:#fef9e7;border:1px solid #e5e7eb;font-size:10px;color:#aaa;text-align:center;">—</td>
                 <td style="font-family:monospace;font-size:10px;color:#888;">{{ ec.code }}</td>
                 <td style="font-size:11px;color:#333;">{{ ec.intitule }}</td>
@@ -1798,7 +3745,7 @@ onMounted(load)
             </template>
             <!-- Mode liste plate (pas de groupes) -->
             <template v-else>
-              <tr v-for="ec in sem.ues" :key="ec.id">
+              <tr v-for="ec in (sem.ues ?? []).filter((e:any) => (parseFloat(e.coefficient)||parseFloat(e.credits_ects)||0) > 0)" :key="ec.id">
                 <td style="font-family:monospace;font-size:11px;color:#888;">{{ ec.code }}</td>
                 <td style="color:#333;">{{ ec.intitule }}</td>
                 <td style="text-align:center;font-size:11px;">{{ ec.credits ?? ec.credits_ects }}</td>
@@ -1824,7 +3771,7 @@ onMounted(load)
           <th>Code</th><th>Intitulé</th><th style="text-align:center;">Crédits</th><th style="text-align:center;">Note /20</th><th style="text-align:center;">Session</th><th style="text-align:center;">Mention</th>
         </tr></thead>
         <tbody>
-          <tr v-for="ec in bulletin.ues" :key="ec.id">
+          <tr v-for="ec in bulletin.ues.filter((e:any) => (parseFloat(e.coefficient)||parseFloat(e.credits_ects)||0) > 0)" :key="ec.id">
             <td style="font-family:monospace;font-size:11px;color:#888;">{{ ec.code }}</td>
             <td>{{ ec.intitule }}</td>
             <td style="text-align:center;">{{ ec.credits ?? ec.credits_ects }}</td>
@@ -1859,7 +3806,7 @@ onMounted(load)
         <div class="nb-kpi-label">Moyenne générale</div>
       </div>
       <div class="nb-kpi-card">
-        <div class="nb-kpi-value" style="color:#6d28d9;font-size:16px;">{{ bulletin.ues.filter((u:any) => u.note !== null && u.note >= 10).length }}/{{ bulletin.ues.length }}</div>
+        <div class="nb-kpi-value" style="color:#6d28d9;font-size:16px;">{{ bulletin.ues.filter((u:any) => (u.coef_effectif != null ? parseFloat(u.coef_effectif) : parseFloat(u.coefficient) || 0) > 0 && u.note !== null && u.note >= 10).length }}/{{ bulletin.ues.filter((u:any) => (u.coef_effectif != null ? parseFloat(u.coef_effectif) : parseFloat(u.coefficient) || 0) > 0).length }}</div>
         <div class="nb-kpi-label">Modules validés</div>
       </div>
       <div class="nb-kpi-card" :class="bulletin.decision==='admis'?'nb-kpi--ok':'nb-kpi--fail'">
@@ -1884,7 +3831,7 @@ onMounted(load)
             <th style="text-align:center;">Résultat</th>
           </tr></thead>
           <tbody>
-            <tr v-for="ue in sem.ues" :key="ue.id" class="nb-fp-row" :class="ue.note !== null && ue.note < 10 ? 'nb-fp-row--fail' : ''">
+            <tr v-for="ue in (sem.ues ?? []).filter((u:any) => (u.coef_effectif != null ? parseFloat(u.coef_effectif) : parseFloat(u.coefficient) || 0) > 0)" :key="ue.id" class="nb-fp-row" :class="ue.note !== null && ue.note < 10 ? 'nb-fp-row--fail' : ''">
               <td>
                 <div style="font-weight:600;color:#222;">{{ ue.intitule }}</div>
                 <div style="font-family:monospace;font-size:10px;color:#aaa;">{{ ue.code }}</div>
@@ -1927,7 +3874,7 @@ onMounted(load)
           <th style="text-align:center;">Résultat</th>
         </tr></thead>
         <tbody>
-          <tr v-for="ue in bulletin.ues" :key="ue.id" class="nb-fp-row" :class="ue.note !== null && ue.note < 10 ? 'nb-fp-row--fail' : ''">
+          <tr v-for="ue in bulletin.ues.filter((u:any) => (u.coef_effectif != null ? parseFloat(u.coef_effectif) : parseFloat(u.coefficient) || 0) > 0)" :key="ue.id" class="nb-fp-row" :class="ue.note !== null && ue.note < 10 ? 'nb-fp-row--fail' : ''">
             <td>
               <div style="font-weight:600;color:#222;">{{ ue.intitule }}</div>
               <div style="font-family:monospace;font-size:10px;color:#aaa;">{{ ue.code }}</div>
@@ -1963,7 +3910,7 @@ onMounted(load)
     <div class="nb-decision-banner" :class="bulletin.decision==='admis'?'nb-decision-banner--admis':'nb-decision-banner--redoublant'">
       <div class="nb-decision-banner-label">Décision de la commission</div>
       <div class="nb-decision-banner-text">
-        <template v-if="bulletin.decision==='admis'">✓ Formation validée — {{ bulletin.ues.filter((u:any) => u.valide).length }} module(s) acquis sur {{ bulletin.ues.length }}</template>
+        <template v-if="bulletin.decision==='admis'">✓ Formation validée — {{ bulletin.ues.filter((u:any) => (u.coef_effectif != null ? parseFloat(u.coef_effectif) : parseFloat(u.coefficient) || 0) > 0 && u.valide).length }} module(s) acquis sur {{ bulletin.ues.filter((u:any) => (u.coef_effectif != null ? parseFloat(u.coef_effectif) : parseFloat(u.coefficient) || 0) > 0).length }}</template>
         <template v-else-if="bulletin.decision==='rattrapage'">↻ Rattrapage requis</template>
         <template v-else-if="bulletin.decision==='redoublant'">✗ Formation non validée</template>
         <template v-else>⏳ En attente de décision</template>
@@ -1989,6 +3936,18 @@ onMounted(load)
             <button v-for="sem in bulletin.semestres" :key="sem.numero"
               @click="bulletinSemestre = sem.numero"
               :class="['nb-session-btn', bulletinSemestre === sem.numero ? 'nb-session-btn--active' : '']" style="font-size:11px;padding:5px 10px;">S{{ sem.numero }}</button>
+          </div>
+        </div>
+        <!-- Sélecteur semestre si FP et plusieurs semestres dans les UEs -->
+        <div v-else-if="!bulletin?.est_lmd && [...new Set((bulletin?.ues ?? []).map((u:any) => u.semestre ?? 1))].length >= 2"
+          style="display:flex;align-items:center;gap:6px;margin-right:auto;">
+          <span style="font-size:11px;color:#888;">Exporter :</span>
+          <div class="nb-session-toggle">
+            <button @click="bulletinSemestre = null"
+              :class="['nb-session-btn', bulletinSemestre === null ? 'nb-session-btn--active' : '']" style="font-size:11px;padding:5px 10px;">Année</button>
+            <button v-for="s in ([...new Set((bulletin?.ues ?? []).map((u:any) => u.semestre ?? 1))].sort() as number[])" :key="s"
+              @click="bulletinSemestre = s"
+              :class="['nb-session-btn', bulletinSemestre === s ? 'nb-session-btn--active' : '']" style="font-size:11px;padding:5px 10px;">S{{ s }}</button>
           </div>
         </div>
         <button @click="exportBulletinPdf" class="nb-btn-pdf">📥 Télécharger PDF</button>
@@ -2226,6 +4185,14 @@ onMounted(load)
   padding: 8px 10px;
 }
 .nb-ue-header { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.nb-ue-print-btn {
+  margin-top: 4px; padding: 3px 8px; font-size: 12px; line-height: 1;
+  border: 1.5px solid var(--ue-color, #6366f1); border-radius: 5px;
+  background: #fff; color: var(--ue-color, #6366f1); cursor: pointer;
+  font-weight: 700; transition: background 0.15s, color 0.15s;
+}
+.nb-ue-print-btn:hover { background: var(--ue-color, #6366f1); color: #fff; }
+.nb-ue-print-btn:disabled { opacity: 0.5; cursor: default; }
 .nb-ue-code {
   font-family: monospace;
   font-size: 10.5px;
@@ -2381,6 +4348,266 @@ onMounted(load)
 .nb-moy-jury { font-size: 16px; font-weight: 800; }
 .nb-moy-jury--ok { color: #16a34a; }
 .nb-moy-jury--fail { color: #E30613; }
+
+/* ── JURY STEPS ─────────────────────────────────────────── */
+.nb-jury-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+.nb-jury-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #94a3b8;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  transition: all .2s;
+}
+.nb-jury-step--active {
+  background: #1a3a6b;
+  color: #fff;
+  border-color: #1a3a6b;
+}
+.nb-jury-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+}
+.nb-jury-step--active .nb-jury-step-num {
+  background: rgba(255,255,255,0.3);
+}
+.nb-jury-step-label { font-size: 12px; }
+.nb-jury-step-arrow { color: #cbd5e1; font-size: 18px; font-weight: 300; }
+
+/* ── JURY PANEL ─────────────────────────────────────────── */
+.nb-jury-panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+.nb-jury-panel-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1a3a6b;
+  margin: 0 0 16px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #e2e8f0;
+}
+.nb-jury-sub-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  margin: 16px 0 10px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.nb-jury-field-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.nb-jury-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  min-width: 160px;
+}
+.nb-jury-date-input {
+  padding: 6px 10px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #334155;
+  outline: none;
+}
+.nb-jury-date-input:focus { border-color: #1a3a6b; }
+.nb-jury-membres { display: flex; flex-direction: column; gap: 8px; }
+.nb-jury-membre-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.nb-jury-input {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 7px;
+  font-size: 13px;
+  outline: none;
+  color: #334155;
+}
+.nb-jury-input:focus { border-color: #1a3a6b; }
+.nb-jury-select {
+  padding: 7px 10px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #334155;
+  outline: none;
+  background: #fff;
+  min-width: 170px;
+}
+.nb-jury-select:focus { border-color: #1a3a6b; }
+.nb-jury-btn-remove {
+  padding: 6px 10px;
+  background: #fee2e2;
+  color: #dc2626;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+.nb-jury-btn-add {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 7px 14px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1.5px dashed #94a3b8;
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.nb-jury-btn-add:hover { background: #e2e8f0; }
+
+/* Bouton "↺ N enseignants identifiés" */
+.nb-jury-btn-suggests {
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+  padding: 4px 10px; border-radius: 99px;
+  border: 1.5px solid #3b82f6; background: #eff6ff; color: #1d4ed8;
+  transition: background 0.15s;
+}
+.nb-jury-btn-suggests:hover { background: #dbeafe; }
+.nb-jury-btn-suggests:disabled { opacity: 0.5; cursor: default; }
+
+/* Badges enseignants identifiés */
+.nb-jury-suggests-list {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;
+  padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+}
+.nb-jury-suggest-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 99px;
+}
+.nb-jury-suggest-chip--actif { background: #dcfce7; color: #15803d; }
+.nb-jury-suggest-chip--ue    { background: #e0e7ff; color: #3730a3; }
+
+.nb-jury-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #f1f5f9;
+}
+.nb-jury-warning {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #b91c1c;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.nb-jury-success {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #166534;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+.nb-jury-decision-select {
+  padding: 5px 8px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #334155;
+  outline: none;
+  background: #fff;
+  min-width: 120px;
+}
+.nb-jury-decision-select:focus { border-color: #1a3a6b; }
+.nb-jury-obs-input {
+  padding: 5px 8px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 12px;
+  width: 100%;
+  outline: none;
+  min-width: 120px;
+}
+.nb-jury-obs-input:focus { border-color: #1a3a6b; }
+.nb-jury-recap {
+  display: flex;
+  gap: 14px;
+  margin: 14px 0 20px;
+  flex-wrap: wrap;
+}
+.nb-jury-recap-card {
+  flex: 1;
+  min-width: 100px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px;
+  text-align: center;
+}
+.nb-jury-recap-card--admis { border-top: 3px solid #16a34a; }
+.nb-jury-recap-card--ratt { border-top: 3px solid #d97706; }
+.nb-jury-recap-card--redoub { border-top: 3px solid #E30613; }
+.nb-jury-recap-val { font-size: 28px; font-weight: 800; color: #1e293b; }
+.nb-jury-recap-label { font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 600; margin-top: 4px; }
+.nb-jury-signatures { margin-top: 14px; }
+.nb-jury-sig-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 20px;
+  margin-top: 10px;
+}
+.nb-jury-sig-item { text-align: center; }
+.nb-jury-sig-line {
+  height: 1px;
+  background: #94a3b8;
+  margin-bottom: 6px;
+  width: 80%;
+  margin-left: auto;
+  margin-right: auto;
+}
+.nb-jury-sig-nom { font-size: 12px; font-weight: 700; color: #334155; }
+.nb-jury-sig-fonction { font-size: 11px; color: #94a3b8; }
+.nb-btn { padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; }
+.nb-btn--primary { background: #1a3a6b; color: #fff; }
+.nb-btn--primary:hover { background: #152f58; }
+.nb-btn--primary:disabled { opacity: .6; cursor: not-allowed; }
+.nb-btn--secondary { background: #f1f5f9; color: #334155; border: 1.5px solid #e2e8f0; }
+.nb-btn--secondary:hover { background: #e2e8f0; }
+.nb-btn--danger { background: #E30613; color: #fff; }
+.nb-btn--danger:hover { background: #b91c1c; }
+.nb-btn--danger:disabled { opacity: .6; cursor: not-allowed; }
+.nb-btn--ghost { background: transparent; color: #64748b; border: 1.5px solid #e2e8f0; }
+.nb-btn--ghost:hover { background: #f8fafc; }
 
 /* ── STATS BAR ──────────────────────────────────────────── */
 .nb-stats-bar {
