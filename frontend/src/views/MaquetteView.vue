@@ -65,7 +65,7 @@ const annees = computed<AnneeGroup[]>(() => {
     label: `Année ${idx + 1}`,
     semestres: pair.map(sn => {
       const sl = [...lignes.value.filter(l => l.semestre === sn)]
-        .sort((a, b) => (a.ordre - b.ordre) || a.matiere_nom.localeCompare(b.matiere_nom))
+        .sort((a, b) => (a.ordre - b.ordre) || (a.matiere_nom || '').localeCompare(b.matiere_nom || ''))
       const ueMap = new Map<string, UEGroup>()
       for (const l of sl) {
         const key = (l.code_ue?.trim() || '') + '||' + (l.intitule_ue?.trim() || '') + '||' + (l.code_ue ? '' : l.matiere_id)
