@@ -1046,7 +1046,7 @@ async function soumettreAvis(seanceId: number) {
             <div class="ee-card-header">
               <div class="ee-card-header-left">
                 <span class="ee-card-icon">🗂</span>
-                <h2 class="ee-card-title">Historique — 30 jours</h2>
+                <h2 class="ee-card-title">Cours effectués</h2>
               </div>
               <span class="ee-badge-count">{{ dashboardData.seances_passees?.length ?? 0 }} séances</span>
             </div>
