@@ -4,6 +4,8 @@ import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 import RichTextEditor from '@/components/ui/RichTextEditor.vue'
+// @ts-ignore
+import jsQR from 'jsqr'
 
 const auth = useAuthStore()
 const isEnseignant = computed(() => auth.user?.role === 'enseignant')
@@ -56,7 +58,37 @@ const savingContenu  = ref(false)
 const success        = ref(false)
 const successContenu = ref(false)
 
-// Avoirs enseignant
+// Avoirs enseignant — masqués par défaut pour protéger la confidentialité
+const avoirsVisibles = ref(false)
+
+// ── Avis qualité séances (vue enseignant) ────────────────────────────
+const avisData = ref<Record<number, { avis: any[]; count: number; moyenne: number | null; loading: boolean }>>({})
+
+async function toggleAvis(seanceId: number) {
+  if (avisData.value[seanceId]) {
+    // Déjà chargé — on toggle via une propriété locale
+    return
+  }
+  avisData.value[seanceId] = { avis: [], count: 0, moyenne: null, loading: true }
+  try {
+    const { data } = await api.get(`/seances/${seanceId}/avis`)
+    avisData.value[seanceId] = { ...data, loading: false }
+  } catch {
+    avisData.value[seanceId] = { avis: [], count: 0, moyenne: null, loading: false }
+  }
+}
+
+const expandedAvis = ref<number | null>(null)
+
+async function showAvis(seanceId: number) {
+  if (expandedAvis.value === seanceId) {
+    expandedAvis.value = null
+    return
+  }
+  expandedAvis.value = seanceId
+  await toggleAvis(seanceId)
+}
+
 const mesStats = ref<{
   heures_total: number; heures_ce_mois: number
   tarif_horaire: number; montant_du: number
@@ -67,7 +99,7 @@ const mesStats = ref<{
 } | null>(null)
 
 const filterClasse = ref('')
-const filterDate   = ref(new Date().toISOString().slice(0, 10))
+const filterDate   = ref('')   // pas de filtre par défaut → toutes les séances visibles
 const filterStatut = ref('')
 const selectedSeance = ref<Seance | null>(null)
 
@@ -182,11 +214,12 @@ function modeLabel(mode: string) {
 const seancesFiltrees = computed(() => {
   return seances.value.filter(s => {
     // Prof : ne voir que ses séances
-    // Inclure aussi les séances de sa classe où enseignant_id est null (affectation de classe)
+    // estSaClasseSansProf uniquement pour séances SANS prof assigné (orphelines de sa classe)
+    // → jamais pour séances assignées à un autre prof (évite d'afficher tous les modules du tronc commun)
     if (isEnseignant.value && monEnseignantId.value) {
       const estSonProf = Number(s.enseignant?.id) === monEnseignantId.value
-      const estSaClasse = mesClasseIds.value.includes(Number(s.classe?.id))
-      if (!estSonProf && !estSaClasse) return false
+      const estSaClasseSansProf = !s.enseignant?.id && mesClasseIds.value.includes(Number(s.classe?.id))
+      if (!estSonProf && !estSaClasseSansProf) return false
     }
     if (filterClasse.value && String(s.classe?.id) !== String(filterClasse.value)) return false
     if (filterStatut.value && s.statut !== filterStatut.value) return false
@@ -228,8 +261,30 @@ const tauxPresence = computed(() => {
 })
 
 const estCloturee = computed(() => selectedSeance.value?.statut === 'effectue')
+
+// Séance pas encore commencée → émargement verrouillé
 const seanceEstFuture = computed(() =>
   selectedSeance.value ? new Date(selectedSeance.value.date_debut) > now.value : false
+)
+
+// Compte à rebours jusqu'au début de la séance
+const countdownEmarger = computed(() => {
+  if (!seanceEstFuture.value || !selectedSeance.value) return ''
+  const diff = new Date(selectedSeance.value.date_debut).getTime() - now.value.getTime()
+  if (diff <= 0) return ''
+  const h = Math.floor(diff / 3600000)
+  const m = Math.floor((diff % 3600000) / 60000)
+  const s = Math.floor((diff % 60000) / 1000)
+  if (h > 0) return `dans ${h}h ${String(m).padStart(2,'0')}min`
+  if (m > 0) return `dans ${m}min ${String(s).padStart(2,'0')}s`
+  return `dans ${s}s`
+})
+
+// Heure formatée du début de séance
+const heureDebutSeance = computed(() =>
+  selectedSeance.value
+    ? new Date(selectedSeance.value.date_debut).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+    : ''
 )
 
 function fmtTime(dt: string) {
@@ -299,6 +354,7 @@ async function selectSeance(s: Seance) {
 
 async function sauvegarderPresences() {
   if (!selectedSeance.value) return
+  if (seanceEstFuture.value) return   // Impossible de sauvegarder les présences avant le début
   saving.value = true; success.value = false
   try {
     const payload = inscriptions.value.map(i => ({
@@ -350,7 +406,8 @@ async function emargerEtCloturer() {
     const idx = seances.value.findIndex(s => s.id === data.id)
     if (idx !== -1) seances.value[idx] = { ...seances.value[idx], ...data }
   } catch (e: any) {
-    errorEmarger.value = e?.response?.data?.message ?? 'Erreur lors de l\'émargement. Réessayez.'
+    const msg = e?.response?.data?.error ?? e?.response?.data?.message ?? ''
+    errorEmarger.value = msg || 'Erreur lors de l\'émargement. Réessayez.'
   } finally { saving.value = false }
 }
 
@@ -412,8 +469,8 @@ const seancesAEmarger = computed(() => {
   return seances.value.filter(s => {
     if (monEnseignantId.value) {
       const estSonProf = Number(s.enseignant?.id) === monEnseignantId.value
-      const estSaClasse = mesClasseIds.value.includes(Number(s.classe?.id))
-      if (!estSonProf && !estSaClasse) return false
+      const estSaClasseSansProf = !s.enseignant?.id && mesClasseIds.value.includes(Number(s.classe?.id))
+      if (!estSonProf && !estSaClasseSansProf) return false
     }
     if (!['planifie', 'confirme'].includes(s.statut)) return false
     if (filterClasse.value && String(s.classe?.id) !== String(filterClasse.value)) return false
@@ -518,13 +575,111 @@ function fmtMontant(n: number) {
 // Charger dès que l'auth est disponible + à chaque remontage de la vue
 watch(() => auth.user, (user) => {
   if (user) load()
-  if (isEnseignant.value && !ticker) ticker = setInterval(() => { now.value = new Date() }, 1000)
+  if (!ticker) ticker = setInterval(() => { now.value = new Date() }, 1000)
 }, { immediate: true })
 onMounted(() => {
   if (auth.user) load()
-  if (isEnseignant.value) ticker = setInterval(() => { now.value = new Date() }, 1000)
+  if (!ticker) ticker = setInterval(() => { now.value = new Date() }, 1000)
 })
-onUnmounted(() => { if (ticker) clearInterval(ticker) })
+onUnmounted(() => {
+  if (ticker) clearInterval(ticker)
+  stopQrScanner()
+})
+
+// ── Scanner QR code ──────────────────────────────────────────────────────────
+const showQrScanner = ref(false)
+const qrVideoRef = ref<HTMLVideoElement | null>(null)
+const qrCanvasRef = ref<HTMLCanvasElement | null>(null)
+const qrStream = ref<MediaStream | null>(null)
+const qrScanResult = ref<{ ok: boolean; nom: string; num: string; statut: string } | null>(null)
+const qrError = ref('')
+const qrScanning = ref(false)
+const qrLastScanned = ref('')
+let qrAnimFrame: number | null = null
+
+async function openQrScanner() {
+  if (!selectedSeance.value) return
+  showQrScanner.value = true
+  qrScanResult.value = null
+  qrError.value = ''
+  qrLastScanned.value = ''
+  await new Promise(r => setTimeout(r, 200))
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    })
+    qrStream.value = stream
+    if (qrVideoRef.value) {
+      qrVideoRef.value.srcObject = stream
+      qrVideoRef.value.play()
+      qrVideoRef.value.onloadedmetadata = () => startQrLoop()
+    }
+  } catch {
+    qrError.value = 'Impossible d\'accéder à la caméra. Vérifiez les permissions.'
+  }
+}
+
+function startQrLoop() {
+  qrScanning.value = true
+  const tick = () => {
+    const video = qrVideoRef.value
+    const canvas = qrCanvasRef.value
+    if (!video || !canvas || !showQrScanner.value) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const code = jsQR(imageData.data, imageData.width, imageData.height)
+    if (code?.data && code.data !== qrLastScanned.value) {
+      handleQrDetected(code.data)
+    }
+    qrAnimFrame = requestAnimationFrame(tick)
+  }
+  qrAnimFrame = requestAnimationFrame(tick)
+}
+
+async function handleQrDetected(rawData: string) {
+  if (!selectedSeance.value) return
+  qrLastScanned.value = rawData
+  try {
+    const parsed = JSON.parse(rawData)
+    const numero = parsed.num || parsed.numero_etudiant || rawData
+    const { data } = await api.post(`/seances/${selectedSeance.value.id}/presence-qr`, {
+      numero_etudiant: numero,
+      statut: 'present',
+    })
+    if (data.found) {
+      // Mettre à jour le localPresences en temps réel
+      if (data.inscription_id) localPresences.value[data.inscription_id] = 'present'
+      qrScanResult.value = {
+        ok: true,
+        nom: `${data.etudiant?.prenom} ${data.etudiant?.nom}`,
+        num: data.etudiant?.numero_etudiant,
+        statut: 'present',
+      }
+      // Vibration feedback sur mobile
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100])
+    } else {
+      qrScanResult.value = { ok: false, nom: '', num: numero, statut: '' }
+    }
+  } catch {
+    qrScanResult.value = { ok: false, nom: '', num: rawData.slice(0, 20), statut: '' }
+  }
+  // Effacer le résultat après 3 secondes et reprendre le scan
+  setTimeout(() => {
+    qrScanResult.value = null
+    qrLastScanned.value = ''
+  }, 3000)
+}
+
+function stopQrScanner() {
+  if (qrAnimFrame) { cancelAnimationFrame(qrAnimFrame); qrAnimFrame = null }
+  if (qrStream.value) { qrStream.value.getTracks().forEach(t => t.stop()); qrStream.value = null }
+  qrScanning.value = false
+  showQrScanner.value = false
+}
 </script>
 
 <template>
@@ -589,10 +744,17 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
       <div class="em-avoirs-banner" :class="{ 'em-avoirs-banner--loading': !mesStats && loading }">
         <div class="em-avoirs-banner-head">
           <div class="em-avoirs-banner-icon">💰</div>
-          <div>
-            <div class="em-avoirs-banner-title">Mes avoirs</div>
+          <div style="flex:1;">
+            <div class="em-avoirs-banner-title">Mes avoirs — Rémunération</div>
             <div class="em-avoirs-banner-sub">Récapitulatif de vos heures et paiements</div>
           </div>
+          <button @click="avoirsVisibles = !avoirsVisibles"
+            :title="avoirsVisibles ? 'Masquer les montants' : 'Afficher les montants'"
+            style="background:rgba(255,255,255,0.12);border:none;border-radius:8px;padding:6px 10px;cursor:pointer;color:#fff;font-size:16px;line-height:1;transition:background .2s;"
+            @mouseenter="($event.target as HTMLElement).style.background='rgba(255,255,255,0.22)'"
+            @mouseleave="($event.target as HTMLElement).style.background='rgba(255,255,255,0.12)'">
+            {{ avoirsVisibles ? '👁' : '🙈' }}
+          </button>
         </div>
         <div v-if="mesStats" class="em-avoirs-kpis">
           <div class="em-akpi">
@@ -601,27 +763,31 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
           </div>
           <div class="em-akpi-sep"></div>
           <div class="em-akpi">
-            <span class="em-akpi-val">{{ (mesStats.tarif_horaire > 0 || mesStats.fi_tarif_horaire > 0) ? fmtMontant(mesStats.tarif_horaire || mesStats.fi_tarif_horaire) : '—' }}</span>
+            <span class="em-akpi-val em-akpi-secret" :class="{ 'em-akpi-masked': !avoirsVisibles }">
+              {{ avoirsVisibles ? ((mesStats.tarif_horaire > 0 || mesStats.fi_tarif_horaire > 0) ? fmtMontant(mesStats.tarif_horaire || mesStats.fi_tarif_horaire) : '—') : '••••' }}
+            </span>
             <span class="em-akpi-label">Tarif horaire{{ mesStats.fi_tarif_horaire > 0 && mesStats.tarif_horaire > 0 ? ' (classique)' : mesStats.fi_tarif_horaire > 0 ? ' (FI)' : '' }}</span>
           </div>
           <div class="em-akpi-sep"></div>
           <div class="em-akpi em-akpi--green">
-            <span class="em-akpi-val">{{ fmtMontant(mesStats.montant_du) }}</span>
+            <span class="em-akpi-val em-akpi-secret" :class="{ 'em-akpi-masked': !avoirsVisibles }">{{ avoirsVisibles ? fmtMontant(mesStats.montant_du) : '••••' }}</span>
             <span class="em-akpi-label">Montant dû</span>
           </div>
           <div class="em-akpi-sep"></div>
           <div class="em-akpi em-akpi--blue">
-            <span class="em-akpi-val">{{ fmtMontant(mesStats.montant_paye) }}</span>
+            <span class="em-akpi-val em-akpi-secret" :class="{ 'em-akpi-masked': !avoirsVisibles }">{{ avoirsVisibles ? fmtMontant(mesStats.montant_paye) : '••••' }}</span>
             <span class="em-akpi-label">Déjà payé</span>
           </div>
           <div class="em-akpi-sep"></div>
           <div class="em-akpi" :class="mesStats.montant_restant > 0 ? 'em-akpi--red' : 'em-akpi--green'">
-            <span class="em-akpi-val">{{ mesStats.montant_restant > 0 ? fmtMontant(mesStats.montant_restant) : '✓ Soldé' }}</span>
+            <span class="em-akpi-val em-akpi-secret" :class="{ 'em-akpi-masked': !avoirsVisibles }">
+              {{ avoirsVisibles ? (mesStats.montant_restant > 0 ? fmtMontant(mesStats.montant_restant) : '✓ Soldé') : '••••' }}
+            </span>
             <span class="em-akpi-label">Solde restant</span>
           </div>
         </div>
         <!-- Détail FI si le prof a des modules FI -->
-        <div v-if="mesStats && mesStats.fi_nb_modules > 0" style="margin-top:8px;padding:10px 16px;background:rgba(99,102,241,0.15);border-radius:10px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+        <div v-if="mesStats && mesStats.fi_nb_modules > 0 && avoirsVisibles" style="margin-top:8px;padding:10px 16px;background:rgba(99,102,241,0.15);border-radius:10px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
           <span style="font-size:12px;color:#c7d2fe;">🎓 Formations individuelles</span>
           <span style="font-size:13px;color:#e0e7ff;font-weight:600;">{{ mesStats.fi_heures_effectuees }}h / {{ mesStats.fi_heures_total }}h émargées</span>
           <span style="font-size:12px;color:#a5b4fc;">Tarif FI : {{ fmtMontant(mesStats.fi_tarif_horaire) }}/h</span>
@@ -648,6 +814,7 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
           <div class="em-date-wrap">
             <input v-model="filterDate" type="date" class="em-select em-select-bar" />
             <button v-if="filterDate" @click="filterDate = ''" class="em-btn-clear" title="Voir toutes les dates">✕</button>
+            <button v-else @click="filterDate = todayStr" class="em-btn-today" title="Séances d'aujourd'hui">Aujourd'hui</button>
           </div>
           <div class="em-search-wrap">
             <svg class="em-search-icon" width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -696,7 +863,8 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
             <div class="em-sc-modebar" :style="{ background: modeGrad(s.mode) }">
               <span class="em-sc-mode-icon">{{ modeIcon(s.mode) }}</span>
               <span class="em-sc-mode-label">{{ modeLabel(s.mode) }}</span>
-              <span v-if="seanceUrgency(s) === 'live'" class="em-sc-live-badge">🔴 En cours</span>
+              <span v-if="new Date(s.date_debut) > now" class="em-sc-future-badge">🔒 À venir</span>
+              <span v-else-if="seanceUrgency(s) === 'live'" class="em-sc-live-badge">🔴 En cours</span>
               <span v-else-if="seanceUrgency(s) === 'overdue'" class="em-sc-overdue-badge">⚠️ En retard</span>
             </div>
 
@@ -806,6 +974,14 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
             <!-- Actions rapides -->
             <div v-if="canWrite && !estCloturee" class="em-quick-actions">
               <button @click="marquerTousPresents" class="em-btn-all-present">✓ Tous présents</button>
+              <!-- Bouton Scanner QR -->
+              <button @click="openQrScanner" class="em-btn-qr" title="Scanner la carte étudiant">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 4h4v4H4V4zm12 0h4v4h-4V4zM4 16h4v4H4v-4z"/>
+                </svg>
+                📷 Scanner QR
+              </button>
               <div class="em-student-search">
                 <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                 <input v-model="searchStudent" type="text" placeholder="Chercher un étudiant…" class="em-student-search-input" />
@@ -851,20 +1027,29 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
                 <p v-if="selectedSeance.signe_enseignant_at">Le {{ fmtDateTime(selectedSeance.signe_enseignant_at) }}</p>
               </div>
             </div>
+            <!-- Bloc verrouillage séance future -->
+            <div v-if="seanceEstFuture" class="em-lock-banner">
+              <div class="em-lock-icon">🔒</div>
+              <div class="em-lock-body">
+                <strong>Émargement verrouillé</strong>
+                <p>
+                  Ce cours débute à <strong>{{ heureDebutSeance }}</strong>.
+                  L'émargement sera déverrouillé automatiquement au début de la séance
+                  <span v-if="countdownEmarger" class="em-lock-countdown">({{ countdownEmarger }})</span>.
+                </p>
+              </div>
+            </div>
+
             <div v-else class="em-footer-actions">
-              <button @click="sauvegarderPresences" :disabled="saving || !inscriptions.length || seanceEstFuture" class="em-btn-secondary">
+              <button @click="sauvegarderPresences" :disabled="saving || !inscriptions.length" class="em-btn-secondary">
                 {{ saving ? 'Sauvegarde…' : '💾 Sauvegarder les présences' }}
               </button>
-              <button @click="demanderEmarger" :disabled="saving || !inscriptions.length || seanceEstFuture" class="em-btn-emarger"
-                :title="seanceEstFuture ? 'La séance n\'a pas encore commencé' : ''">
+              <button @click="demanderEmarger" :disabled="saving || !inscriptions.length" class="em-btn-emarger">
                 ✍️ Émarger et clôturer la séance
               </button>
               <span v-if="success" class="em-success-msg">✓ Présences enregistrées</span>
             </div>
-            <p v-if="seanceEstFuture" class="em-hint" style="color:#d97706;">
-              ⏳ Cette séance n'a pas encore commencé. L'émargement sera disponible dès le début de la séance.
-            </p>
-            <p v-else-if="!estCloturee && !contenuForm.contenu_seance.trim()" class="em-hint">
+            <p v-if="!seanceEstFuture && !estCloturee && !contenuForm.contenu_seance.trim()" class="em-hint">
               ℹ️ Pensez à renseigner le contenu de la séance avant de clôturer.
             </p>
           </div>
@@ -898,21 +1083,57 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
                   <th>Durée</th>
                   <th>Émargé le</th>
                   <th>Statut</th>
+                  <th>Avis</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="s in mois.seances" :key="s.id">
-                  <td class="em-ht-mat">
-                    <span class="em-ht-mode-chip" :style="{ background: modeGrad(s.mode) }">{{ modeIcon(s.mode) }}</span>
-                    {{ s.matiere }}
-                  </td>
-                  <td>{{ s.classe?.nom ?? '—' }}</td>
-                  <td>{{ new Date(s.date_debut).toLocaleDateString('fr-FR', { day:'numeric', month:'short' }) }}</td>
-                  <td>{{ fmtTime(s.date_debut) }}–{{ fmtTime(s.date_fin) }}</td>
-                  <td class="em-ht-duree">{{ dureeh(s) }}h</td>
-                  <td style="font-size:11px;color:#888;">{{ s.signe_enseignant_at ? fmtDateTime(s.signe_enseignant_at) : '—' }}</td>
-                  <td><span class="em-statut-dot em-badge-effectue">✓ Émargée</span></td>
-                </tr>
+                <template v-for="s in mois.seances" :key="s.id">
+                  <tr>
+                    <td class="em-ht-mat">
+                      <span class="em-ht-mode-chip" :style="{ background: modeGrad(s.mode) }">{{ modeIcon(s.mode) }}</span>
+                      {{ s.matiere }}
+                    </td>
+                    <td>{{ s.classe?.nom ?? '—' }}</td>
+                    <td>{{ new Date(s.date_debut).toLocaleDateString('fr-FR', { day:'numeric', month:'short' }) }}</td>
+                    <td>{{ fmtTime(s.date_debut) }}–{{ fmtTime(s.date_fin) }}</td>
+                    <td class="em-ht-duree">{{ dureeh(s) }}h</td>
+                    <td style="font-size:11px;color:#888;">{{ s.signe_enseignant_at ? fmtDateTime(s.signe_enseignant_at) : '—' }}</td>
+                    <td><span class="em-statut-dot em-badge-effectue">✓ Émargée</span></td>
+                    <td>
+                      <button class="em-avis-btn" @click="showAvis(s.id)"
+                        :class="{ 'em-avis-btn--active': expandedAvis === s.id }">
+                        {{ expandedAvis === s.id ? '▲ Masquer' : '⭐ Voir avis' }}
+                      </button>
+                    </td>
+                  </tr>
+                  <!-- Ligne d'expansion avis -->
+                  <tr v-if="expandedAvis === s.id" class="em-avis-row">
+                    <td colspan="8">
+                      <div class="em-avis-panel">
+                        <div v-if="avisData[s.id]?.loading" class="em-avis-loading">Chargement…</div>
+                        <template v-else-if="avisData[s.id]">
+                          <!-- Synthèse -->
+                          <div class="em-avis-summary">
+                            <span class="em-avis-count">{{ avisData[s.id]?.count }} avis</span>
+                            <span v-if="(avisData[s.id]?.moyenne ?? null) !== null" class="em-avis-avg">
+                              <span class="em-avis-stars">{{ '★'.repeat(Math.round(avisData[s.id]?.moyenne ?? 0)) }}{{ '☆'.repeat(5 - Math.round(avisData[s.id]?.moyenne ?? 0)) }}</span>
+                              {{ avisData[s.id]?.moyenne }}/5
+                            </span>
+                            <span v-else class="em-avis-none">Aucun avis pour cette séance</span>
+                          </div>
+                          <!-- Liste anonymisée -->
+                          <div v-if="avisData[s.id]?.avis.length" class="em-avis-list">
+                            <div v-for="(a, idx) in avisData[s.id]?.avis" :key="a.id" class="em-avis-item">
+                              <span class="em-avis-item-stars">{{ '★'.repeat(a.note) }}{{ '☆'.repeat(5-a.note) }}</span>
+                              <span class="em-avis-item-text">{{ a.commentaire }}</span>
+                              <span class="em-avis-item-date">{{ new Date(a.created_at).toLocaleDateString('fr-FR') }}</span>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
               </tbody>
             </table>
           </div>
@@ -1075,6 +1296,11 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
                   style="padding:5px 7px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer;font-size:11px;color:#6b7280;white-space:nowrap;">
                   ✕ Tout
                 </button>
+                <button v-else @click="filterDate = todayStr"
+                  title="Séances d'aujourd'hui"
+                  style="padding:5px 9px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;cursor:pointer;font-size:11px;color:#374151;white-space:nowrap;font-weight:600;">
+                  Aujourd'hui
+                </button>
               </div>
               <select v-model="filterStatut" class="em-select">
                 <option value="">Tous les statuts</option>
@@ -1219,6 +1445,7 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
               </div>
               <div v-if="canWrite && !estCloturee" class="em-quick-actions">
                 <button @click="marquerTousPresents" class="em-btn-all-present">✓ Tous présents</button>
+                <button @click="openQrScanner" class="em-btn-qr">📷 Scanner QR</button>
               </div>
               <div v-if="loadingInscrits" class="em-empty">Chargement…</div>
               <div v-else-if="!inscriptions.length" class="em-empty">Aucun étudiant trouvé pour cette séance.</div>
@@ -1253,12 +1480,24 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
                   <p v-if="selectedSeance.signe_enseignant_at">Le {{ fmtDateTime(selectedSeance.signe_enseignant_at) }}</p>
                 </div>
               </div>
+              <!-- Bloc verrouillage séance future (vue mobile) -->
+              <div v-if="seanceEstFuture" class="em-lock-banner">
+                <div class="em-lock-icon">🔒</div>
+                <div class="em-lock-body">
+                  <strong>Émargement verrouillé</strong>
+                  <p>
+                    Débute à <strong>{{ heureDebutSeance }}</strong>.
+                    Déverrouillage automatique au début de la séance
+                    <span v-if="countdownEmarger" class="em-lock-countdown">({{ countdownEmarger }})</span>.
+                  </p>
+                </div>
+              </div>
+
               <div v-else class="em-footer-actions">
-                <button @click="sauvegarderPresences" :disabled="saving || !inscriptions.length || seanceEstFuture" class="em-btn-secondary">
+                <button @click="sauvegarderPresences" :disabled="saving || !inscriptions.length" class="em-btn-secondary">
                   {{ saving ? 'Sauvegarde…' : '💾 Sauvegarder les présences' }}
                 </button>
-                <button @click="emargerEtCloturer" :disabled="saving || !inscriptions.length || seanceEstFuture" class="em-btn-emarger"
-                  :title="seanceEstFuture ? 'La séance n\'a pas encore commencé' : ''">
+                <button @click="emargerEtCloturer" :disabled="saving || !inscriptions.length" class="em-btn-emarger">
                   ✍️ Émarger et clôturer la séance
                 </button>
                 <span v-if="success" class="em-success-msg">✓ Présences enregistrées</span>
@@ -1297,6 +1536,67 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
         </div>
       </div>
     </div>
+  </Teleport>
+
+  <!-- ══════════ MODAL SCANNER QR ══════════ -->
+  <Teleport to="body">
+    <Transition name="modal-fade">
+      <div v-if="showQrScanner" class="qr-overlay">
+        <div class="qr-modal">
+          <!-- Header -->
+          <div class="qr-header">
+            <div>
+              <h3 class="qr-title">📷 Scanner la carte étudiant</h3>
+              <p class="qr-subtitle">{{ selectedSeance?.matiere }} · {{ selectedSeance?.classe?.nom }}</p>
+            </div>
+            <button class="qr-close" @click="stopQrScanner">✕</button>
+          </div>
+
+          <!-- Viewfinder -->
+          <div class="qr-viewfinder">
+            <video ref="qrVideoRef" class="qr-video" autoplay muted playsinline></video>
+            <canvas ref="qrCanvasRef" style="display:none;"></canvas>
+            <!-- Cadre de scan animé -->
+            <div class="qr-frame">
+              <div class="qr-corner qr-corner--tl"></div>
+              <div class="qr-corner qr-corner--tr"></div>
+              <div class="qr-corner qr-corner--bl"></div>
+              <div class="qr-corner qr-corner--br"></div>
+              <div class="qr-scan-line"></div>
+            </div>
+            <!-- Erreur caméra -->
+            <div v-if="qrError" class="qr-cam-error">
+              <span>📵</span>
+              <p>{{ qrError }}</p>
+            </div>
+          </div>
+
+          <!-- Résultat scan -->
+          <div v-if="qrScanResult" class="qr-result" :class="qrScanResult.ok ? 'qr-result--ok' : 'qr-result--err'">
+            <span class="qr-result-ico">{{ qrScanResult.ok ? '✅' : '❌' }}</span>
+            <div class="qr-result-info">
+              <strong>{{ qrScanResult.ok ? qrScanResult.nom : 'Étudiant non trouvé' }}</strong>
+              <span>{{ qrScanResult.ok ? qrScanResult.num : qrScanResult.num }}</span>
+            </div>
+          </div>
+
+          <!-- Instruction -->
+          <div v-else class="qr-instruction">
+            Pointez la caméra vers le QR code de la carte étudiant
+          </div>
+
+          <!-- Compteur en temps réel -->
+          <div class="qr-counter">
+            <span class="qr-counter-item qr-counter--green">✅ {{ compteurs.present }}</span>
+            <span class="qr-counter-item qr-counter--orange">⏰ {{ compteurs.retard }}</span>
+            <span class="qr-counter-item qr-counter--red">❌ {{ compteurs.absent }}</span>
+            <span class="qr-counter-item qr-counter--gray">/ {{ compteurs.total }}</span>
+          </div>
+
+          <button @click="stopQrScanner" class="qr-btn-close">Terminer le scan</button>
+        </div>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -1514,7 +1814,9 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
   flex-wrap: wrap;
 }
 .em-avoirs-banner--loading { opacity: .7; }
-.em-avoirs-banner-head { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.em-avoirs-banner-head { display: flex; align-items: center; gap: 14px; flex-shrink: 0; width: 100%; }
+.em-akpi-masked { filter: blur(6px); user-select: none; opacity: .7; transition: filter .25s; }
+.em-akpi-secret { transition: filter .25s; }
 .em-avoirs-banner-icon { font-size: 28px; }
 .em-avoirs-banner-title { font-size: 16px; font-weight: 800; color: #fff; }
 .em-avoirs-banner-sub { font-size: 11.5px; color: #94a3b8; margin-top: 1px; }
@@ -1689,6 +1991,38 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
 .em-ht-mat { font-weight: 600; color: #111; }
 .em-ht-duree { font-weight: 700; color: #16a34a; }
 
+/* ── Avis qualité ── */
+.em-avis-btn {
+  font-size: 11px; padding: 4px 10px; border-radius: 5px; cursor: pointer;
+  background: #f0f0fe; color: #4f46e5; border: 1px solid #c7d2fe;
+  font-weight: 600; white-space: nowrap; transition: background .15s;
+}
+.em-avis-btn--active { background: #e0e7ff; }
+.em-avis-btn:hover { background: #e0e7ff; }
+.em-avis-row td { padding: 0 !important; }
+.em-avis-panel {
+  padding: 12px 20px 14px;
+  background: linear-gradient(135deg, #f8f9ff, #f0f4ff);
+  border-bottom: 2px solid #c7d2fe;
+}
+.em-avis-loading { font-size: 12px; color: #9ca3af; }
+.em-avis-summary {
+  display: flex; align-items: center; gap: 14px; margin-bottom: 10px;
+}
+.em-avis-count { font-size: 12px; font-weight: 700; color: #374151; }
+.em-avis-avg { font-size: 12px; font-weight: 600; color: #1e293b; display: flex; align-items: center; gap: 5px; }
+.em-avis-stars { color: #f59e0b; letter-spacing: 1px; }
+.em-avis-none { font-size: 12px; color: #9ca3af; font-style: italic; }
+.em-avis-list { display: flex; flex-direction: column; gap: 7px; }
+.em-avis-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 12px; background: #fff; border-radius: 7px;
+  border: 1px solid #e0e7ff; font-size: 12.5px;
+}
+.em-avis-item-stars { color: #f59e0b; flex-shrink: 0; font-size: 13px; }
+.em-avis-item-text { flex: 1; color: #374151; line-height: 1.5; }
+.em-avis-item-date { font-size: 10.5px; color: #9ca3af; flex-shrink: 0; align-self: flex-end; }
+
 @media (max-width: 900px) {
   .em-grid { grid-template-columns: 1fr; }
   .em-kpis { grid-template-columns: repeat(3,1fr); }
@@ -1795,6 +2129,11 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
   font-size: 9.5px; font-weight: 800; color: #fff;
   background: rgba(255,255,255,.25); border-radius: 20px; padding: 2px 8px;
 }
+.em-sc-future-badge {
+  font-size: 9.5px; font-weight: 800; color: #fff;
+  background: rgba(0,0,0,.30); border-radius: 20px; padding: 2px 8px;
+  opacity: .85;
+}
 .em-sc-body { padding: 0; }
 .em-sc-action--open { color: #E30613 !important; font-weight: 700; }
 
@@ -1881,4 +2220,171 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
   .em-detail-header { flex-direction: column; align-items: flex-start; }
   .em-detail-header-right { width: 100%; justify-content: flex-end; }
 }
+
+/* ═══════════════════════════════════════════
+   BOUTON SCANNER QR
+═══════════════════════════════════════════ */
+/* ── Bloc verrouillage séance future ── */
+.em-lock-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #fffbeb;
+  border: 1.5px solid #fcd34d;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 4px;
+}
+.em-lock-icon { font-size: 24px; flex-shrink: 0; line-height: 1; }
+.em-lock-body { flex: 1; }
+.em-lock-body strong { font-size: 13px; font-weight: 700; color: #92400e; display: block; margin-bottom: 4px; }
+.em-lock-body p { font-size: 12px; color: #78350f; margin: 0; line-height: 1.5; }
+.em-lock-countdown {
+  display: inline-block;
+  background: #fde68a;
+  color: #78350f;
+  font-weight: 700;
+  font-size: 11.5px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.em-btn-today {
+  padding: 5px 10px;
+  border: 1px solid #E30613;
+  border-radius: 6px;
+  background: #fff5f5;
+  color: #E30613;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: background 0.12s;
+}
+.em-btn-today:hover { background: #fee2e2; }
+
+.em-btn-qr {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 14px; border-radius: 6px;
+  background: #111; color: #fff;
+  border: none; cursor: pointer; font-size: 12px; font-weight: 600;
+  font-family: inherit; transition: background 0.15s;
+}
+.em-btn-qr:hover { background: #333; }
+
+/* ═══════════════════════════════════════════
+   MODAL SCANNER QR — PLEIN ÉCRAN MOBILE
+═══════════════════════════════════════════ */
+.qr-overlay {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(0,0,0,0.9);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+@media (min-width: 600px) {
+  .qr-overlay { align-items: center; }
+}
+
+.qr-modal {
+  background: #111; color: #fff;
+  border-radius: 20px 20px 0 0;
+  width: 100%; max-width: 480px;
+  padding: 0 0 16px;
+  display: flex; flex-direction: column; gap: 0;
+}
+@media (min-width: 600px) {
+  .qr-modal { border-radius: 20px; }
+}
+
+.qr-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 16px 18px 12px;
+}
+.qr-title { font-size: 15px; font-weight: 700; margin: 0; color: #fff; }
+.qr-subtitle { font-size: 11px; color: rgba(255,255,255,0.5); margin: 3px 0 0; }
+.qr-close {
+  background: rgba(255,255,255,0.1); border: none; color: #fff;
+  width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+  font-size: 13px; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Viewfinder */
+.qr-viewfinder {
+  position: relative; background: #000;
+  aspect-ratio: 1 / 1; width: 100%; overflow: hidden;
+}
+.qr-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Cadre de scan */
+.qr-frame {
+  position: absolute; inset: 12%; pointer-events: none;
+}
+.qr-corner {
+  position: absolute; width: 28px; height: 28px;
+  border-color: #E30613; border-style: solid;
+}
+.qr-corner--tl { top: 0; left: 0; border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+.qr-corner--tr { top: 0; right: 0; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+.qr-corner--bl { bottom: 0; left: 0; border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+.qr-corner--br { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+
+/* Ligne de scan animée */
+.qr-scan-line {
+  position: absolute; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, #E30613, transparent);
+  animation: qr-scan 2s linear infinite;
+}
+@keyframes qr-scan {
+  0%   { top: 0; }
+  50%  { top: calc(100% - 2px); }
+  100% { top: 0; }
+}
+
+.qr-cam-error {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.85);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: #fff; text-align: center; padding: 20px;
+  font-size: 13px;
+}
+.qr-cam-error span { font-size: 36px; }
+
+/* Résultat */
+.qr-result {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px; margin: 0 12px;
+  border-radius: 10px; margin-top: 10px;
+}
+.qr-result--ok { background: rgba(22,163,74,0.25); border: 1px solid rgba(22,163,74,0.4); }
+.qr-result--err { background: rgba(220,38,38,0.25); border: 1px solid rgba(220,38,38,0.4); }
+.qr-result-ico { font-size: 22px; flex-shrink: 0; }
+.qr-result-info { display: flex; flex-direction: column; }
+.qr-result-info strong { font-size: 13px; font-weight: 700; color: #fff; }
+.qr-result-info span { font-size: 11px; color: rgba(255,255,255,0.6); }
+
+.qr-instruction {
+  text-align: center; font-size: 12px; color: rgba(255,255,255,0.5);
+  padding: 10px 18px;
+}
+
+/* Compteur */
+.qr-counter {
+  display: flex; justify-content: center; gap: 14px;
+  padding: 8px 18px; font-size: 12.5px; font-weight: 700;
+}
+.qr-counter-item { display: flex; align-items: center; gap: 4px; }
+.qr-counter--green { color: #4ade80; }
+.qr-counter--orange { color: #fb923c; }
+.qr-counter--red { color: #f87171; }
+.qr-counter--gray { color: rgba(255,255,255,0.4); }
+
+.qr-btn-close {
+  margin: 6px 16px 0; padding: 12px;
+  background: rgba(255,255,255,0.1); border: none; border-radius: 10px;
+  color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+  font-family: inherit; transition: background 0.15s;
+}
+.qr-btn-close:hover { background: rgba(255,255,255,0.2); }
 </style>

@@ -2,15 +2,16 @@
 import { inject, computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
+import QRCode from 'qrcode'
 
 const dashboardData = inject<any>('dashboardData')
 const auth = useAuthStore()
 
 // ── Onglet actif (mobile) ────────────────────────────────────────────
-const activeTab = ref<'planning' | 'notes' | 'finances'>('planning')
+const activeTab = ref<'planning' | 'notes' | 'finances' | 'absences'>('planning')
 
 // ── Bottom nav mobile ────────────────────────────────────────────────
-const mobileTab = ref<'accueil' | 'planning' | 'notes' | 'finances' | 'plus'>('accueil')
+const mobileTab = ref<'accueil' | 'planning' | 'notes' | 'finances' | 'absences' | 'plus'>('accueil')
 
 // ── Slider annonces mobile (auto-défilement) ────────────────────────
 const annonceIndex = ref(0)
@@ -44,10 +45,28 @@ onUnmounted(() => {
 
 function setMobileTab(tab: typeof mobileTab.value) {
   mobileTab.value = tab
-  if (tab === 'planning' || tab === 'notes' || tab === 'finances') {
+  if (tab === 'planning' || tab === 'notes' || tab === 'finances' || tab === 'absences') {
     activeTab.value = tab
   }
 }
+
+// ── Absences ─────────────────────────────────────────────────────────
+const absencesData = ref<any>(null)
+const loadingAbsences = ref(false)
+
+async function loadAbsences() {
+  if (absencesData.value) return
+  loadingAbsences.value = true
+  try {
+    const { data } = await api.get('/espace-etudiant/absences')
+    absencesData.value = data
+  } catch { absencesData.value = null }
+  finally { loadingAbsences.value = false }
+}
+
+watch([mobileTab, activeTab], ([mob, act]) => {
+  if (mob === 'absences' || act === 'absences') loadAbsences()
+})
 
 // ── Countdown prochain cours ─────────────────────────────────────────
 const now = ref(new Date())
@@ -305,8 +324,298 @@ function printRecu(p: any) {
   else URL.revokeObjectURL(url)
 }
 
+// ── Ma Carte Étudiant (Canvas — même design que admin) ───────────────
+const showCarteModal = ref(false)
+const cardCanvas = ref<HTMLCanvasElement | null>(null)
+const cardGenerated = ref(false)
+
+const carteFinance = computed(() => {
+  const echeances = dashboardData?.value?.echeances ?? []
+  const mensualites = echeances.filter((e: any) => e.type_echeance === 'mensualite')
+  const nowKey = new Date().toISOString().substring(0, 7)
+  const moisPaies = mensualites.filter((e: any) => e.statut === 'paye').length
+  const moisEnRetard = mensualites.filter((e: any) => e.statut !== 'paye' && (e.mois ?? '').substring(0, 7) < nowKey).length
+  const totalMois = mensualites.length
+  const enRegle = moisEnRetard === 0 && (insc.value?.restant_du ?? 0) === 0
+  return { moisPaies, moisEnRetard, totalMois, enRegle, mensualites }
+})
+
+const UPTECH_LOGO_EE = 'data:image/png;base64,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'
+
+function drawUptechLogoEE(ctx: CanvasRenderingContext2D, x: number, y: number, size: number) {
+  const lw = Math.round(size * 0.075)
+  const r = (size - lw * 2) / 2 - 2
+  const cx = x + size / 2, cy = y + size / 2
+  const rr = Math.round(size * 0.18)
+  ctx.strokeStyle = '#E30613'; ctx.lineWidth = lw
+  const half = lw / 2
+  ctx.beginPath()
+  ctx.moveTo(x + rr, y + half); ctx.lineTo(x + size - rr, y + half)
+  ctx.quadraticCurveTo(x + size - half, y + half, x + size - half, y + rr)
+  ctx.lineTo(x + size - half, y + size - rr)
+  ctx.quadraticCurveTo(x + size - half, y + size - half, x + size - rr, y + size - half)
+  ctx.lineTo(x + rr, y + size - half)
+  ctx.quadraticCurveTo(x + half, y + size - half, x + half, y + size - rr)
+  ctx.lineTo(x + half, y + rr)
+  ctx.quadraticCurveTo(x + half, y + half, x + rr, y + half)
+  ctx.closePath(); ctx.stroke()
+  const quadrants = [{ fill: '#E30613', a1: Math.PI, a2: -Math.PI / 2 }, { fill: '#111111', a1: -Math.PI / 2, a2: 0 }, { fill: '#E30613', a1: 0, a2: Math.PI / 2 }, { fill: '#111111', a1: Math.PI / 2, a2: Math.PI }]
+  quadrants.forEach(q => { ctx.fillStyle = q.fill; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, q.a1, q.a2, false); ctx.closePath(); ctx.fill() })
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r * 0.52, Math.PI / 2, Math.PI, false); ctx.closePath(); ctx.fill()
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip()
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = size * 0.04
+  ctx.beginPath(); ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r); ctx.stroke()
+  ctx.restore()
+}
+function roundRectEE(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r)
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h)
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r)
+  ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath()
+}
+function drawImageEE(ctx: CanvasRenderingContext2D, src: string, x: number, y: number, w: number, h: number): Promise<void> {
+  return new Promise(resolve => {
+    const img = new Image(); img.onload = () => {
+      const ratio = Math.max(w / img.width, h / img.height)
+      const sw = img.width * ratio, sh = img.height * ratio
+      ctx.drawImage(img, x + (w - sw) / 2, y + (h - sh) / 2, sw, sh); resolve()
+    }; img.onerror = () => resolve(); img.src = src
+  })
+}
+function loadLogoEE(ctx: CanvasRenderingContext2D, x: number, y: number, height: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => { const ratio = height / img.height; ctx.drawImage(img, x, y, img.width * ratio, height); resolve(true) }
+    img.onerror = () => resolve(false); img.src = UPTECH_LOGO_EE
+  })
+}
+
+async function generateCard() {
+  showCarteModal.value = true; cardGenerated.value = false
+  await new Promise(r => setTimeout(r, 80))
+  const canvas = cardCanvas.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')!
+
+  // ── Portrait : 54 × 85.6 mm (carte ID verticale, idéale mobile) ──
+  const W = 540, H = 900
+  const PW = 640, PH = 1064
+  canvas.width = PW; canvas.height = PH
+  ctx.scale(PW / W, PH / H)
+
+  const etud = dashboardData?.value?.etudiant
+  const inscData = insc.value
+  const filiere = inscData?.filiere ?? fi.value?.type_formation ?? '—'
+  const classeNom = inscData?.classe ?? '—'
+  const anneeAcad = inscData?.annee_academique ?? fi.value?.annee_academique ?? '—'
+  const cf = carteFinance.value
+  const pad = 20
+
+  // ── 1. Fond blanc ─────────────────────────────────────────────────
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H)
+
+  // ── 2. Barre noire EN BAS ─────────────────────────────────────────
+  const barH = 60
+  ctx.fillStyle = '#111111'; ctx.fillRect(0, H - barH, W, barH)
+  ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'
+  let barFs = 17; ctx.font = `${barFs}px Arial`
+  const barLine1 = "Institut supérieur de formation aux nouveaux métiers"
+  const barLine2 = "de l'Informatique et de la Communication"
+  while (ctx.measureText(barLine1).width > W - 20 && barFs > 10) { barFs--; ctx.font = `${barFs}px Arial` }
+  ctx.fillText(barLine1, W / 2, H - barH + barFs + 6)
+  ctx.fillText(barLine2, W / 2, H - barH + barFs * 2 + 10)
+  ctx.textAlign = 'left'
+
+  // ── 3. En-tête : logo-normal.png centré avec marges ────────────────
+  const headerH = 150
+  const logoMarginTop = 16
+  const logoMaxH = headerH - logoMarginTop * 2
+  const logoMaxW = W - pad * 2
+
+  await new Promise<void>(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      // Calcul sans déformation : contenir dans (logoMaxW × logoMaxH)
+      const ratio = Math.min(logoMaxW / img.width, logoMaxH / img.height)
+      const lw = img.width * ratio
+      const lh = img.height * ratio
+      const lx = (W - lw) / 2          // centré horizontalement
+      const ly = logoMarginTop + (logoMaxH - lh) / 2  // centré verticalement dans la zone
+      ctx.drawImage(img, lx, ly, lw, lh)
+      resolve()
+    }
+    img.onerror = () => {
+      // Fallback : logo dessiné si image non trouvée
+      drawUptechLogoEE(ctx, (W - 72) / 2, logoMarginTop, 72)
+      resolve()
+    }
+    img.src = `${window.location.origin}/logo-normal.png`
+  })
+
+  // Sous-titre centré sous le logo
+  ctx.textAlign = 'center'
+  ctx.fillStyle = '#111111'; ctx.font = 'bold 15px Arial'
+  ctx.fillText("CARTE D'ÉTUDIANT  ·  " + anneeAcad, W / 2, headerH - 8)
+  ctx.textAlign = 'left'
+
+  // ── 4. Bande diagonale HORIZONTALE (séparateur) ──────────────────
+  const stripeY = headerH, stripeH = 40, sh = 14
+  ctx.save(); ctx.beginPath(); ctx.rect(0, stripeY, W, stripeH); ctx.clip()
+  for (let x = -(stripeH * 2); x < W + stripeH * 2; x += sh * 2) {
+    ctx.fillStyle = '#E30613'; ctx.beginPath()
+    ctx.moveTo(x + stripeH, stripeY); ctx.lineTo(x, stripeY + stripeH)
+    ctx.lineTo(x + sh, stripeY + stripeH); ctx.lineTo(x + stripeH + sh, stripeY)
+    ctx.closePath(); ctx.fill()
+    ctx.fillStyle = '#111111'; ctx.beginPath()
+    ctx.moveTo(x + stripeH + sh, stripeY); ctx.lineTo(x + sh, stripeY + stripeH)
+    ctx.lineTo(x + sh * 2, stripeY + stripeH); ctx.lineTo(x + stripeH + sh * 2, stripeY)
+    ctx.closePath(); ctx.fill()
+  }
+  ctx.restore()
+
+  // ── 5. Photo (centrée, agrandie) ─────────────────────────────────
+  const photoY = stripeY + stripeH + 22
+  const photoW = 220, photoH = 270
+  const photoX = (W - photoW) / 2
+  ctx.strokeStyle = '#444444'; ctx.lineWidth = 2; ctx.strokeRect(photoX, photoY, photoW, photoH)
+  if (etud?.photo_url?.startsWith('data:') || etud?.photo_url?.startsWith('http')) {
+    await drawImageEE(ctx, etud.photo_url, photoX + 1, photoY + 1, photoW - 2, photoH - 2)
+  } else {
+    ctx.fillStyle = '#e8e8e8'; ctx.fillRect(photoX + 1, photoY + 1, photoW - 2, photoH - 2)
+    ctx.fillStyle = '#aaaaaa'; ctx.font = 'bold 90px Arial'; ctx.textAlign = 'center'
+    ctx.fillText(`${etud?.prenom?.[0] ?? ''}${etud?.nom?.[0] ?? ''}`.toUpperCase(), photoX + photoW / 2, photoY + photoH / 2 + 32)
+    ctx.textAlign = 'left'
+  }
+
+  // ── 6. Infos étudiant (sous la photo, centré) ─────────────────────
+  let iy = photoY + photoH + 30; const ilh = 32
+  ctx.textAlign = 'center'
+  // Nom complet — grand
+  ctx.fillStyle = '#111111'; ctx.font = 'bold 30px Arial'
+  ctx.fillText(`${etud?.prenom ?? ''} ${(etud?.nom ?? '').toUpperCase()}`, W / 2, iy); iy += ilh + 4
+  // Matricule
+  ctx.fillStyle = '#E30613'; ctx.font = 'bold 21px Arial'
+  ctx.fillText(etud?.numero_etudiant ?? '—', W / 2, iy); iy += ilh
+  // Séparateur
+  ctx.strokeStyle = '#eeeeee'; ctx.lineWidth = 1
+  ctx.beginPath(); ctx.moveTo(pad * 2, iy - 8); ctx.lineTo(W - pad * 2, iy - 8); ctx.stroke()
+  // Filière / Classe
+  const fields = [
+    { label: 'Filière', value: filiere },
+    { label: 'Classe', value: classeNom },
+  ]
+  fields.forEach(f => {
+    ctx.fillStyle = '#888888'; ctx.font = '17px Arial'; ctx.fillText(f.label, W / 2, iy); iy += 22
+    ctx.fillStyle = '#111111'; ctx.font = 'bold 21px Arial'; ctx.fillText(f.value, W / 2, iy); iy += ilh
+  })
+  ctx.textAlign = 'left'
+
+  // ── 7. Mensualités (pastilles + badge statut) ─────────────────────
+  if (!isFI.value && cf.totalMois > 0) {
+    // Badge statut centré
+    const badgeW = 260, badgeH = 36, badgeX2 = (W - badgeW) / 2
+    ctx.fillStyle = cf.enRegle ? '#16a34a' : '#dc2626'
+    ctx.beginPath(); ctx.roundRect(badgeX2, iy, badgeW, badgeH, 10); ctx.fill()
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 19px Arial'; ctx.textAlign = 'center'
+    const statLabel = cf.enRegle ? '✓ EN RÈGLE' : `⚠ ${cf.moisEnRetard} mois en retard`
+    ctx.fillText(statLabel, W / 2, iy + badgeH / 2 + 7); ctx.textAlign = 'left'; iy += badgeH + 14
+
+    // Label + compteur
+    ctx.fillStyle = '#555555'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center'
+    ctx.fillText(`Mensualités : ${cf.moisPaies} / ${cf.totalMois} mois payés`, W / 2, iy); iy += 24; ctx.textAlign = 'left'
+
+    // Pastilles
+    const available = W - pad * 2
+    const dotSize = Math.min(24, Math.floor((available - (cf.totalMois - 1) * 4) / cf.totalMois))
+    const totalDotsW = cf.totalMois * dotSize + (cf.totalMois - 1) * 4
+    let dx = (W - totalDotsW) / 2
+    const nowKey = new Date().toISOString().substring(0, 7)
+    cf.mensualites.forEach((ech: any) => {
+      const isPaye = ech.statut === 'paye'
+      const isRetard = !isPaye && (ech.mois ?? '').substring(0, 7) < nowKey
+      ctx.fillStyle = isPaye ? '#16a34a' : isRetard ? '#dc2626' : '#d1d5db'
+      ctx.beginPath(); ctx.roundRect(dx, iy, dotSize, dotSize, 5); ctx.fill()
+      dx += dotSize + 4
+    })
+    iy += dotSize + 8
+  }
+
+  // ── 8. QR Code (matricule étudiant, centré) ───────────────────────
+  try {
+    const qrData = JSON.stringify({
+      num: etud?.numero_etudiant ?? '',
+      nom: `${etud?.prenom ?? ''} ${etud?.nom ?? ''}`.trim(),
+      app: 'uptech-campus',
+    })
+    const qrCanvas = document.createElement('canvas')
+    await QRCode.toCanvas(qrCanvas, qrData, {
+      width: 110, margin: 1,
+      color: { dark: '#111111', light: '#ffffff' },
+    })
+    iy += 6
+    const qrX = (W - 110) / 2
+    ctx.drawImage(qrCanvas, qrX, iy)
+    ctx.fillStyle = '#aaaaaa'; ctx.font = '12px Arial'; ctx.textAlign = 'center'
+    ctx.fillText('Scanner pour vérifier', W / 2, iy + 120)
+    ctx.textAlign = 'left'
+    iy += 130
+  } catch { /* silencieux */ }
+
+  // ── 9. Bordure arrondie ───────────────────────────────────────────
+  ctx.strokeStyle = '#cccccc'; ctx.lineWidth = 2; roundRectEE(ctx, 1, 1, W - 2, H - 2, 20); ctx.stroke()
+  cardGenerated.value = true
+}
+
+function downloadCard() {
+  const canvas = cardCanvas.value; if (!canvas) return
+  const a = document.createElement('a')
+  a.href = canvas.toDataURL('image/png')
+  a.download = `carte-etudiant-${dashboardData?.value?.etudiant?.numero_etudiant ?? 'uptech'}.png`
+  a.click()
+}
+function printCard() {
+  const canvas = cardCanvas.value; if (!canvas) return
+  const url = canvas.toDataURL('image/png')
+  const w = window.open('', '_blank')
+  if (w) { w.document.write(`<!DOCTYPE html><html><head><style>*{margin:0;padding:0}body{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f5f5f5}img{max-width:100%;box-shadow:0 4px 20px rgba(0,0,0,.2)}@media print{body{background:#fff;min-height:unset}}</style></head><body><img src="${url}" /></body></html>`); w.document.close(); setTimeout(() => w.print(), 400) }
+}
+
 // ── Accordéon historique ─────────────────────────────────────────────
 const expandedSeance = ref<string | null>(null)
+
+// ── Avis qualité séances (anonymes) ──────────────────────────────────
+const avisSubmitted = ref<Set<number>>(new Set())
+const avisEnCours = ref<Record<number, { note: number; commentaire: string; saving: boolean }>>({})
+
+function initAvis(seanceId: number) {
+  if (!avisEnCours.value[seanceId]) {
+    avisEnCours.value[seanceId] = { note: 0, commentaire: '', saving: false }
+  }
+}
+
+function setAvisNote(seanceId: number, n: number) {
+  const entry = avisEnCours.value[seanceId]
+  if (entry) entry.note = n
+}
+
+async function soumettreAvis(seanceId: number) {
+  const a = avisEnCours.value[seanceId]
+  if (!a || a.note === 0 || !a.commentaire.trim()) return
+  a.saving = true
+  try {
+    await api.post(`/seances/${seanceId}/avis`, { note: a.note, commentaire: a.commentaire.trim() })
+    avisSubmitted.value = new Set([...avisSubmitted.value, seanceId])
+  } catch (e: any) {
+    if (e?.response?.status === 409) {
+      // Déjà soumis
+      avisSubmitted.value = new Set([...avisSubmitted.value, seanceId])
+    }
+  } finally {
+    a.saving = false
+  }
+}
 
 
 </script>
@@ -455,6 +764,11 @@ const expandedSeance = ref<string | null>(null)
         <span>Messages</span>
         <span v-if="totalUnread > 0" class="ee-qa-badge">{{ totalUnread }}</span>
       </button>
+      <button class="ee-qa" @click="generateCard()" style="position:relative;">
+        <span class="ee-qa-icon">🪪</span>
+        <span>Ma Carte</span>
+        <span v-if="carteFinance.moisEnRetard > 0" class="ee-qa-badge" style="background:#ef4444;">{{ carteFinance.moisEnRetard }}</span>
+      </button>
     </div>
 
     <!-- ══ APERÇU AUJOURD'HUI (mobile accueil uniquement) ═══════════ -->
@@ -602,7 +916,7 @@ const expandedSeance = ref<string | null>(null)
       </div>
     </div>
 
-    <!-- ══ GRILLE PRINCIPALE (desktop + mobile tabs planification/notes/finances) ══ -->
+    <!-- ══ GRILLE PRINCIPALE (desktop + mobile tabs planification/notes/finances/absences) ══ -->
     <div class="ee-grid" :class="{ 'ee-mobile-hide': mobileTab === 'accueil' || mobileTab === 'plus' }">
 
       <!-- ── COLONNE GAUCHE ────────────────────────────────────────── -->
@@ -613,6 +927,7 @@ const expandedSeance = ref<string | null>(null)
           <button :class="['ee-tab', activeTab==='planning' && 'ee-tab--active']" @click="activeTab='planning'">📅 Planning</button>
           <button :class="['ee-tab', activeTab==='notes'    && 'ee-tab--active']" @click="activeTab='notes'">📋 Notes</button>
           <button :class="['ee-tab', activeTab==='finances' && 'ee-tab--active']" @click="activeTab='finances'">💰 Finances</button>
+          <button :class="['ee-tab', activeTab==='absences' && 'ee-tab--active']" @click="activeTab='absences'; loadAbsences()">🚨 Absences</button>
         </div>
 
         <!-- ══ PLANNING ══ -->
@@ -746,8 +1061,8 @@ const expandedSeance = ref<string | null>(null)
                   :style="{ '--clr': COLORS[(gi * 3 + si) % COLORS.length] }">
                   <div class="ee-seance-stripe"></div>
                   <div class="ee-seance-main-row"
-                    @click="s.statut === 'effectue' && (s.contenu_seance || s.objectifs) ? (expandedSeance = expandedSeance === s.id ? null : s.id) : null"
-                    :style="s.statut === 'effectue' && (s.contenu_seance || s.objectifs) ? 'cursor:pointer' : ''">
+                    @click="if (s.statut === 'effectue') { expandedSeance = expandedSeance === s.id ? null : s.id; initAvis(s.id) }"
+                    :style="s.statut === 'effectue' ? 'cursor:pointer' : ''">
                     <div class="ee-seance-time-col">
                       <div class="ee-s-time">{{ formatTime(s.date_debut) }}</div>
                       <div class="ee-s-dur">{{ durationH(s.date_debut, s.date_fin) }}h</div>
@@ -765,7 +1080,7 @@ const expandedSeance = ref<string | null>(null)
                       <span class="ee-chip" :style="{ background: presenceBadge(s.presence_etudiant).bg, color: presenceBadge(s.presence_etudiant).color }">
                         {{ presenceBadge(s.presence_etudiant).icon }} {{ presenceBadge(s.presence_etudiant).label }}
                       </span>
-                      <span v-if="s.statut === 'effectue' && (s.contenu_seance || s.objectifs)" class="ee-expand-chevron">
+                      <span v-if="s.statut === 'effectue'" class="ee-expand-chevron">
                         {{ expandedSeance === s.id ? '▲' : '▼' }}
                       </span>
                     </div>
@@ -786,6 +1101,41 @@ const expandedSeance = ref<string | null>(null)
                     </div>
                     <div v-if="!s.objectifs && !s.contenu_seance && !s.notes" class="ee-detail-empty">
                       Aucun contenu renseigné par le professeur.
+                    </div>
+
+                    <!-- ── Évaluation anonyme ─────────────────────────────── -->
+                    <div class="ee-avis-block">
+                      <!-- Déjà soumis -->
+                      <div v-if="avisSubmitted.has(s.id)" class="ee-avis-done">
+                        ✅ Votre évaluation a été enregistrée anonymement
+                      </div>
+                      <!-- Formulaire -->
+                      <template v-else-if="avisEnCours[s.id]">
+                        <div class="ee-avis-title">⭐ Évaluer cette séance <span class="ee-avis-hint">(anonyme — visible du prof et de l'administration)</span></div>
+                        <!-- Étoiles -->
+                        <div class="ee-stars">
+                          <button v-for="n in 5" :key="n"
+                            class="ee-star"
+                            :class="{ 'ee-star--on': n <= (avisEnCours[s.id]?.note ?? 0) }"
+                            @click.stop="setAvisNote(s.id, n)">★</button>
+                        </div>
+                        <!-- Commentaire -->
+                        <textarea
+                          v-model="avisEnCours[s.id]!.commentaire"
+                          class="ee-avis-textarea"
+                          placeholder="Votre commentaire sur cette séance…"
+                          rows="2"
+                          maxlength="500"
+                          @click.stop
+                        ></textarea>
+                        <button
+                          class="ee-avis-submit"
+                          :disabled="(avisEnCours[s.id]?.note ?? 0) === 0 || !(avisEnCours[s.id]?.commentaire ?? '').trim() || !!avisEnCours[s.id]?.saving"
+                          @click.stop="soumettreAvis(s.id)"
+                        >
+                          {{ avisEnCours[s.id]?.saving ? 'Envoi…' : 'Envoyer mon avis' }}
+                        </button>
+                      </template>
                     </div>
                   </div>
                 </div>
@@ -980,85 +1330,292 @@ const expandedSeance = ref<string | null>(null)
             </div>
             <div class="ee-card-body">
 
-              <!-- 3 stat boxes -->
-              <div class="ee-fin-grid">
-                <div class="ee-fin-stat">
-                  <div class="ee-fin-val">{{ fraisTotaux.toLocaleString('fr-FR') }}</div>
-                  <div class="ee-fin-lbl">Frais totaux (FCFA)</div>
+              <!-- ── Dates clés ── -->
+              <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px;padding:12px 14px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
+                <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;">
+                  <span>📅</span>
+                  <span style="font-weight:600;color:#334155;">Début des cours :</span>
+                  <span>{{ insc?.date_debut_cours ? new Date(insc.date_debut_cours).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—' }}</span>
                 </div>
-                <div class="ee-fin-stat ee-fin-stat--green">
-                  <div class="ee-fin-val" style="color:#15803d;">{{ totalPaye.toLocaleString('fr-FR') }}</div>
-                  <div class="ee-fin-lbl" style="color:#16a34a;">Payé</div>
-                </div>
-                <div class="ee-fin-stat" :class="restantDu > 0 ? 'ee-fin-stat--red' : 'ee-fin-stat--green'">
-                  <div class="ee-fin-val" :style="{ color: restantDu > 0 ? '#E30613' : '#15803d' }">
-                    {{ restantDu > 0 ? restantDu.toLocaleString('fr-FR') : '✓ Soldé' }}
-                  </div>
-                  <div class="ee-fin-lbl" :style="{ color: restantDu > 0 ? '#E30613' : '#16a34a' }">Restant dû</div>
+                <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;">
+                  <span>📋</span>
+                  <span style="font-weight:600;color:#334155;">Date d'inscription :</span>
+                  <span>{{ insc?.date_inscription ? new Date(insc.date_inscription).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—' }}</span>
                 </div>
               </div>
 
-              <!-- Barre progression -->
-              <div class="ee-fin-progress-wrap">
-                <div class="ee-fin-progress-header">
-                  <span>Avancement du paiement</span>
-                  <strong>{{ progressionFinanciere }}%</strong>
+              <!-- ── Classique ── -->
+              <template v-if="!isFI">
+                <!-- KPIs -->
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+                  <div style="background:#f8fafc;border-radius:10px;padding:12px;text-align:center;">
+                    <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;font-weight:600;letter-spacing:.05em;margin-bottom:4px;">Total prévu</div>
+                    <div style="font-size:18px;font-weight:800;color:#1e293b;">{{ fraisTotaux.toLocaleString('fr-FR') }} <span style="font-size:11px;font-weight:400;">F</span></div>
+                  </div>
+                  <div style="background:#f0fdf4;border-radius:10px;padding:12px;text-align:center;">
+                    <div style="font-size:10px;text-transform:uppercase;color:#16a34a;font-weight:600;letter-spacing:.05em;margin-bottom:4px;">Total payé</div>
+                    <div style="font-size:18px;font-weight:800;color:#15803d;">{{ totalPaye.toLocaleString('fr-FR') }} <span style="font-size:11px;font-weight:400;">F</span></div>
+                  </div>
+                  <div :style="{ background: restantDu > 0 ? '#fef2f2' : '#f0fdf4', borderRadius:'10px', padding:'12px', textAlign:'center' }">
+                    <div :style="{ fontSize:'10px', textTransform:'uppercase', fontWeight:'600', letterSpacing:'.05em', marginBottom:'4px', color: restantDu > 0 ? '#f87171' : '#16a34a' }">Reste dû</div>
+                    <div :style="{ fontSize:'18px', fontWeight:'800', color: restantDu > 0 ? '#dc2626' : '#15803d' }">
+                      {{ restantDu > 0 ? restantDu.toLocaleString('fr-FR') + ' F' : '✓ Soldé' }}
+                    </div>
+                  </div>
                 </div>
-                <div class="ee-fin-progress-track">
-                  <div class="ee-fin-progress-fill"
-                    :style="{
-                      width: progressionFinanciere + '%',
-                      background: progressionFinanciere === 100 ? '#16a34a' : progressionFinanciere >= 50 ? '#f59e0b' : '#ef4444'
-                    }"></div>
-                </div>
-              </div>
 
-              <!-- Liste paiements — classique -->
-              <div v-if="!isFI" class="ee-pay-list">
-                <div v-if="!dashboardData.paiements?.length" class="ee-empty-state">
-                  <span>📂</span><p>Aucun paiement enregistré</p>
-                </div>
-                <div v-for="p in dashboardData.paiements" :key="p.id" class="ee-pay-row">
-                  <div class="ee-pay-left">
-                    <div class="ee-pay-type">{{ typePaiementLabel(p.type_paiement) }}</div>
-                    <div class="ee-pay-num">{{ p.numero_recu }}</div>
-                    <div v-if="p.mois_concerne" class="ee-pay-mois">{{ new Date(p.mois_concerne).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }}</div>
+                <!-- Barre de progression -->
+                <div style="margin-bottom:18px;">
+                  <div style="display:flex;justify-content:space-between;font-size:11px;color:#64748b;margin-bottom:4px;">
+                    <span>Avancement du paiement</span>
+                    <strong>{{ progressionFinanciere }}%</strong>
                   </div>
-                  <div class="ee-pay-right">
-                    <div class="ee-pay-amount">{{ Number(p.montant).toLocaleString('fr-FR') }} <span style="font-size:11px;font-weight:500;">FCFA</span></div>
-                    <span class="ee-pay-statut" :style="{ background: paiementStatutStyle(p.statut).bg, color: paiementStatutStyle(p.statut).color }">
-                      {{ paiementStatutStyle(p.statut).label }}
-                    </span>
-                    <button v-if="p.statut === 'confirme'" @click="printRecu(p)" class="ee-print-btn" title="Imprimer le reçu">
-                      🖨
-                    </button>
+                  <div style="background:#e2e8f0;border-radius:999px;height:8px;overflow:hidden;">
+                    <div :style="{ width: progressionFinanciere + '%', height:'100%', borderRadius:'999px', background: progressionFinanciere === 100 ? '#16a34a' : progressionFinanciere >= 50 ? '#f59e0b' : '#ef4444', transition:'width .4s' }"></div>
                   </div>
                 </div>
-              </div>
 
-              <!-- Liste paiements — FI -->
-              <div v-else class="ee-pay-list">
-                <div v-if="!fi?.paiements?.length" class="ee-empty-state">
-                  <span>📂</span><p>Aucun paiement enregistré</p>
-                </div>
-                <div v-for="p in fi?.paiements ?? []" :key="p.id" class="ee-pay-row">
-                  <div class="ee-pay-left">
-                    <div class="ee-pay-type">{{ p.type === 'inscription' ? 'Inscription' : p.type === 'tranche' ? 'Tranche' : p.type }}</div>
-                    <div v-if="p.date_echeance" class="ee-pay-mois">Échéance : {{ new Date(p.date_echeance).toLocaleDateString('fr-FR') }}</div>
+                <!-- Échéancier -->
+                <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:14px;" v-if="dashboardData.echeances?.length">
+                  <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Échéancier</div>
+                  <div style="overflow-x:auto;">
+                    <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                      <thead>
+                        <tr style="border-bottom:1px solid #f1f5f9;">
+                          <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Mois</th>
+                          <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Type</th>
+                          <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Montant</th>
+                          <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Statut</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="ech in dashboardData.echeances" :key="ech.id" style="border-bottom:1px solid #f8fafc;">
+                          <td style="padding:7px 8px;color:#334155;">{{ ech.mois ? new Date((ech.mois.length===7?ech.mois+'-01':ech.mois)).toLocaleDateString('fr-FR',{month:'long',year:'numeric'}) : '—' }}</td>
+                          <td style="padding:7px 8px;">
+                            <span :style="{ fontSize:'10px', padding:'2px 8px', borderRadius:'999px', background: ech.type_echeance==='frais_inscription'?'#eff6ff': ech.type_echeance==='tenue'?'#f5f3ff':'#f8fafc', color: ech.type_echeance==='frais_inscription'?'#2563eb': ech.type_echeance==='tenue'?'#7c3aed':'#475569' }">
+                              {{ ech.type_echeance === 'frais_inscription' ? 'Inscription' : ech.type_echeance === 'tenue' ? 'Tenue' : ech.type_echeance === 'mensualite' ? 'Mensualité' : ech.type_echeance }}
+                            </span>
+                          </td>
+                          <td style="padding:7px 8px;text-align:right;font-weight:600;color:#1e293b;">{{ Number(ech.montant).toLocaleString('fr-FR') }} F</td>
+                          <td style="padding:7px 8px;text-align:center;">
+                            <span :style="{ fontSize:'10px', padding:'2px 8px', borderRadius:'999px', fontWeight:'600', display:'inline-flex', alignItems:'center', gap:'4px', background: ech.statut==='paye'?'#f0fdf4':ech.statut==='partiel'?'#fffbeb':'#fef2f2', color: ech.statut==='paye'?'#15803d':ech.statut==='partiel'?'#b45309':'#dc2626' }">
+                              {{ ech.statut === 'paye' ? '✓ Payé' : ech.statut === 'partiel' ? 'Partiel' : 'Non payé' }}
+                            </span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
-                  <div class="ee-pay-right">
-                    <div class="ee-pay-amount">{{ Number(p.montant_paye ?? 0).toLocaleString('fr-FR') }} / {{ Number(p.montant ?? 0).toLocaleString('fr-FR') }} <span style="font-size:11px;font-weight:500;">FCFA</span></div>
-                    <span class="ee-pay-statut" :style="{
-                      background: p.statut === 'paye' ? '#dcfce7' : p.statut === 'partiel' ? '#fef3c7' : '#fee2e2',
-                      color: p.statut === 'paye' ? '#15803d' : p.statut === 'partiel' ? '#b45309' : '#b91c1c'
-                    }">
-                      {{ p.statut === 'paye' ? 'Payé' : p.statut === 'partiel' ? 'Partiel' : 'En attente' }}
-                    </span>
+                </div>
+
+                <!-- Historique paiements -->
+                <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px;">
+                  <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Historique des paiements</div>
+                  <div v-if="!dashboardData.paiements?.length" class="ee-empty-state"><span>📂</span><p>Aucun paiement enregistré</p></div>
+                  <div v-else style="overflow-x:auto;">
+                    <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                      <thead>
+                        <tr style="border-bottom:1px solid #f1f5f9;">
+                          <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Reçu</th>
+                          <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Date</th>
+                          <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Type</th>
+                          <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Mode</th>
+                          <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Montant</th>
+                          <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Statut</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="p in dashboardData.paiements" :key="p.id" style="border-bottom:1px solid #f8fafc;">
+                          <td style="padding:7px 8px;font-family:monospace;font-size:10px;color:#94a3b8;">{{ p.numero_recu }}</td>
+                          <td style="padding:7px 8px;color:#475569;font-size:11px;">{{ new Date(p.confirmed_at ?? p.created_at).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }) }}</td>
+                          <td style="padding:7px 8px;">
+                            <span :style="{ fontSize:'10px', padding:'2px 8px', borderRadius:'999px', background: p.type_paiement==='frais_inscription'?'#eff6ff':p.type_paiement==='tenue'?'#f5f3ff':'#f8fafc', color: p.type_paiement==='frais_inscription'?'#2563eb':p.type_paiement==='tenue'?'#7c3aed':'#475569' }">
+                              {{ p.type_paiement === 'frais_inscription' ? 'Inscription' : p.type_paiement === 'mensualite' ? 'Mensualité' : p.type_paiement === 'tenue' ? 'Tenue' : p.type_paiement }}
+                            </span>
+                          </td>
+                          <td style="padding:7px 8px;color:#475569;font-size:11px;">{{ ({ especes:'Espèces', wave:'Wave', orange_money:'OM', virement:'Virement', cheque:'Chèque' } as any)[p.mode_paiement] ?? p.mode_paiement }}</td>
+                          <td style="padding:7px 8px;text-align:right;font-weight:700;color:#16a34a;">+{{ Number(p.montant).toLocaleString('fr-FR') }} F</td>
+                          <td style="padding:7px 8px;text-align:center;">
+                            <span :style="{ fontSize:'10px', padding:'2px 8px', borderRadius:'999px', fontWeight:'600', background: p.statut==='confirme'?'#f0fdf4':p.statut==='en_attente'?'#fffbeb':'#fef2f2', color: p.statut==='confirme'?'#15803d':p.statut==='en_attente'?'#b45309':'#dc2626' }">
+                              {{ p.statut === 'confirme' ? 'Confirmé' : p.statut === 'en_attente' ? 'En attente' : 'Rejeté' }}
+                            </span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-              </div>
+              </template>
+
+              <!-- ── Formation Individuelle ── -->
+              <template v-else>
+                <!-- KPIs FI -->
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+                  <div style="background:#f8fafc;border-radius:10px;padding:12px;text-align:center;">
+                    <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;font-weight:600;letter-spacing:.05em;margin-bottom:4px;">Coût total</div>
+                    <div style="font-size:18px;font-weight:800;color:#1e293b;">{{ fraisTotaux.toLocaleString('fr-FR') }} <span style="font-size:11px;font-weight:400;">F</span></div>
+                  </div>
+                  <div style="background:#f0fdf4;border-radius:10px;padding:12px;text-align:center;">
+                    <div style="font-size:10px;text-transform:uppercase;color:#16a34a;font-weight:600;letter-spacing:.05em;margin-bottom:4px;">Total payé</div>
+                    <div style="font-size:18px;font-weight:800;color:#15803d;">{{ totalPaye.toLocaleString('fr-FR') }} <span style="font-size:11px;font-weight:400;">F</span></div>
+                  </div>
+                  <div :style="{ background: restantDu > 0 ? '#fef2f2' : '#f0fdf4', borderRadius:'10px', padding:'12px', textAlign:'center' }">
+                    <div :style="{ fontSize:'10px', textTransform:'uppercase', fontWeight:'600', letterSpacing:'.05em', marginBottom:'4px', color: restantDu > 0 ? '#f87171' : '#16a34a' }">Reste dû</div>
+                    <div :style="{ fontSize:'18px', fontWeight:'800', color: restantDu > 0 ? '#dc2626' : '#15803d' }">
+                      {{ restantDu > 0 ? restantDu.toLocaleString('fr-FR') + ' F' : '✓ Soldé' }}
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Barre FI -->
+                <div style="margin-bottom:18px;">
+                  <div style="display:flex;justify-content:space-between;font-size:11px;color:#64748b;margin-bottom:4px;">
+                    <span>Avancement du paiement</span>
+                    <strong>{{ progressionFinanciere }}%</strong>
+                  </div>
+                  <div style="background:#e2e8f0;border-radius:999px;height:8px;overflow:hidden;">
+                    <div :style="{ width: progressionFinanciere + '%', height:'100%', borderRadius:'999px', background: progressionFinanciere === 100 ? '#16a34a' : progressionFinanciere >= 50 ? '#f59e0b' : '#ef4444', transition:'width .4s' }"></div>
+                  </div>
+                </div>
+
+                <!-- Tranches FI -->
+                <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px;">
+                  <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Tranches de paiement</div>
+                  <div v-if="!fi?.paiements?.length" class="ee-empty-state"><span>📂</span><p>Aucun paiement enregistré</p></div>
+                  <div v-else>
+                    <div v-for="p in fi?.paiements ?? []" :key="p.id" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9;">
+                      <div>
+                        <div style="font-size:12px;font-weight:600;color:#334155;">{{ p.type === 'inscription' ? 'Inscription' : p.type === 'tranche' ? 'Tranche' : p.type }}</div>
+                        <div v-if="p.date_echeance" style="font-size:11px;color:#94a3b8;margin-top:2px;">Échéance : {{ new Date(p.date_echeance).toLocaleDateString('fr-FR') }}</div>
+                      </div>
+                      <div style="text-align:right;">
+                        <div style="font-size:13px;font-weight:700;color:#1e293b;">{{ Number(p.montant_paye ?? 0).toLocaleString('fr-FR') }} / {{ Number(p.montant ?? 0).toLocaleString('fr-FR') }} F</div>
+                        <span :style="{ fontSize:'10px', padding:'2px 8px', borderRadius:'999px', fontWeight:'600', marginTop:'3px', display:'inline-block', background: p.statut==='paye'?'#f0fdf4':p.statut==='partiel'?'#fffbeb':'#fef2f2', color: p.statut==='paye'?'#15803d':p.statut==='partiel'?'#b45309':'#dc2626' }">
+                          {{ p.statut === 'paye' ? 'Payé' : p.statut === 'partiel' ? 'Partiel' : 'En attente' }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
 
             </div>
+          </div>
+        </div>
+
+        <!-- ══ ABSENCES ══ -->
+        <div v-show="activeTab === 'absences'" class="ee-section">
+          <!-- Loading -->
+          <div v-if="loadingAbsences" style="display:flex;align-items:center;justify-content:center;padding:48px 0;gap:10px;color:#64748b;font-size:14px;">
+            <svg class="ee-spin" style="width:20px;height:20px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+            </svg>
+            Chargement des absences…
+          </div>
+
+          <template v-else-if="absencesData">
+            <!-- Alerte si trop d'absences injustifiées -->
+            <div v-if="absencesData.stats?.alerte" style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 16px;display:flex;align-items:flex-start;gap:10px;margin-bottom:16px;">
+              <span style="font-size:20px;flex-shrink:0;">⚠️</span>
+              <div>
+                <div style="font-weight:700;color:#b91c1c;font-size:14px;">Alerte assiduité</div>
+                <div style="color:#991b1b;font-size:13px;margin-top:2px;">
+                  Vous avez <strong>{{ absencesData.stats.absent_injustifie }}</strong> absence(s) injustifiée(s).
+                  Contactez l'administration pour régulariser votre situation.
+                </div>
+              </div>
+            </div>
+
+            <!-- Stats cards -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px;">
+              <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px;text-align:center;">
+                <div style="font-size:24px;font-weight:800;color:#16a34a;">{{ absencesData.stats.present }}</div>
+                <div style="font-size:11px;color:#15803d;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;">Présences</div>
+              </div>
+              <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px;text-align:center;">
+                <div style="font-size:24px;font-weight:800;color:#b45309;">{{ absencesData.stats.retard }}</div>
+                <div style="font-size:11px;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;">Retards</div>
+              </div>
+              <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px;text-align:center;">
+                <div style="font-size:24px;font-weight:800;color:#d97706;">{{ absencesData.stats.absent_justifie }}</div>
+                <div style="font-size:11px;color:#b45309;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;">Abs. justifiées</div>
+              </div>
+              <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px;text-align:center;">
+                <div style="font-size:24px;font-weight:800;color:#dc2626;">{{ absencesData.stats.absent_injustifie }}</div>
+                <div style="font-size:11px;color:#b91c1c;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;">Abs. injustifiées</div>
+              </div>
+            </div>
+
+            <!-- Taux présence bar -->
+            <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-bottom:18px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="font-size:13px;font-weight:600;color:#334155;">Taux de présence</span>
+                <span style="font-size:14px;font-weight:800;" :style="{ color: absencesData.stats.taux_presence >= 80 ? '#16a34a' : absencesData.stats.taux_presence >= 60 ? '#d97706' : '#dc2626' }">
+                  {{ absencesData.stats.taux_presence }}%
+                </span>
+              </div>
+              <div style="height:8px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
+                <div style="height:100%;border-radius:99px;transition:width 0.5s ease;"
+                  :style="{ width: absencesData.stats.taux_presence + '%', background: absencesData.stats.taux_presence >= 80 ? '#22c55e' : absencesData.stats.taux_presence >= 60 ? '#f59e0b' : '#ef4444' }"></div>
+              </div>
+              <div style="font-size:11px;color:#94a3b8;margin-top:6px;">{{ absencesData.stats.total }} séance(s) au total</div>
+            </div>
+
+            <!-- Liste des absences -->
+            <div class="ee-card">
+              <div class="ee-card-header">
+                <div class="ee-card-header-left">
+                  <span class="ee-card-icon">🚨</span>
+                  <h3 class="ee-card-title">Historique des absences</h3>
+                </div>
+                <span class="ee-badge-count" :style="{ background: '#fee2e2', color: '#b91c1c' }">
+                  {{ absencesData.absences?.length ?? 0 }}
+                </span>
+              </div>
+              <div class="ee-card-body">
+                <div v-if="!absencesData.absences?.length" class="ee-empty-state">
+                  <span>✅</span><p>Aucune absence enregistrée — parfait !</p>
+                </div>
+                <div v-for="abs in absencesData.absences" :key="abs.id"
+                  style="display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;">
+                  <!-- Badge statut -->
+                  <div style="flex-shrink:0;margin-top:2px;">
+                    <span v-if="abs.statut === 'absent' && abs.justifie"
+                      style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:99px;background:#fff7ed;color:#d97706;font-size:11px;font-weight:600;">
+                      ✓ Justifiée
+                    </span>
+                    <span v-else-if="abs.statut === 'absent'"
+                      style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:99px;background:#fef2f2;color:#dc2626;font-size:11px;font-weight:600;">
+                      ✗ Absence
+                    </span>
+                    <span v-else
+                      style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:99px;background:#fef9c3;color:#b45309;font-size:11px;font-weight:600;">
+                      ⚠ Retard
+                    </span>
+                  </div>
+                  <!-- Infos -->
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;font-size:13px;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                      {{ abs.seance?.matiere ?? '—' }}
+                    </div>
+                    <div style="font-size:12px;color:#64748b;margin-top:2px;">
+                      {{ abs.seance?.date_debut ? new Date(abs.seance.date_debut).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : '—' }}
+                      <span v-if="abs.seance?.date_debut"> · {{ new Date(abs.seance.date_debut).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) }}</span>
+                    </div>
+                    <div v-if="abs.enseignant_nom" style="font-size:11px;color:#94a3b8;margin-top:1px;">
+                      👤 {{ abs.enseignant_nom }}
+                    </div>
+                    <div v-if="abs.motif_justification" style="font-size:12px;color:#0369a1;margin-top:4px;padding:4px 8px;background:#eff6ff;border-radius:6px;">
+                      💬 {{ abs.motif_justification }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <div v-else style="display:flex;align-items:center;justify-content:center;padding:48px 0;color:#94a3b8;font-size:14px;">
+            Impossible de charger les absences.
           </div>
         </div>
 
@@ -1239,6 +1796,10 @@ const expandedSeance = ref<string | null>(null)
         <span class="ee-bnav-icon">💰</span>
         <span class="ee-bnav-label">Compta</span>
       </button>
+      <button :class="['ee-bnav-item', mobileTab === 'absences' && 'ee-bnav-item--active']" @click="setMobileTab('absences')">
+        <span class="ee-bnav-icon">🚨</span>
+        <span class="ee-bnav-label">Absences</span>
+      </button>
       <button :class="['ee-bnav-item', mobileTab === 'plus' && 'ee-bnav-item--active']" @click="setMobileTab('plus')">
         <span class="ee-bnav-icon">⚙️</span>
         <span class="ee-bnav-label">Plus</span>
@@ -1341,6 +1902,16 @@ const expandedSeance = ref<string | null>(null)
       </div>
     </Teleport>
 
+    <!-- ══ MA CARTE ÉTUDIANT (Canvas — carte seule) ══════════════════ -->
+    <Teleport to="body">
+      <div v-if="showCarteModal" class="card-overlay" @click.self="showCarteModal = false">
+        <div class="card-bare">
+          <button class="card-bare-close" @click="showCarteModal = false">✕</button>
+          <p v-if="!cardGenerated" class="card-loading">Génération en cours…</p>
+          <canvas ref="cardCanvas" class="card-canvas" />
+        </div>
+      </div>
+    </Teleport>
 
   </div>
 </template>
@@ -1595,6 +2166,47 @@ const expandedSeance = ref<string | null>(null)
 .ee-detail-label { font-size: 10.5px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: .06em; }
 .ee-detail-text { font-size: 13px; color: #1e293b; line-height: 1.6; white-space: pre-wrap; }
 .ee-detail-empty { font-size: 12px; color: #9ca3af; font-style: italic; text-align: center; }
+
+/* ── Avis qualité ── */
+.ee-avis-block {
+  border-top: 1px dashed #c7d2fe;
+  padding-top: 12px;
+  margin-top: 2px;
+}
+.ee-avis-done {
+  font-size: 12.5px; color: #15803d; font-weight: 600;
+  background: #dcfce7; border-radius: 6px; padding: 8px 12px;
+  text-align: center;
+}
+.ee-avis-title {
+  font-size: 11.5px; font-weight: 700; color: #4f46e5;
+  text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px;
+}
+.ee-avis-hint { font-weight: 400; color: #9ca3af; text-transform: none; font-size: 10.5px; }
+.ee-stars { display: flex; gap: 4px; margin-bottom: 8px; }
+.ee-star {
+  font-size: 24px; background: none; border: none; cursor: pointer;
+  color: #d1d5db; transition: color .15s, transform .1s;
+  padding: 0; line-height: 1;
+}
+.ee-star--on { color: #f59e0b; }
+.ee-star:hover { transform: scale(1.2); color: #f59e0b; }
+.ee-avis-textarea {
+  width: 100%; box-sizing: border-box;
+  border: 1px solid #c7d2fe; border-radius: 8px;
+  padding: 8px 10px; font-size: 12.5px; resize: vertical;
+  outline: none; background: #fff; color: #1e293b;
+  transition: border-color .15s;
+}
+.ee-avis-textarea:focus { border-color: #6366f1; }
+.ee-avis-submit {
+  margin-top: 8px; padding: 7px 18px;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #fff; border: none; border-radius: 8px;
+  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: opacity .15s;
+}
+.ee-avis-submit:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ══════════════════════════════════════════════════════
    NOTES
@@ -2130,4 +2742,30 @@ const expandedSeance = ref<string | null>(null)
 }
 .ee-sem-label--s1 { background: #eff6ff; color: #1d4ed8; border-left: 3px solid #3b82f6; }
 .ee-sem-label--s2 { background: #f0fdf4; color: #15803d; border-left: 3px solid #10b981; }
+
+/* ══ MA CARTE ÉTUDIANT (carte seule, sans cadre) ════════════════════ */
+.card-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.72); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.card-bare {
+  position: relative; width: 100%; max-width: 660px;
+  animation: cardBareIn .25s cubic-bezier(.34,1.4,.64,1);
+}
+@keyframes cardBareIn {
+  from { transform: scale(.88) translateY(20px); opacity: 0; }
+  to   { transform: scale(1) translateY(0); opacity: 1; }
+}
+.card-bare-close {
+  position: absolute; top: -14px; right: -14px; z-index: 2;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(255,255,255,.18); border: 1.5px solid rgba(255,255,255,.35);
+  color: #fff; font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+}
+.card-bare-close:hover { background: rgba(255,255,255,.3); }
+.card-canvas { width: 100%; height: auto; border-radius: 14px; box-shadow: 0 30px 80px rgba(0,0,0,.55); display: block; }
+.card-loading { font-size: 13px; color: rgba(255,255,255,.6); text-align: center; margin-bottom: 10px; }
 </style>
