@@ -8098,9 +8098,15 @@ app.get('/espace-etudiant/dashboard', requireAuth, role('etudiant'), async (c) =
   if (insc?.classe_id) {
     // Inclure la classe de l'étudiant + ses troncs communs pour voir toutes les séances
     const classeIds = [insc.classe_id, ...troncCommunIds]
+    // Nettoyage HTML directement en SQL (regexp_replace strip tags + entités)
+    const stripHtmlSql = (col: string) =>
+      `trim(regexp_replace(regexp_replace(${col}, '<[^>]*>', '', 'g'), '&[^;]{1,10};', ' ', 'g'))`
     const seanceQuery = `
       SELECT s.id, s.matiere, s.date_debut, s.date_fin, s.mode, s.salle, s.statut,
-        s.contenu_seance, s.objectifs, s.notes, s.lien_visio,
+        ${stripHtmlSql('s.contenu_seance')} as contenu_seance,
+        ${stripHtmlSql('s.objectifs')} as objectifs,
+        ${stripHtmlSql('s.notes')} as notes,
+        s.lien_visio,
         CASE WHEN iv.id IS NOT NULL THEN iv.prenom || ' ' || iv.nom ELSE NULL END as enseignant,
         pr.statut as presence_etudiant
       FROM seances s
@@ -8124,9 +8130,14 @@ app.get('/espace-etudiant/dashboard', requireAuth, role('etudiant'), async (c) =
     // Séances FI : liées via fi_module_id
     const fiModuleIds = (fiData.modules || []).map((m: any) => m.id)
     if (fiModuleIds.length > 0) {
+      const fiStripHtmlSql = (col: string) =>
+        `trim(regexp_replace(regexp_replace(${col}, '<[^>]*>', '', 'g'), '&[^;]{1,10};', ' ', 'g'))`
       const fiSeanceQuery = `
         SELECT s.id, s.matiere, s.date_debut, s.date_fin, s.mode, s.salle, s.statut,
-          s.contenu_seance, s.objectifs, s.notes, s.lien_visio,
+          ${fiStripHtmlSql('s.contenu_seance')} as contenu_seance,
+          ${fiStripHtmlSql('s.objectifs')} as objectifs,
+          ${fiStripHtmlSql('s.notes')} as notes,
+          s.lien_visio,
           CASE WHEN iv.id IS NOT NULL THEN iv.prenom || ' ' || iv.nom ELSE NULL END as enseignant,
           NULL as presence_etudiant
         FROM seances s
