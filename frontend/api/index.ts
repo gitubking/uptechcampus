@@ -616,21 +616,26 @@ type Env = { Variables: { user: Record<string, unknown> } }
 // ─── Helper : convertit HTML (éditeur riche ou Word) en texte brut lisible ────
 function htmlToText(html: string | null | undefined): string {
   if (!html) return ''
-  return html
-    .replace(/<!--[\s\S]*?-->/g, '')                      // commentaires HTML/Word
-    .replace(/<br\s*\/?>/gi, '\n')                         // <br> → saut de ligne
-    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')          // fermeture blocs → saut
-    .replace(/<li[^>]*>/gi, '• ')                          // puces
-    .replace(/<[^>]+>/g, '')                               // supprimer toutes balises
+  // Décoder les entités d'abord (cas où le HTML est double-encodé)
+  let s = html
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, ' ')
     .replace(/&#[0-9]+;/g, '')
+  // Puis supprimer les balises HTML
+  s = s
+    .replace(/<!--[\s\S]*?-->/g, '')                       // commentaires HTML/Word
+    .replace(/<br\s*\/?>/gi, '\n')                         // <br> → saut de ligne
+    .replace(/<\/(p|div|h[1-6]|li|tr|td|th)>/gi, '\n')    // fermeture blocs → saut
+    .replace(/<li[^>]*>/gi, '• ')                          // puces
+    .replace(/<[^>]*>/g, '')                               // supprimer toutes balises
     .replace(/\n[ \t]+/g, '\n')                            // espaces en début de ligne
     .replace(/\n{3,}/g, '\n\n')                            // max 2 sauts consécutifs
     .trim()
+  return s
 }
 
 function cleanSeanceContent(rows: any[]): any[] {
@@ -8213,6 +8218,7 @@ app.get('/espace-etudiant/dashboard', requireAuth, role('etudiant'), async (c) =
     seances_semaine: cleanSeanceContent(seancesSemaine),
     seances_futures: cleanSeanceContent(seancesFutures),
     seances_passees: cleanSeanceContent(seancesPassees),
+    _v: 'htmlToText-v3',
     paiements: allPaiementsRows,
     annonces,
     messages: convRows,
