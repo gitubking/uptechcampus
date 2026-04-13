@@ -112,6 +112,15 @@ async function loadSeances() {
   } finally { loadingSeances.value = false }
 }
 
+const now = new Date()
+const seancesAvenir = computed(() =>
+  seances.value.filter(s => new Date(s.date_debut) >= now).sort((a, b) => new Date(a.date_debut).getTime() - new Date(b.date_debut).getTime())
+)
+const seancesPassees = computed(() =>
+  seances.value.filter(s => new Date(s.date_debut) < now).sort((a, b) => new Date(b.date_debut).getTime() - new Date(a.date_debut).getTime())
+)
+const openVenir = ref(false)
+
 async function switchTab(tab: typeof activeTab.value) {
   activeTab.value = tab
   if (tab === 'seances' && seances.value.length === 0) loadSeances()
@@ -332,50 +341,76 @@ onMounted(load)
       </div>
 
       <!-- ─── TAB SÉANCES ───────────────────────────────────────────── -->
-      <div v-else-if="activeTab==='seances'" class="ed-panel">
+      <div v-else-if="activeTab==='seances'" class="ed-panel" style="display:flex;flex-direction:column;gap:10px;">
         <div v-if="loadingSeances" style="text-align:center;padding:40px;color:#9ca3af;font-size:13px;">Chargement…</div>
         <div v-else-if="!seances.length" class="ed-empty-state">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:36px;height:36px;color:#d1d5db;margin-bottom:8px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
           <p style="color:#6b7280;font-size:13px;">Aucune séance enregistrée</p>
         </div>
-        <div v-else class="ed-card" style="padding:0;overflow:hidden;">
-          <table class="ed-seance-table">
-            <thead>
-              <tr>
-                <th>Date</th><th>Matière</th><th>Classe</th><th>Durée</th><th>Présences</th><th>Mode</th><th>Statut</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="s in seances" :key="s.id">
-                <td>
-                  <div style="font-size:12.5px;font-weight:600;color:#374151;">{{ fmtDate(s.date_debut) }}</div>
-                  <div style="font-size:11px;color:#9ca3af;">{{ fmtHeure(s.date_debut) }} – {{ fmtHeure(s.date_fin) }}</div>
-                </td>
-                <td style="font-size:13px;color:#374151;max-width:160px;">
-                  <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.matiere }}</div>
-                  <div v-if="s.salle" style="font-size:11px;color:#9ca3af;">{{ s.salle }}</div>
-                </td>
-                <td style="font-size:12.5px;color:#374151;">{{ s.classe?.nom ?? '—' }}</td>
-                <td style="font-size:13px;font-weight:600;text-align:center;">{{ Number(s.duree_heures).toFixed(1) }}h</td>
-                <td style="text-align:center;">
-                  <span v-if="s.nb_inscrits > 0" style="font-size:12.5px;">
-                    <span :style="s.nb_presents/s.nb_inscrits >= 0.8 ? 'color:#16a34a;font-weight:600;' : s.nb_presents/s.nb_inscrits >= 0.5 ? 'color:#d97706;font-weight:600;' : 'color:#b91c1c;font-weight:600;'">{{ s.nb_presents }}</span>
-                    <span style="color:#9ca3af;">/{{ s.nb_inscrits }}</span>
-                  </span>
-                  <span v-else style="color:#9ca3af;font-size:12px;">—</span>
-                </td>
-                <td>
-                  <span class="ed-mode-badge">{{ s.mode }}</span>
-                </td>
-                <td>
-                  <span :class="seanceStatutConfig[s.statut]?.cls ?? 'ed-s-planifie'">
-                    {{ seanceStatutConfig[s.statut]?.label ?? s.statut }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <template v-else>
+
+          <!-- Accordéon : séances à venir (rétracté par défaut) -->
+          <div class="ed-card" style="padding:0;overflow:hidden;">
+            <button class="ed-accordion-head" @click="openVenir = !openVenir">
+              <span style="display:flex;align-items:center;gap:8px;">
+                <span style="background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">{{ seancesAvenir.length }}</span>
+                Séances à venir
+              </span>
+              <svg :style="openVenir ? 'transform:rotate(180deg)' : ''" style="width:16px;height:16px;color:#9ca3af;transition:transform 0.2s;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </button>
+            <div v-if="openVenir">
+              <div v-if="!seancesAvenir.length" style="padding:14px 16px;font-size:12.5px;color:#9ca3af;">Aucune séance planifiée à venir.</div>
+              <div v-for="s in seancesAvenir" :key="s.id" class="ed-accordion-row">
+                <span class="ed-acc-date">{{ fmtDate(s.date_debut) }}, {{ fmtHeure(s.date_debut) }}–{{ fmtHeure(s.date_fin) }}</span>
+                <span class="ed-acc-mat">{{ s.matiere }}</span>
+                <span class="ed-acc-cls">{{ s.classe?.nom ?? '—' }}</span>
+                <span class="ed-acc-dur">{{ Number(s.duree_heures).toFixed(1) }}h</span>
+                <span :class="seanceStatutConfig[s.statut]?.cls ?? 'ed-s-planifie'" style="flex-shrink:0;">{{ seanceStatutConfig[s.statut]?.label ?? s.statut }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Table : séances passées -->
+          <div v-if="seancesPassees.length" class="ed-card" style="padding:0;overflow:hidden;">
+            <div class="ed-accordion-head" style="cursor:default;pointer-events:none;">
+              <span style="display:flex;align-items:center;gap:8px;">
+                <span style="background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">{{ seancesPassees.length }}</span>
+                Séances passées
+              </span>
+            </div>
+            <table class="ed-seance-table">
+              <thead>
+                <tr><th>Date</th><th>Matière</th><th>Classe</th><th>Durée</th><th>Présences</th><th>Mode</th><th>Statut</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="s in seancesPassees" :key="s.id">
+                  <td>
+                    <div style="font-size:12.5px;font-weight:600;color:#374151;">{{ fmtDate(s.date_debut) }}</div>
+                    <div style="font-size:11px;color:#9ca3af;">{{ fmtHeure(s.date_debut) }} – {{ fmtHeure(s.date_fin) }}</div>
+                  </td>
+                  <td style="font-size:13px;color:#374151;max-width:160px;">
+                    <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.matiere }}</div>
+                    <div v-if="s.salle" style="font-size:11px;color:#9ca3af;">{{ s.salle }}</div>
+                  </td>
+                  <td style="font-size:12.5px;color:#374151;">{{ s.classe?.nom ?? '—' }}</td>
+                  <td style="font-size:13px;font-weight:600;text-align:center;">{{ Number(s.duree_heures).toFixed(1) }}h</td>
+                  <td style="text-align:center;">
+                    <span v-if="s.nb_inscrits > 0" style="font-size:12.5px;">
+                      <span :style="s.nb_presents/s.nb_inscrits >= 0.8 ? 'color:#16a34a;font-weight:600;' : s.nb_presents/s.nb_inscrits >= 0.5 ? 'color:#d97706;font-weight:600;' : 'color:#b91c1c;font-weight:600;'">{{ s.nb_presents }}</span>
+                      <span style="color:#9ca3af;">/{{ s.nb_inscrits }}</span>
+                    </span>
+                    <span v-else style="color:#9ca3af;font-size:12px;">—</span>
+                  </td>
+                  <td><span class="ed-mode-badge">{{ s.mode }}</span></td>
+                  <td><span :class="seanceStatutConfig[s.statut]?.cls ?? 'ed-s-planifie'">{{ seanceStatutConfig[s.statut]?.label ?? s.statut }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+        </template>
       </div>
 
       <!-- ─── TAB VACATIONS ─────────────────────────────────────────── -->
@@ -519,6 +554,16 @@ onMounted(load)
 .ed-ue-table td { padding:9px 10px;font-size:12.5px;border-bottom:1px solid #f3f4f6; }
 .ed-ue-table tbody tr:last-child td { border-bottom:none; }
 .ed-ue-table tbody tr:hover { background:#fafafa; }
+
+/* Accordéon séances à venir */
+.ed-accordion-head { width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#f9fafb;border:none;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;color:#374151;cursor:pointer;text-align:left;border-bottom:1px solid #e5e7eb; }
+.ed-accordion-head:hover { background:#f3f4f6; }
+.ed-accordion-row { display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid #f3f4f6;flex-wrap:wrap; }
+.ed-accordion-row:last-child { border-bottom:none; }
+.ed-acc-date { font-size:11.5px;color:#6b7280;flex-shrink:0;min-width:160px; }
+.ed-acc-mat  { font-size:12.5px;color:#374151;font-weight:600;flex:1;min-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.ed-acc-cls  { font-size:11.5px;color:#9ca3af;flex-shrink:0; }
+.ed-acc-dur  { font-size:12px;font-weight:700;color:#374151;flex-shrink:0;min-width:28px;text-align:right; }
 
 /* Séance table */
 .ed-seance-table { width:100%;border-collapse:collapse; }
