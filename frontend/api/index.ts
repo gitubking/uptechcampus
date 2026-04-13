@@ -131,6 +131,18 @@ pool.query(`CREATE TABLE IF NOT EXISTS avis_seance (
   UNIQUE(seance_id, inscription_id)
 )`).catch(() => {})
 
+// ─── Migration: strip HTML de contenu_seance / objectifs / notes existants ────
+pool.query(`
+  UPDATE seances
+  SET
+    contenu_seance = trim(regexp_replace(regexp_replace(contenu_seance, '<[^>]*>', '', 'g'), '&[^;]{1,10};', ' ', 'g')),
+    objectifs      = trim(regexp_replace(regexp_replace(objectifs,      '<[^>]*>', '', 'g'), '&[^;]{1,10};', ' ', 'g')),
+    notes          = trim(regexp_replace(regexp_replace(notes,          '<[^>]*>', '', 'g'), '&[^;]{1,10};', ' ', 'g'))
+  WHERE (contenu_seance IS NOT NULL AND contenu_seance LIKE '%<%')
+     OR (objectifs      IS NOT NULL AND objectifs      LIKE '%<%')
+     OR (notes          IS NOT NULL AND notes          LIKE '%<%')
+`).catch(() => {})
+
 // ─── Migration: unicité (classe_id, matiere_id) dans unites_enseignement ───────
 pool.query(`
   DO $$
