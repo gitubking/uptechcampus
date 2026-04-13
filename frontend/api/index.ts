@@ -5732,7 +5732,14 @@ app.post('/seances/:id/contenu', requireAuth, seanceRoles, async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
     `UPDATE seances SET contenu_seance=$1, objectifs=$2, chapitre=$3, objectifs_atteints=$4, remarques=$5 WHERE id=$6 RETURNING *`,
-    [b.contenu_seance || null, b.objectifs || null, b.chapitre || null, b.objectifs_atteints || null, b.remarques || null, c.req.param('id')]
+    [
+      b.contenu_seance ? htmlToText(b.contenu_seance) : null,
+      b.objectifs      ? htmlToText(b.objectifs)      : null,
+      b.chapitre || null,
+      b.objectifs_atteints || null,
+      b.remarques || null,
+      c.req.param('id')
+    ]
   )
   return c.json(rows[0])
 })
