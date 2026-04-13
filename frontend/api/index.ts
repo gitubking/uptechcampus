@@ -8632,6 +8632,27 @@ async function envoyerEmailRelance(opts: {
   }
 }
 
+// ─── Utilitaire : nettoyage HTML dans la DB (appel direct navigateur) ───────
+app.get('/util/fix-html', async (c) => {
+  if (c.req.query('k') !== 'uptechfix2025') return c.json({ error: 'forbidden' }, 403)
+  const { rowCount: rc1 } = await pool.query(`
+    UPDATE seances
+    SET contenu_seance = regexp_replace(regexp_replace(contenu_seance, E'<[^>]+>', ' ', 'g'), E'\\s+', ' ', 'g')
+    WHERE contenu_seance IS NOT NULL AND contenu_seance LIKE '%<%'
+  `)
+  const { rowCount: rc2 } = await pool.query(`
+    UPDATE seances
+    SET objectifs = regexp_replace(regexp_replace(objectifs, E'<[^>]+>', ' ', 'g'), E'\\s+', ' ', 'g')
+    WHERE objectifs IS NOT NULL AND objectifs LIKE '%<%'
+  `)
+  const { rowCount: rc3 } = await pool.query(`
+    UPDATE seances
+    SET notes = regexp_replace(regexp_replace(notes, E'<[^>]+>', ' ', 'g'), E'\\s+', ' ', 'g')
+    WHERE notes IS NOT NULL AND notes LIKE '%<%'
+  `)
+  return c.json({ ok: true, contenu: rc1, objectifs: rc2, notes: rc3 })
+})
+
 // Cron Vercel — appelé tous les jours à 8h UTC
 app.get('/cron/relances', async (c) => {
   // Vérifier le secret cron (optionnel mais recommandé)
