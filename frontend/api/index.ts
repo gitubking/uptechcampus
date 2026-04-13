@@ -613,6 +613,39 @@ if (!JWT_SECRET) throw new Error('JWT_SECRET manquant dans les variables d\'envi
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Env = { Variables: { user: Record<string, unknown> } }
 
+// ─── Helper : nettoyage HTML Word (côté serveur, sans DOMParser) ─────────────
+function stripWordHtml(html: string | null | undefined): string {
+  if (!html) return ''
+  return html
+    // Supprimer blocs conditionnels Word
+    .replace(/<!--\[if[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '')
+    // Supprimer balises Word namespace
+    .replace(/<\/?o:[^>]*>/gi, '')
+    .replace(/<\/?w:[^>]*>/gi, '')
+    .replace(/<\/?m:[^>]*>/gi, '')
+    // Supprimer attributs style contenant mso- ou font- Word
+    .replace(/\s+style="[^"]*"/gi, '')
+    // Supprimer attribut lang
+    .replace(/\s+lang="[^"]*"/gi, '')
+    // Supprimer attribut class
+    .replace(/\s+class="[^"]*"/gi, '')
+    // Nettoyer spans vides
+    .replace(/<span\s*>/gi, '')
+    .replace(/<\/span>/gi, '')
+    // Nettoyer paragraphes vides
+    .replace(/<p\s*>\s*<\/p>/gi, '')
+    .trim()
+}
+
+function cleanSeanceContent(rows: any[]): any[] {
+  return rows.map(s => ({
+    ...s,
+    contenu_seance: s.contenu_seance ? stripWordHtml(s.contenu_seance) : null,
+    objectifs: s.objectifs ? stripWordHtml(s.objectifs) : null,
+    notes: s.notes ? stripWordHtml(s.notes) : null,
+  }))
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 const app = new Hono<Env>().basePath('/api')
 
@@ -8181,9 +8214,9 @@ app.get('/espace-etudiant/dashboard', requireAuth, role('etudiant'), async (c) =
     } : null,
     notes: notesData,
     presences: presencesData,
-    seances_semaine: seancesSemaine,
-    seances_futures: seancesFutures,
-    seances_passees: seancesPassees,
+    seances_semaine: cleanSeanceContent(seancesSemaine),
+    seances_futures: cleanSeanceContent(seancesFutures),
+    seances_passees: cleanSeanceContent(seancesPassees),
     paiements: allPaiementsRows,
     annonces,
     messages: convRows,
