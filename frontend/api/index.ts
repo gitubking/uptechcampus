@@ -8098,6 +8098,18 @@ app.get('/espace-etudiant/dashboard', requireAuth, role('etudiant'), async (c) =
     taux_presence: total > 0 ? Math.round(((present + retard) / total) * 100) : 100,
   }
 
+  // 6a. Nettoyage HTML dans la DB (await — garanti à chaque requête)
+  await pool.query(`
+    UPDATE seances
+    SET
+      contenu_seance = trim(regexp_replace(contenu_seance, '<[^>]*>', ' ', 'g')),
+      objectifs      = trim(regexp_replace(objectifs,      '<[^>]*>', ' ', 'g')),
+      notes          = trim(regexp_replace(notes,          '<[^>]*>', ' ', 'g'))
+    WHERE (contenu_seance IS NOT NULL AND contenu_seance LIKE '%<%')
+       OR (objectifs      IS NOT NULL AND objectifs      LIKE '%<%')
+       OR (notes          IS NOT NULL AND notes          LIKE '%<%')
+  `).catch(() => {})
+
   // 6. Séances : semaine en cours + futures + tous les cours effectués
   let seancesSemaine: any[] = []
   let seancesPassees: any[] = []
