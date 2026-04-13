@@ -26,6 +26,47 @@ function onInput() {
   emit('update:modelValue', editorRef.value?.innerHTML ?? '')
 }
 
+function onPaste(e: ClipboardEvent) {
+  e.preventDefault()
+  const html = e.clipboardData?.getData('text/html') || ''
+  const text = e.clipboardData?.getData('text/plain') || ''
+  // Si collage depuis Word/Office, nettoyer le HTML
+  if (html && (html.includes('mso-') || html.includes('urn:schemas-microsoft'))) {
+    const clean = stripWordHtml(html)
+    document.execCommand('insertHTML', false, clean)
+  } else if (html) {
+    document.execCommand('insertHTML', false, html)
+  } else {
+    document.execCommand('insertText', false, text)
+  }
+  onInput()
+}
+
+function stripWordHtml(html: string): string {
+  const parser = new DOMParser()
+  let clean = html
+    .replace(/<!--\[if[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '')
+    .replace(/<\/?o:[^>]*>/gi, '')
+    .replace(/<\/?w:[^>]*>/gi, '')
+    .replace(/<\/?m:[^>]*>/gi, '')
+  const doc = parser.parseFromString(clean, 'text/html')
+  doc.querySelectorAll<HTMLElement>('*').forEach(el => {
+    el.removeAttribute('style')
+    el.removeAttribute('lang')
+    el.removeAttribute('class')
+    el.removeAttribute('dir')
+    el.removeAttribute('xmlns')
+  })
+  // Remplacer les spans purs (sans attributs) par leur contenu
+  doc.querySelectorAll('span').forEach(span => {
+    if (span.attributes.length === 0) {
+      span.replaceWith(...Array.from(span.childNodes))
+    }
+  })
+  doc.querySelectorAll('p:empty, span:empty').forEach(el => el.remove())
+  return doc.body.innerHTML
+}
+
 function exec(command: string, value?: string) {
   document.execCommand(command, false, value)
   editorRef.value?.focus()
@@ -84,6 +125,7 @@ onMounted(async () => {
       :contenteditable="!disabled"
       :style="{ minHeight }"
       @input="onInput"
+      @paste="onPaste"
       @focus="isFocused = true"
       @blur="isFocused = false"
     ></div>

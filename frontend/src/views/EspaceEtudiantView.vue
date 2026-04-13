@@ -589,16 +589,28 @@ const expandedSeance = ref<string | null>(null)
 const avisSubmitted = ref<Set<number>>(new Set())
 const avisEnCours = ref<Record<number, { note: number; commentaire: string; saving: boolean }>>({})
 
-// Nettoie le HTML copié-collé depuis Word (balises mso-*, o:, commentaires conditionnels)
+// Nettoie le HTML Word (balises mso-*, o:, commentaires conditionnels, styles inline)
 function cleanHtml(raw: string | null | undefined): string {
   if (!raw) return ''
-  return raw
-    .replace(/<!--\[if[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '')   // blocs IF Word
-    .replace(/<\/?o:[^>]*>/gi, '')                                // balises o: (Word)
-    .replace(/<\/?w:[^>]*>/gi, '')                                // balises w: (Word)
-    .replace(/\s+mso-[^;:"']*:[^;}"']*;?/gi, '')                 // propriétés mso-*
-    .replace(/\s+style="\s*;?\s*"/gi, '')                         // style="" vides
-    .replace(/<p[^>]*>\s*<\/p>/gi, '')                            // paragraphes vides
+  let clean = raw
+    .replace(/<!--\[if[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '')
+    .replace(/<\/?o:[^>]*>/gi, '')
+    .replace(/<\/?w:[^>]*>/gi, '')
+    .replace(/<\/?m:[^>]*>/gi, '')
+  const doc = new DOMParser().parseFromString(clean, 'text/html')
+  doc.querySelectorAll<HTMLElement>('*').forEach(el => {
+    el.removeAttribute('style')
+    el.removeAttribute('lang')
+    el.removeAttribute('class')
+    el.removeAttribute('dir')
+  })
+  doc.querySelectorAll('span').forEach(span => {
+    if (span.attributes.length === 0) {
+      span.replaceWith(...Array.from(span.childNodes))
+    }
+  })
+  doc.querySelectorAll('p:empty, span:empty').forEach(el => el.remove())
+  return doc.body.innerHTML
 }
 
 function initAvis(seanceId: number) {
