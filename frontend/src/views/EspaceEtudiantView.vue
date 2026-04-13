@@ -583,7 +583,7 @@ function printCard() {
 }
 
 // ── Accordéon historique ─────────────────────────────────────────────
-const expandedSeance = ref<string | null>(null)
+const expandedSeance = ref<number | null>(null)
 
 // ── Avis qualité séances (anonymes) ──────────────────────────────────
 const avisSubmitted = ref<Set<number>>(new Set())
