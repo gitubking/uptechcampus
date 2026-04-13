@@ -1257,17 +1257,50 @@ function stopQrScanner() {
                 <th>Matière</th>
                 <th>Enseignant</th>
                 <th style="text-align:center">Durée</th>
+                <th style="text-align:center">Avis étudiants</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="s in seancesEmargéesMois" :key="s.id" @click="selectSeance(s)" style="cursor:pointer;">
-                <td>{{ new Date(s.date_debut).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }) }}</td>
-                <td>{{ fmtTime(s.date_debut) }}–{{ fmtTime(s.date_fin) }}</td>
-                <td><span class="em-mois-badge em-mois-badge-gray">{{ s.classe?.nom ?? '—' }}</span></td>
-                <td><strong>{{ s.matiere }}</strong></td>
-                <td>{{ s.enseignant ? `${s.enseignant.prenom} ${s.enseignant.nom}` : '—' }}</td>
-                <td style="text-align:center"><span class="em-mois-badge em-mois-badge-green">{{ ((new Date(s.date_fin).getTime() - new Date(s.date_debut).getTime()) / 3600000).toFixed(1) }}h</span></td>
-              </tr>
+              <template v-for="s in seancesEmargéesMois" :key="s.id">
+                <tr @click="selectSeance(s)" style="cursor:pointer;">
+                  <td>{{ new Date(s.date_debut).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }) }}</td>
+                  <td>{{ fmtTime(s.date_debut) }}–{{ fmtTime(s.date_fin) }}</td>
+                  <td><span class="em-mois-badge em-mois-badge-gray">{{ s.classe?.nom ?? '—' }}</span></td>
+                  <td><strong>{{ s.matiere }}</strong></td>
+                  <td>{{ s.enseignant ? `${s.enseignant.prenom} ${s.enseignant.nom}` : '—' }}</td>
+                  <td style="text-align:center"><span class="em-mois-badge em-mois-badge-green">{{ ((new Date(s.date_fin).getTime() - new Date(s.date_debut).getTime()) / 3600000).toFixed(1) }}h</span></td>
+                  <td style="text-align:center" @click.stop>
+                    <button class="em-avis-btn" @click="showAvis(s.id)"
+                      :class="{ 'em-avis-btn--active': expandedAvis === s.id }">
+                      {{ expandedAvis === s.id ? '▲ Masquer' : '⭐ Avis' }}
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="expandedAvis === s.id" class="em-avis-row">
+                  <td colspan="7">
+                    <div class="em-avis-panel">
+                      <div v-if="avisData[s.id]?.loading" class="em-avis-loading">Chargement…</div>
+                      <template v-else-if="avisData[s.id]">
+                        <div class="em-avis-summary">
+                          <span class="em-avis-count">{{ avisData[s.id]?.count }} avis</span>
+                          <span v-if="(avisData[s.id]?.moyenne ?? null) !== null" class="em-avis-avg">
+                            <span class="em-avis-stars">{{ '★'.repeat(Math.round(avisData[s.id]?.moyenne ?? 0)) }}{{ '☆'.repeat(5 - Math.round(avisData[s.id]?.moyenne ?? 0)) }}</span>
+                            {{ avisData[s.id]?.moyenne }}/5
+                          </span>
+                          <span v-else class="em-avis-none">Aucun avis pour cette séance</span>
+                        </div>
+                        <div v-if="avisData[s.id]?.avis.length" class="em-avis-list">
+                          <div v-for="a in avisData[s.id]?.avis" :key="a.id" class="em-avis-item">
+                            <span class="em-avis-item-stars">{{ '★'.repeat(a.note) }}{{ '☆'.repeat(5-a.note) }}</span>
+                            <span class="em-avis-item-text">{{ a.commentaire }}</span>
+                            <span class="em-avis-item-date">{{ new Date(a.created_at).toLocaleDateString('fr-FR') }}</span>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
