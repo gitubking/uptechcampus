@@ -1089,15 +1089,15 @@ async function soumettreAvis(seanceId: number) {
                   <div v-if="expandedSeance === s.id && s.statut === 'effectue'" class="ee-seance-detail">
                     <div v-if="s.objectifs" class="ee-detail-block">
                       <div class="ee-detail-label">🎯 Objectifs</div>
-                      <div class="ee-detail-text">{{ s.objectifs }}</div>
+                      <div class="ee-detail-text ee-rich-text" v-html="s.objectifs"></div>
                     </div>
                     <div v-if="s.contenu_seance" class="ee-detail-block">
                       <div class="ee-detail-label">📖 Contenu abordé</div>
-                      <div class="ee-detail-text">{{ s.contenu_seance }}</div>
+                      <div class="ee-detail-text ee-rich-text" v-html="s.contenu_seance"></div>
                     </div>
                     <div v-if="s.notes" class="ee-detail-block">
                       <div class="ee-detail-label">📝 Notes du professeur</div>
-                      <div class="ee-detail-text">{{ s.notes }}</div>
+                      <div class="ee-detail-text ee-rich-text" v-html="s.notes"></div>
                     </div>
                     <div v-if="!s.objectifs && !s.contenu_seance && !s.notes" class="ee-detail-empty">
                       Aucun contenu renseigné par le professeur.
@@ -2165,6 +2165,13 @@ async function soumettreAvis(seanceId: number) {
 .ee-detail-block { display: flex; flex-direction: column; gap: 4px; }
 .ee-detail-label { font-size: 10.5px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: .06em; }
 .ee-detail-text { font-size: 13px; color: #1e293b; line-height: 1.6; white-space: pre-wrap; }
+.ee-rich-text { white-space: normal; }
+.ee-rich-text p { margin: 0 0 6px; }
+.ee-rich-text ul, .ee-rich-text ol { margin: 0 0 6px; padding-left: 20px; }
+.ee-rich-text li { margin-bottom: 2px; }
+.ee-rich-text strong, .ee-rich-text b { font-weight: 700; }
+.ee-rich-text em, .ee-rich-text i { font-style: italic; }
+.ee-rich-text h1, .ee-rich-text h2, .ee-rich-text h3 { font-weight: 700; margin: 4px 0; }
 .ee-detail-empty { font-size: 12px; color: #9ca3af; font-style: italic; text-align: center; }
 
 /* ── Avis qualité ── */
