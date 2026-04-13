@@ -613,36 +613,32 @@ if (!JWT_SECRET) throw new Error('JWT_SECRET manquant dans les variables d\'envi
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Env = { Variables: { user: Record<string, unknown> } }
 
-// ─── Helper : nettoyage HTML Word (côté serveur, sans DOMParser) ─────────────
-function stripWordHtml(html: string | null | undefined): string {
+// ─── Helper : convertit HTML (éditeur riche ou Word) en texte brut lisible ────
+function htmlToText(html: string | null | undefined): string {
   if (!html) return ''
   return html
-    // Supprimer blocs conditionnels Word
-    .replace(/<!--\[if[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '')
-    // Supprimer balises Word namespace
-    .replace(/<\/?o:[^>]*>/gi, '')
-    .replace(/<\/?w:[^>]*>/gi, '')
-    .replace(/<\/?m:[^>]*>/gi, '')
-    // Supprimer attributs style contenant mso- ou font- Word
-    .replace(/\s+style="[^"]*"/gi, '')
-    // Supprimer attribut lang
-    .replace(/\s+lang="[^"]*"/gi, '')
-    // Supprimer attribut class
-    .replace(/\s+class="[^"]*"/gi, '')
-    // Nettoyer spans vides
-    .replace(/<span\s*>/gi, '')
-    .replace(/<\/span>/gi, '')
-    // Nettoyer paragraphes vides
-    .replace(/<p\s*>\s*<\/p>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')                      // commentaires HTML/Word
+    .replace(/<br\s*\/?>/gi, '\n')                         // <br> → saut de ligne
+    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')          // fermeture blocs → saut
+    .replace(/<li[^>]*>/gi, '• ')                          // puces
+    .replace(/<[^>]+>/g, '')                               // supprimer toutes balises
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#[0-9]+;/g, '')
+    .replace(/\n[ \t]+/g, '\n')                            // espaces en début de ligne
+    .replace(/\n{3,}/g, '\n\n')                            // max 2 sauts consécutifs
     .trim()
 }
 
 function cleanSeanceContent(rows: any[]): any[] {
   return rows.map(s => ({
     ...s,
-    contenu_seance: s.contenu_seance ? stripWordHtml(s.contenu_seance) : null,
-    objectifs: s.objectifs ? stripWordHtml(s.objectifs) : null,
-    notes: s.notes ? stripWordHtml(s.notes) : null,
+    contenu_seance: s.contenu_seance ? htmlToText(s.contenu_seance) : null,
+    objectifs: s.objectifs ? htmlToText(s.objectifs) : null,
+    notes: s.notes ? htmlToText(s.notes) : null,
   }))
 }
 
