@@ -589,6 +589,18 @@ const expandedSeance = ref<string | null>(null)
 const avisSubmitted = ref<Set<number>>(new Set())
 const avisEnCours = ref<Record<number, { note: number; commentaire: string; saving: boolean }>>({})
 
+// Nettoie le HTML copié-collé depuis Word (balises mso-*, o:, commentaires conditionnels)
+function cleanHtml(raw: string | null | undefined): string {
+  if (!raw) return ''
+  return raw
+    .replace(/<!--\[if[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '')   // blocs IF Word
+    .replace(/<\/?o:[^>]*>/gi, '')                                // balises o: (Word)
+    .replace(/<\/?w:[^>]*>/gi, '')                                // balises w: (Word)
+    .replace(/\s+mso-[^;:"']*:[^;}"']*;?/gi, '')                 // propriétés mso-*
+    .replace(/\s+style="\s*;?\s*"/gi, '')                         // style="" vides
+    .replace(/<p[^>]*>\s*<\/p>/gi, '')                            // paragraphes vides
+}
+
 function initAvis(seanceId: number) {
   if (!avisEnCours.value[seanceId]) {
     avisEnCours.value[seanceId] = { note: 0, commentaire: '', saving: false }
@@ -1089,15 +1101,15 @@ async function soumettreAvis(seanceId: number) {
                   <div v-if="expandedSeance === s.id && s.statut === 'effectue'" class="ee-seance-detail">
                     <div v-if="s.objectifs" class="ee-detail-block">
                       <div class="ee-detail-label">🎯 Objectifs</div>
-                      <div class="ee-detail-text ee-rich-text" v-html="s.objectifs"></div>
+                      <div class="ee-detail-text ee-rich-text" v-html="cleanHtml(s.objectifs)"></div>
                     </div>
                     <div v-if="s.contenu_seance" class="ee-detail-block">
                       <div class="ee-detail-label">📖 Contenu abordé</div>
-                      <div class="ee-detail-text ee-rich-text" v-html="s.contenu_seance"></div>
+                      <div class="ee-detail-text ee-rich-text" v-html="cleanHtml(s.contenu_seance)"></div>
                     </div>
                     <div v-if="s.notes" class="ee-detail-block">
                       <div class="ee-detail-label">📝 Notes du professeur</div>
-                      <div class="ee-detail-text ee-rich-text" v-html="s.notes"></div>
+                      <div class="ee-detail-text ee-rich-text" v-html="cleanHtml(s.notes)"></div>
                     </div>
                     <div v-if="!s.objectifs && !s.contenu_seance && !s.notes" class="ee-detail-empty">
                       Aucun contenu renseigné par le professeur.
