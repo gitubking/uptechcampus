@@ -131,6 +131,10 @@ pool.query(`CREATE TABLE IF NOT EXISTS avis_seance (
   UNIQUE(seance_id, inscription_id)
 )`).catch(() => {})
 
+// ─── Migration: supprimer contrainte unique sur matieres.code (code UE peut se répéter entre filières/semestres) ───
+pool.query(`ALTER TABLE matieres DROP CONSTRAINT IF EXISTS matieres_code_unique`).catch(() => {})
+pool.query(`ALTER TABLE matieres DROP CONSTRAINT IF EXISTS matieres_code_key`).catch(() => {})
+
 // ─── Migration: strip HTML de contenu_seance / objectifs / notes existants ────
 pool.query(`
   UPDATE seances
@@ -1275,17 +1279,16 @@ app.get('/matieres', requireAuth, async (c) => {
 
 app.post('/matieres', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
-  // Si code fourni, vérifier disponibilité avant insertion
-  let code = b.code?.trim() || null
-  if (code) {
-    const { rows: existing } = await pool.query('SELECT id FROM matieres WHERE code=$1 LIMIT 1', [code])
-    if (existing[0]) {
-      return c.json({ message: `Le code "${code}" est déjà utilisé par une autre matière. Choisissez un code différent.` }, 409)
-    }
+  const nom = b.nom?.trim()
+  if (!nom) return c.json({ message: 'Le nom de la matière est requis.' }, 400)
+  // Vérifier unicité par nom (le code peut se répéter entre filières/semestres)
+  const { rows: existing } = await pool.query('SELECT id FROM matieres WHERE LOWER(nom)=LOWER($1) LIMIT 1', [nom])
+  if (existing[0]) {
+    return c.json({ message: `Une matière nommée "${nom}" existe déjà. Vous pouvez la réutiliser dans votre maquette.` }, 409)
   }
   const { rows } = await pool.query(
     'INSERT INTO matieres (nom,code,description) VALUES ($1,$2,$3) RETURNING *',
-    [b.nom, code, b.description || null]
+    [nom, b.code?.trim() || null, b.description || null]
   )
   return c.json(rows[0], 201)
 })
@@ -1293,16 +1296,16 @@ app.post('/matieres', requireAuth, role('dg'), async (c) => {
 app.put('/matieres/:id', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
   const id = c.req.param('id')
-  let code = b.code?.trim() || null
-  if (code) {
-    const { rows: existing } = await pool.query('SELECT id FROM matieres WHERE code=$1 AND id!=$2 LIMIT 1', [code, id])
-    if (existing[0]) {
-      return c.json({ message: `Le code "${code}" est déjà utilisé par une autre matière. Choisissez un code différent.` }, 409)
-    }
+  const nom = b.nom?.trim()
+  if (!nom) return c.json({ message: 'Le nom de la matière est requis.' }, 400)
+  // Vérifier unicité par nom (hors l'enregistrement courant)
+  const { rows: existing } = await pool.query('SELECT id FROM matieres WHERE LOWER(nom)=LOWER($1) AND id!=$2 LIMIT 1', [nom, id])
+  if (existing[0]) {
+    return c.json({ message: `Une matière nommée "${nom}" existe déjà.` }, 409)
   }
   const { rows } = await pool.query(
     'UPDATE matieres SET nom=$1,code=$2,description=$3 WHERE id=$4 RETURNING *',
-    [b.nom, code, b.description || null, id]
+    [nom, b.code?.trim() || null, b.description || null, id]
   )
   return c.json(rows[0])
 })
@@ -5943,10 +5946,10 @@ app.post('/filieres/:id/maquette', requireAuth, role('dg', 'dir_peda', 'coordina
           const coeff = ec.coefficient ?? 1
           const creditsEc = Math.round(vht / 20 * 10) / 10 // 20h = 1 crédit
 
-          // 1. Créer la matière si elle n'existe pas
+          // 1. Créer la matière si elle n'existe pas (unicité par nom, code peut se répéter entre filières/semestres)
           const codeMatiere = codeUe + '-' + String(ordreGlobal).padStart(2, '0')
           const { rows: existMat } = await client.query(
-            `SELECT id FROM matieres WHERE nom = $1 LIMIT 1`, [ecNom]
+            `SELECT id FROM matieres WHERE LOWER(nom) = LOWER($1) LIMIT 1`, [ecNom]
           )
           let matiereId: number
           if (existMat[0]) {
