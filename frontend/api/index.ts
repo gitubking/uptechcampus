@@ -1275,18 +1275,34 @@ app.get('/matieres', requireAuth, async (c) => {
 
 app.post('/matieres', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
+  // Si code fourni, vérifier disponibilité avant insertion
+  let code = b.code?.trim() || null
+  if (code) {
+    const { rows: existing } = await pool.query('SELECT id FROM matieres WHERE code=$1 LIMIT 1', [code])
+    if (existing[0]) {
+      return c.json({ message: `Le code "${code}" est déjà utilisé par une autre matière. Choisissez un code différent.` }, 409)
+    }
+  }
   const { rows } = await pool.query(
     'INSERT INTO matieres (nom,code,description) VALUES ($1,$2,$3) RETURNING *',
-    [b.nom, b.code || null, b.description || null]
+    [b.nom, code, b.description || null]
   )
   return c.json(rows[0], 201)
 })
 
 app.put('/matieres/:id', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
+  const id = c.req.param('id')
+  let code = b.code?.trim() || null
+  if (code) {
+    const { rows: existing } = await pool.query('SELECT id FROM matieres WHERE code=$1 AND id!=$2 LIMIT 1', [code, id])
+    if (existing[0]) {
+      return c.json({ message: `Le code "${code}" est déjà utilisé par une autre matière. Choisissez un code différent.` }, 409)
+    }
+  }
   const { rows } = await pool.query(
     'UPDATE matieres SET nom=$1,code=$2,description=$3 WHERE id=$4 RETURNING *',
-    [b.nom, b.code || null, b.description || null, c.req.param('id')]
+    [b.nom, code, b.description || null, id]
   )
   return c.json(rows[0])
 })
