@@ -61,6 +61,32 @@ const successContenu = ref(false)
 // Avoirs enseignant — masqués par défaut pour protéger la confidentialité
 const avoirsVisibles = ref(false)
 
+// ── Classement profs par avis étudiants (vue admin) ──────────────────
+const classementProfs = ref<{ enseignant_id: number; enseignant: string; moyenne: number; total_avis: number; seances_evaluees: number }[]>([])
+const classementLoading = ref(false)
+const classementVisible = ref(false)
+const classementPeriode = ref<'tout' | 'mois' | '3mois'>('tout')
+
+async function loadClassement() {
+  if (classementLoading.value) return
+  classementLoading.value = true
+  try {
+    const { data } = await api.get('/avis/synthese')
+    classementProfs.value = data
+  } catch { /* silencieux */ }
+  finally { classementLoading.value = false }
+}
+
+function toggleClassement() {
+  classementVisible.value = !classementVisible.value
+  if (classementVisible.value && classementProfs.value.length === 0) loadClassement()
+}
+
+function starsStr(n: number) {
+  const full = Math.round(n)
+  return '★'.repeat(full) + '☆'.repeat(5 - full)
+}
+
 // ── Avis qualité séances (vue enseignant) ────────────────────────────
 const avisData = ref<Record<number, { avis: any[]; count: number; moyenne: number | null; loading: boolean }>>({})
 
@@ -1174,6 +1200,40 @@ function stopQrScanner() {
         <div class="em-today-stat">
           <div class="em-today-val">{{ enseignantsActifsAujourdHui }}</div>
           <div class="em-today-lbl">Enseignants actifs</div>
+        </div>
+      </div>
+
+      <!-- ── Classement profs par avis étudiants ── -->
+      <div class="em-classement-bar">
+        <button class="em-classement-toggle" :class="{ 'em-classement-toggle--active': classementVisible }" @click="toggleClassement">
+          🏆 Classement des profs par avis étudiants
+          <span class="em-classement-chevron">{{ classementVisible ? '▲' : '▼' }}</span>
+        </button>
+        <div v-if="classementVisible" class="em-classement-panel">
+          <div v-if="classementLoading" class="em-classement-loading">Chargement…</div>
+          <div v-else-if="classementProfs.length === 0" class="em-classement-empty">
+            Aucun avis étudiant enregistré pour le moment.
+          </div>
+          <div v-else class="em-classement-list">
+            <div v-for="(prof, idx) in classementProfs" :key="prof.enseignant_id" class="em-classement-card"
+              :class="{ 'em-classement-card--gold': idx === 0, 'em-classement-card--silver': idx === 1, 'em-classement-card--bronze': idx === 2 }">
+              <div class="em-classement-rank">
+                <span v-if="idx === 0">🥇</span>
+                <span v-else-if="idx === 1">🥈</span>
+                <span v-else-if="idx === 2">🥉</span>
+                <span v-else class="em-classement-rank-num">{{ idx + 1 }}</span>
+              </div>
+              <div class="em-classement-info">
+                <div class="em-classement-name">{{ prof.enseignant }}</div>
+                <div class="em-classement-meta">{{ prof.seances_evaluees }} séance(s) · {{ prof.total_avis }} avis</div>
+              </div>
+              <div class="em-classement-score">
+                <div class="em-classement-stars">{{ starsStr(prof.moyenne) }}</div>
+                <div class="em-classement-avg">{{ prof.moyenne }}<span class="em-classement-denom">/5</span></div>
+              </div>
+            </div>
+          </div>
+          <button class="em-classement-refresh" @click="loadClassement">🔄 Actualiser</button>
         </div>
       </div>
 
@@ -2420,4 +2480,67 @@ function stopQrScanner() {
   font-family: inherit; transition: background 0.15s;
 }
 .qr-btn-close:hover { background: rgba(255,255,255,0.2); }
+
+/* ── Classement profs ── */
+.em-classement-bar { margin: 16px 0 0; }
+.em-classement-toggle {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 12px 18px; border-radius: 12px;
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  color: #fff; font-size: 14px; font-weight: 700; cursor: pointer;
+  border: none; font-family: 'Poppins', sans-serif;
+  transition: opacity .15s;
+}
+.em-classement-toggle:hover { opacity: .9; }
+.em-classement-toggle--active { border-radius: 12px 12px 0 0; }
+.em-classement-chevron { margin-left: auto; font-size: 12px; }
+.em-classement-panel {
+  background: #fff; border: 1px solid #e2e8f0; border-top: none;
+  border-radius: 0 0 12px 12px; padding: 16px;
+}
+.em-classement-loading, .em-classement-empty {
+  text-align: center; color: #94a3b8; font-size: 13px; padding: 20px 0;
+  font-family: 'Poppins', sans-serif;
+}
+.em-classement-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.em-classement-card {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 16px; border-radius: 10px;
+  background: #f8fafc; border: 1px solid #e2e8f0;
+  transition: box-shadow .15s;
+}
+.em-classement-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.em-classement-card--gold  { background: linear-gradient(135deg,#fffbeb,#fef3c7); border-color: #fcd34d; }
+.em-classement-card--silver{ background: linear-gradient(135deg,#f8fafc,#f1f5f9); border-color: #cbd5e1; }
+.em-classement-card--bronze{ background: linear-gradient(135deg,#fff7ed,#ffedd5); border-color: #fdba74; }
+.em-classement-rank { font-size: 26px; min-width: 36px; text-align: center; }
+.em-classement-rank-num {
+  font-size: 15px; font-weight: 800; color: #64748b;
+  font-family: 'Poppins', sans-serif;
+}
+.em-classement-info { flex: 1; }
+.em-classement-name {
+  font-size: 14px; font-weight: 700; color: #1e293b;
+  font-family: 'Poppins', sans-serif;
+}
+.em-classement-meta {
+  font-size: 11px; color: #64748b; margin-top: 2px;
+  font-family: 'Poppins', sans-serif;
+}
+.em-classement-score { text-align: right; }
+.em-classement-stars { font-size: 16px; color: #f59e0b; letter-spacing: 1px; }
+.em-classement-avg {
+  font-size: 18px; font-weight: 800; color: #1e293b;
+  font-family: 'Poppins', sans-serif;
+}
+.em-classement-denom { font-size: 12px; font-weight: 500; color: #94a3b8; }
+.em-classement-refresh {
+  display: block; margin: 0 auto;
+  padding: 6px 16px; border-radius: 8px;
+  background: #f1f5f9; border: 1px solid #e2e8f0;
+  color: #475569; font-size: 12px; font-weight: 600;
+  cursor: pointer; font-family: 'Poppins', sans-serif;
+  transition: background .15s;
+}
+.em-classement-refresh:hover { background: #e2e8f0; }
 </style>
