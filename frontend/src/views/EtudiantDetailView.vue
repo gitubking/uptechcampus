@@ -54,9 +54,86 @@ async function confirmDeleteEtudiant() {
 // --- Données ---
 const etudiant = ref<any>(null)
 const loading = ref(true)
-const activeTab = ref<'infos' | 'inscriptions' | 'documents' | 'finance' | 'timeline' | 'commentaires'>('infos')
+const activeTab = ref<'infos' | 'inscriptions' | 'documents' | 'finance' | 'timeline' | 'commentaires' | 'parents'>('infos')
 const echeancesMap = ref<Record<number, any[]>>({})
 const paiementsMap = ref<Record<number, any[]>>({})
+
+// ── Réinscription étudiant existant ──────────────────────────────────────────
+const showReinscModal = ref(false)
+const reinscLoading = ref(false)
+const reinscSaving = ref(false)
+const reinscForm = ref({ annee_academique_id: '', filiere_id: '', classe_id: '', statut: 'inscrit_actif', mensualite: '', frais_inscription: '', mois_debut: '' })
+const reinscAnnees = ref<any[]>([])
+const reinscFilieres = ref<any[]>([])
+const reinscClasses = ref<any[]>([])
+const reinscError = ref('')
+const reinscSuccess = ref(false)
+
+async function openReinscModal() {
+  showReinscModal.value = true
+  reinscSuccess.value = false
+  reinscError.value = ''
+  reinscForm.value = { annee_academique_id: '', filiere_id: '', classe_id: '', statut: 'inscrit_actif', mensualite: '', frais_inscription: '', mois_debut: '' }
+  reinscLoading.value = true
+  try {
+    const [a, f] = await Promise.all([
+      api.get('/annees-academiques'),
+      api.get('/filieres')
+    ])
+    reinscAnnees.value = a.data
+    reinscFilieres.value = f.data.filter((f: any) => f.actif !== false)
+    // Pré-sélectionner l'année active
+    const active = reinscAnnees.value.find((a: any) => a.actif)
+    if (active) reinscForm.value.annee_academique_id = String(active.id)
+  } finally {
+    reinscLoading.value = false
+  }
+}
+
+async function onReinscFiliereChange() {
+  reinscForm.value.classe_id = ''
+  reinscClasses.value = []
+  if (!reinscForm.value.filiere_id) return
+  const { data } = await api.get(`/classes?filiere_id=${reinscForm.value.filiere_id}`)
+  reinscClasses.value = data
+  // Pré-remplir montants depuis la filière
+  const fil = reinscFilieres.value.find((f: any) => String(f.id) === reinscForm.value.filiere_id)
+  if (fil) {
+    reinscForm.value.mensualite = fil.mensualite ?? ''
+    reinscForm.value.frais_inscription = fil.frais_inscription ?? ''
+  }
+}
+
+async function saveReinscription() {
+  reinscError.value = ''
+  if (!reinscForm.value.annee_academique_id) { reinscError.value = 'Choisissez une année académique.'; return }
+  reinscSaving.value = true
+  try {
+    await api.post('/inscriptions', {
+      etudiant_id: etudiant.value.id,
+      annee_academique_id: Number(reinscForm.value.annee_academique_id),
+      filiere_id: reinscForm.value.filiere_id ? Number(reinscForm.value.filiere_id) : null,
+      classe_id: reinscForm.value.classe_id ? Number(reinscForm.value.classe_id) : null,
+      statut: reinscForm.value.statut,
+      mensualite: reinscForm.value.mensualite ? Number(reinscForm.value.mensualite) : null,
+      frais_inscription: reinscForm.value.frais_inscription ? Number(reinscForm.value.frais_inscription) : null,
+      mois_debut: reinscForm.value.mois_debut || null,
+    })
+    reinscSuccess.value = true
+    // Recharger la fiche étudiant
+    const { data } = await api.get(`/etudiants/${etudiant.value.id}`)
+    etudiant.value = data
+    for (const insc of data.inscriptions ?? []) {
+      api.get(`/echeances?inscription_id=${insc.id}`).then(r => {
+        echeancesMap.value = { ...echeancesMap.value, [insc.id]: r.data.data ?? r.data }
+      })
+    }
+  } catch (e: any) {
+    reinscError.value = e?.response?.data?.message ?? 'Erreur lors de la réinscription.'
+  } finally {
+    reinscSaving.value = false
+  }
+}
 
 // --- Formation individuelle ---
 const fiData = ref<any>(null)
@@ -1546,6 +1623,9 @@ function switchTab(key: string) {
   if (key === 'commentaires' && !commentaires.value.length && !commentairesLoading.value) {
     loadCommentaires()
   }
+  if (key === 'parents') {
+    loadParents()
+  }
 }
 
 function formatEventDate(d: string) {
@@ -1939,6 +2019,44 @@ ${checklist.value.length ? `<div class="sec">
     dossierLoading.value = false
   }
 }
+
+// ── Gestion des comptes parents ───────────────────────────────────────────────
+const parentsLies = ref<any[]>([])
+const loadingParents = ref(false)
+const parentUsersAll = ref<any[]>([])
+const newParentUserId = ref('')
+const lieurParent = ref(false)
+
+async function loadParents() {
+  if (!etudiant.value?.id) return
+  loadingParents.value = true
+  try {
+    const { data } = await api.get(`/parent-lien?etudiant_id=${etudiant.value.id}`)
+    parentsLies.value = Array.isArray(data) ? data : []
+    // Load all parent-role users for the selector
+    const { data: users } = await api.get('/users?role=parent')
+    parentUsersAll.value = Array.isArray(users) ? users : []
+  } catch { parentsLies.value = [] }
+  finally { loadingParents.value = false }
+}
+
+async function lierParent() {
+  if (!newParentUserId.value || !etudiant.value?.id) return
+  lieurParent.value = true
+  try {
+    await api.post('/parent-lien', { parent_user_id: Number(newParentUserId.value), etudiant_id: etudiant.value.id })
+    newParentUserId.value = ''
+    await loadParents()
+  } catch (e: any) {
+    alert(e?.response?.data?.message ?? 'Erreur lors du lien.')
+  } finally { lieurParent.value = false }
+}
+
+async function delierParent(lienId: number) {
+  if (!confirm('Retirer ce parent ?')) return
+  await api.delete(`/parent-lien/${lienId}`)
+  await loadParents()
+}
 </script>
 
 <template>
@@ -2233,6 +2351,7 @@ ${checklist.value.length ? `<div class="sec">
           { key: 'finance', label: 'Finances' },
           { key: 'timeline', label: '📅 Timeline' },
           { key: 'commentaires', label: `🗒️ Notes internes${commentaires.length ? ` (${commentaires.length})` : ''}` },
+          { key: 'parents', label: `👨‍👩‍👧 Parents${parentsLies.length ? ` (${parentsLies.length})` : ''}` },
         ]" :key="tab.key"
           @click="switchTab(tab.key)"
           class="px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition"
@@ -2328,6 +2447,14 @@ ${checklist.value.length ? `<div class="sec">
               {{ p.statut === 'paye' ? '✓ Payé' : p.statut === 'partiel' ? '◐ Partiel' : '✗ Non payé' }}
             </span>
           </div>
+        </div>
+
+        <!-- Bouton Réinscrire -->
+        <div class="flex justify-end mb-3">
+          <button @click="openReinscModal"
+            style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:9px;background:#1e293b;color:#fff;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:'Poppins',sans-serif;">
+            ➕ Nouvelle inscription
+          </button>
         </div>
 
         <div v-if="!etudiant.inscriptions?.length && !isFiStudent" class="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
@@ -2537,6 +2664,20 @@ ${checklist.value.length ? `<div class="sec">
               {{ fs.insc.filiere?.nom ?? '—' }}
               <span class="text-xs font-normal text-gray-400 ml-2">{{ fs.insc.annee_academique?.libelle ?? '' }}</span>
             </h3>
+
+            <!-- Dates -->
+            <div class="flex flex-wrap gap-4 mb-4 text-xs text-gray-500">
+              <div class="flex items-center gap-1.5">
+                <span class="text-gray-400">📅</span>
+                <span class="font-medium text-gray-600">Début des cours :</span>
+                <span>{{ fs.insc.classe?.date_debut_cours ? new Date(fs.insc.classe.date_debut_cours).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—' }}</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-gray-400">📋</span>
+                <span class="font-medium text-gray-600">Date d'inscription :</span>
+                <span>{{ fs.insc.created_at ? new Date(fs.insc.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—' }}</span>
+              </div>
+            </div>
 
             <!-- KPIs -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
@@ -2924,6 +3065,69 @@ ${checklist.value.length ? `<div class="sec">
 
       </div>
 
+      <!-- ── Onglet : Parents / Tuteurs ─────────────────────────────── -->
+      <div v-else-if="activeTab === 'parents'" style="max-width:620px;">
+        <div v-if="loadingParents" class="flex items-center justify-center py-10">
+          <svg class="animate-spin w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+        </div>
+        <template v-else>
+          <!-- Info banner -->
+          <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:13px;color:#1e40af;">
+            💡 Les comptes parents permettent aux tuteurs de suivre les notes, absences et paiements de leur enfant via le <strong>Portail Parent</strong>. Créez d'abord un utilisateur avec le rôle <strong>Parent/Tuteur</strong> depuis la gestion des utilisateurs, puis liez-le ici.
+          </div>
+
+          <!-- Liste des parents liés -->
+          <div v-if="parentsLies.length" style="margin-bottom:18px;">
+            <p style="font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">
+              👨‍👩‍👧 Parents / Tuteurs liés ({{ parentsLies.length }})
+            </p>
+            <div v-for="p in parentsLies" :key="p.id"
+              style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;background:#fff;">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#4f46e5);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;flex-shrink:0;">
+                  {{ (p.parent_prenom?.[0] ?? '') + (p.parent_nom?.[0] ?? '') }}
+                </div>
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:#111;">{{ p.parent_prenom }} {{ p.parent_nom }}</div>
+                  <div style="font-size:12px;color:#6b7280;">{{ p.parent_email }}</div>
+                </div>
+              </div>
+              <button v-if="canWrite" @click="delierParent(p.id)"
+                style="font-size:11px;padding:4px 10px;background:#fee2e2;color:#b91c1c;border:none;border-radius:4px;cursor:pointer;">
+                Retirer
+              </button>
+            </div>
+          </div>
+          <p v-else style="font-size:13px;color:#9ca3af;margin-bottom:18px;">Aucun parent lié pour le moment.</p>
+
+          <!-- Lier un parent -->
+          <div v-if="canWrite" style="border:1px solid #e5e7eb;border-radius:8px;padding:16px;background:#fafafa;">
+            <p style="font-size:12px;font-weight:700;color:#374151;margin:0 0 10px;">Lier un compte parent</p>
+            <div style="display:flex;gap:8px;">
+              <select v-model="newParentUserId"
+                style="flex:1;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;background:#fff;">
+                <option value="">— Choisir un utilisateur parent —</option>
+                <option v-for="u in parentUsersAll.filter(u => !parentsLies.some(l => l.parent_user_id === u.id))"
+                  :key="u.id" :value="String(u.id)">
+                  {{ u.prenom }} {{ u.nom }} — {{ u.email }}
+                </option>
+              </select>
+              <button @click="lierParent" :disabled="!newParentUserId || lieurParent"
+                style="padding:8px 16px;background:#6366f1;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;"
+                :style="(!newParentUserId || lieurParent) ? 'opacity:0.5;cursor:not-allowed' : ''">
+                {{ lieurParent ? 'Liaison…' : '🔗 Lier' }}
+              </button>
+            </div>
+            <p v-if="!parentUsersAll.length" style="font-size:11px;color:#9ca3af;margin:8px 0 0;">
+              Aucun utilisateur avec le rôle Parent/Tuteur trouvé. <a href="/users" style="color:#6366f1;">Créer un compte parent →</a>
+            </p>
+          </div>
+        </template>
+      </div>
+
     </template>
   </div>
 
@@ -3098,6 +3302,120 @@ ${checklist.value.length ? `<div class="sec">
               {{ webcamLoading ? 'Enregistrement…' : '✓ Enregistrer cette photo' }}
             </button>
           </template>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- ── Modal Réinscription ───────────────────────────────────────────── -->
+  <Teleport to="body">
+    <div v-if="showReinscModal" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;">
+      <div style="background:#fff;border-radius:16px;width:100%;max-width:480px;box-shadow:0 20px 60px rgba(0,0,0,.2);overflow:hidden;">
+        <!-- Header -->
+        <div style="background:linear-gradient(135deg,#1e293b,#334155);padding:20px 24px;display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <div style="color:#fff;font-size:16px;font-weight:700;font-family:'Poppins',sans-serif;">➕ Nouvelle inscription</div>
+            <div style="color:#94a3b8;font-size:12px;margin-top:2px;font-family:'Poppins',sans-serif;">{{ etudiant?.prenom }} {{ etudiant?.nom }}</div>
+          </div>
+          <button @click="showReinscModal=false" style="background:rgba(255,255,255,.1);border:none;color:#fff;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:16px;">✕</button>
+        </div>
+
+        <!-- Body -->
+        <div style="padding:24px;" v-if="!reinscSuccess">
+          <div v-if="reinscLoading" style="text-align:center;color:#94a3b8;padding:20px 0;font-family:'Poppins',sans-serif;">Chargement…</div>
+          <template v-else>
+            <!-- Année académique -->
+            <div style="margin-bottom:14px;">
+              <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;font-family:'Poppins',sans-serif;">Année académique *</label>
+              <select v-model="reinscForm.annee_academique_id"
+                style="width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Poppins',sans-serif;background:#f8fafc;">
+                <option value="">— Sélectionner —</option>
+                <option v-for="a in reinscAnnees" :key="a.id" :value="String(a.id)">
+                  {{ a.libelle }}{{ a.actif ? ' (en cours)' : '' }}
+                </option>
+              </select>
+            </div>
+
+            <!-- Filière -->
+            <div style="margin-bottom:14px;">
+              <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;font-family:'Poppins',sans-serif;">Filière</label>
+              <select v-model="reinscForm.filiere_id" @change="onReinscFiliereChange"
+                style="width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Poppins',sans-serif;background:#f8fafc;">
+                <option value="">— Aucune —</option>
+                <option v-for="f in reinscFilieres" :key="f.id" :value="String(f.id)">{{ f.nom }}</option>
+              </select>
+            </div>
+
+            <!-- Classe -->
+            <div v-if="reinscClasses.length" style="margin-bottom:14px;">
+              <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;font-family:'Poppins',sans-serif;">Classe</label>
+              <select v-model="reinscForm.classe_id"
+                style="width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Poppins',sans-serif;background:#f8fafc;">
+                <option value="">— Non affectée —</option>
+                <option v-for="cl in reinscClasses" :key="cl.id" :value="String(cl.id)">{{ cl.nom }}</option>
+              </select>
+            </div>
+
+            <!-- Statut -->
+            <div style="margin-bottom:14px;">
+              <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;font-family:'Poppins',sans-serif;">Statut</label>
+              <select v-model="reinscForm.statut"
+                style="width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Poppins',sans-serif;background:#f8fafc;">
+                <option value="inscrit_actif">Inscrit actif</option>
+                <option value="pre_inscrit">Pré-inscrit</option>
+                <option value="diplome">Diplômé</option>
+                <option value="abandonne">Abandonné</option>
+              </select>
+            </div>
+
+            <!-- Montants -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+              <div>
+                <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;font-family:'Poppins',sans-serif;">Frais inscription (F)</label>
+                <input type="number" v-model="reinscForm.frais_inscription" placeholder="ex: 50000"
+                  style="width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Poppins',sans-serif;background:#f8fafc;box-sizing:border-box;" />
+              </div>
+              <div>
+                <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;font-family:'Poppins',sans-serif;">Mensualité (F)</label>
+                <input type="number" v-model="reinscForm.mensualite" placeholder="ex: 35000"
+                  style="width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Poppins',sans-serif;background:#f8fafc;box-sizing:border-box;" />
+              </div>
+            </div>
+
+            <!-- Mois début -->
+            <div style="margin-bottom:20px;">
+              <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;font-family:'Poppins',sans-serif;">Mois de début paiements</label>
+              <input type="month" v-model="reinscForm.mois_debut"
+                style="width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Poppins',sans-serif;background:#f8fafc;box-sizing:border-box;" />
+            </div>
+
+            <div v-if="reinscError" style="background:#fef2f2;color:#dc2626;border-radius:8px;padding:10px 14px;font-size:12px;margin-bottom:14px;font-family:'Poppins',sans-serif;">
+              ⚠️ {{ reinscError }}
+            </div>
+
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+              <button @click="showReinscModal=false"
+                style="padding:9px 18px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#374151;font-size:13px;font-weight:600;cursor:pointer;font-family:'Poppins',sans-serif;">
+                Annuler
+              </button>
+              <button @click="saveReinscription" :disabled="reinscSaving"
+                style="padding:9px 20px;border:none;border-radius:8px;background:#1e293b;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:'Poppins',sans-serif;opacity:1;"
+                :style="{ opacity: reinscSaving ? '.6' : '1' }">
+                {{ reinscSaving ? 'Enregistrement…' : '✓ Inscrire' }}
+              </button>
+            </div>
+          </template>
+        </div>
+
+        <!-- Succès -->
+        <div v-else style="padding:32px 24px;text-align:center;">
+          <div style="font-size:48px;margin-bottom:12px;">✅</div>
+          <div style="font-size:16px;font-weight:700;color:#1e293b;margin-bottom:6px;font-family:'Poppins',sans-serif;">Inscription enregistrée !</div>
+          <div style="font-size:13px;color:#64748b;margin-bottom:20px;font-family:'Poppins',sans-serif;">Les échéances ont été générées automatiquement.</div>
+          <button @click="showReinscModal=false"
+            style="padding:10px 24px;border:none;border-radius:8px;background:#1e293b;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:'Poppins',sans-serif;">
+            Fermer
+          </button>
         </div>
       </div>
     </div>
