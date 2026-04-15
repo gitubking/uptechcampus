@@ -318,10 +318,10 @@ onMounted(load)
         </div>
         <div v-else-if="!inscriptions.length" class="nb-loading">Aucun étudiant inscrit dans cette classe.</div>
         <div v-else style="overflow-x:auto;">
-          <table class="nb-table">
+          <table class="nb-table nb-table--saisie">
             <thead>
               <tr v-if="hasTroncCommun">
-                <th style="background:#fff;border:none;"></th>
+                <th class="nb-col-sticky nb-col-sticky--head" style="background:#f9f9f9;border:none;"></th>
                 <th :colspan="uesTronc.length" style="text-align:center;background:#eff6ff;color:#1d4ed8;font-size:11px;padding:5px 8px;border-bottom:2px solid #bfdbfe;">
                   🏫 Tronc Commun ({{ uesTronc.length }} UE{{ uesTronc.length>1?'s':'' }})
                 </th>
@@ -331,7 +331,7 @@ onMounted(load)
                 <th style="background:#fff;border:none;"></th>
               </tr>
               <tr>
-                <th style="text-align:left;min-width:160px;">Étudiant</th>
+                <th class="nb-col-sticky nb-col-sticky--head" style="text-align:left;min-width:160px;">Étudiant</th>
                 <th v-for="ue in ues" :key="ue.id"
                   :style="{ textAlign:'center', minWidth:'100px', background: ue.is_tronc_commun ? '#f0f9ff' : '#f0fdf4' }">
                   <div style="line-height:1.4;">
@@ -346,7 +346,7 @@ onMounted(load)
             </thead>
             <tbody>
               <tr v-for="insc in inscriptions" :key="insc.id">
-                <td style="font-weight:600;color:#333;white-space:nowrap;">
+                <td class="nb-col-sticky" style="font-weight:600;color:#333;white-space:nowrap;background:#fff;">
                   {{ insc.etudiant.prenom }} {{ insc.etudiant.nom }}
                   <span v-if="(insc as any).classe" style="display:block;font-size:10px;color:#aaa;font-weight:400;">{{ (insc as any).classe?.nom }}</span>
                 </td>
@@ -630,6 +630,10 @@ onMounted(load)
 .nb-table th { padding:10px 14px; text-align:left; font-size:11px; font-weight:600; color:#888; text-transform:uppercase; border-bottom:1px solid #f0f0f0; }
 .nb-table td { padding:10px 14px; border-top:1px solid #f4f4f4; font-size:13px; vertical-align:middle; }
 .nb-table tr:hover td { background:#fafafa; }
+.nb-table--saisie .nb-col-sticky { position:sticky; left:0; z-index:1; }
+.nb-table--saisie .nb-col-sticky--head { z-index:2; background:#f9f9f9 !important; }
+.nb-table--saisie .nb-col-sticky { box-shadow:2px 0 6px -2px rgba(0,0,0,0.10); clip-path:inset(0 -8px 0 0); }
+.nb-table--saisie tr:hover .nb-col-sticky { background:#fafafa !important; }
 
 .nb-note-input { width:72px; text-align:center; border:1.5px solid #e5e5e5; border-radius:4px; padding:5px 4px; font-family:'Poppins',sans-serif; font-size:13px; font-weight:700; }
 .nb-note-input:focus { outline:none; }
