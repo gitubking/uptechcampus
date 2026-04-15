@@ -1594,12 +1594,14 @@ onMounted(() => {
           <!-- Risk ring -->
           <div class="et-card-top">
             <div class="et-card-avatar"
-              :style="{ background: avatarColor((etudiant as any).prenom, (etudiant as any).nom) }"
+              :style="{ background: (etudiant as any).photo_path ? 'transparent' : avatarColor((etudiant as any).prenom, (etudiant as any).nom) }"
               :class="{
                 'et-card-av--red':    risques[(etudiant as any).id]?.risque_global === 'red',
                 'et-card-av--yellow': risques[(etudiant as any).id]?.risque_global === 'yellow',
               }">
-              {{ ((etudiant as any).prenom[0] ?? '') + ((etudiant as any).nom[0] ?? '') }}
+              <img v-if="(etudiant as any).photo_path" :src="(etudiant as any).photo_path"
+                style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />
+              <template v-else>{{ ((etudiant as any).prenom[0] ?? '') + ((etudiant as any).nom[0] ?? '') }}</template>
               <span v-if="risques[(etudiant as any).id]"
                 class="rq-dot"
                 :class="`rq-dot--${risques[(etudiant as any).id]?.risque_global}`"></span>
@@ -1649,12 +1651,14 @@ onMounted(() => {
           <div class="student-name" style="cursor:pointer;" @click="router.push(`/etudiants/${(etudiant as any).id}`)">
             <div class="s-avatar-wrap">
               <div class="s-avatar"
-                :style="{ background: avatarColor((etudiant as any).prenom, (etudiant as any).nom) }"
+                :style="{ background: (etudiant as any).photo_path ? 'transparent' : avatarColor((etudiant as any).prenom, (etudiant as any).nom) }"
                 :class="{
                   'rq-ring--red':    risques[(etudiant as any).id]?.risque_global === 'red',
                   'rq-ring--yellow': risques[(etudiant as any).id]?.risque_global === 'yellow',
                 }">
-                {{ ((etudiant as any).prenom[0] ?? '') + ((etudiant as any).nom[0] ?? '') }}
+                <img v-if="(etudiant as any).photo_path" :src="(etudiant as any).photo_path"
+                  style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />
+                <template v-else>{{ ((etudiant as any).prenom[0] ?? '') + ((etudiant as any).nom[0] ?? '') }}</template>
               </div>
               <!-- Dot risque -->
               <span v-if="risques[(etudiant as any).id]"
