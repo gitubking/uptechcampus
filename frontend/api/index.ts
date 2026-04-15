@@ -8411,6 +8411,28 @@ app.get('/avis/synthese', requireAuth, role('dg', 'dir_peda', 'coordinateur'), a
   return c.json(rows)
 })
 
+// Tous les avis étudiants (admin global)
+app.get('/avis/tous', requireAuth, role('dg', 'dir_peda', 'coordinateur', 'secretariat'), async (c) => {
+  const { rows } = await pool.query(`
+    SELECT
+      av.id,
+      av.note,
+      av.commentaire,
+      av.created_at,
+      s.id        as seance_id,
+      s.matiere,
+      s.date_debut,
+      cl.nom      as classe_nom,
+      ens.prenom || ' ' || ens.nom as enseignant
+    FROM avis_seance av
+    JOIN seances s   ON s.id = av.seance_id
+    LEFT JOIN classes    cl  ON cl.id = s.classe_id
+    LEFT JOIN enseignants ens ON ens.id = s.enseignant_id
+    ORDER BY av.created_at DESC
+  `)
+  return c.json(rows)
+})
+
 // ─── GET /espace-parent/dashboard ────────────────────────────────────────────
 app.get('/espace-parent/dashboard', requireAuth, role('parent'), async (c) => {
   const currentUser = u(c) as any
