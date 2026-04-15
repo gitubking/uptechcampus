@@ -24,6 +24,8 @@ interface Etudiant {
   montant_du: number
   total_paye: number
   statut: 'a_jour' | 'retard_leger' | 'en_retard' | 'pas_encore_du'
+  date_inscription: string | null
+  date_debut_cours: string | null
 }
 
 interface Resume {
@@ -363,6 +365,8 @@ onMounted(load)
             <tr>
               <th style="white-space:nowrap;">Étudiant</th>
               <th style="white-space:nowrap;">Classe</th>
+              <th style="white-space:nowrap;">Date inscription</th>
+              <th style="white-space:nowrap;">Début des cours</th>
               <th style="text-align:right;white-space:nowrap;">Mensualité</th>
               <th style="text-align:center;white-space:nowrap;">Attendues</th>
               <th style="text-align:center;white-space:nowrap;">Payées</th>
@@ -383,6 +387,12 @@ onMounted(load)
               <td>
                 <div style="font-weight:600;color:#334155;">{{ e.classe_nom }}</div>
                 <div style="font-size:10px;color:#94a3b8;">{{ e.filiere_nom }}</div>
+              </td>
+              <td style="white-space:nowrap;font-size:12px;color:#475569;">
+                {{ e.date_inscription ? new Date(e.date_inscription).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }) : '—' }}
+              </td>
+              <td style="white-space:nowrap;font-size:12px;color:#475569;">
+                {{ e.date_debut_cours ? new Date(e.date_debut_cours).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }) : '—' }}
               </td>
               <td style="text-align:right;font-weight:600;">{{ formatFCFA(e.mensualite) }}</td>
               <td style="text-align:center;color:#475569;">{{ e.mensualites_dues }}</td>

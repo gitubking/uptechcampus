@@ -6377,6 +6377,8 @@ app.get('/suivi-paiements-global', requireAuth, async (c) => {
       mensualite: mensualiteMontant, mensualites_dues: mensualitesDues,
       mensualites_payees: mensPayees, retard, montant_du: montantDu,
       total_paye: parseFloat(ins.total_paye), statut,
+      date_inscription: ins.created_at,
+      date_debut_cours: classe.date_debut_cours ?? null,
     }
   }).filter(Boolean)
 
