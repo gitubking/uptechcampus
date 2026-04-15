@@ -6,7 +6,7 @@ import api from '@/services/api'
 const auth = useAuthStore()
 const canSee = computed(() => ['dg', 'resp_fin', 'dir_peda'].includes(auth.user?.role ?? ''))
 
-type Tab = 'financier' | 'pedagogique' | 'rh' | 'etudiants' | 'ministeriel'
+type Tab = 'financier' | 'pedagogique' | 'rh' | 'etudiants' | 'ministeriel' | 'classement'
 const activeTab = ref<Tab>('financier')
 const loading = ref(true)
 
@@ -32,6 +32,31 @@ interface RapportData {
 }
 
 const data = ref<RapportData | null>(null)
+
+// ── Classement enseignants ────────────────────────────────────────────
+interface ClassementItem {
+  id: number; nom_complet: string; specialite: string | null
+  nb_seances_evaluees: number; nb_evaluations: number; moyenne: string | number
+}
+const classement = ref<ClassementItem[]>([])
+const loadingClassement = ref(false)
+const classementLoaded = ref(false)
+
+async function loadClassement() {
+  if (classementLoaded.value) return
+  loadingClassement.value = true
+  try {
+    const { data: d } = await api.get('/evaluations/classement')
+    classement.value = d
+    classementLoaded.value = true
+  } catch { /* ignore */ }
+  finally { loadingClassement.value = false }
+}
+
+function switchTab(tab: Tab) {
+  activeTab.value = tab
+  if (tab === 'classement') loadClassement()
+}
 
 function fmt(n: number) {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', maximumFractionDigits: 0 }).format(n)
@@ -65,8 +90,8 @@ const statutLabels: Record<string, string> = {
 
 // Export CSV simple
 function exportCSV() {
-  if (!data.value) return
   const tab = activeTab.value
+  if (tab !== 'classement' && !data.value) return
   let rows: string[][] = []
   let filename = 'rapport.csv'
 
@@ -120,6 +145,12 @@ function exportCSV() {
       ['Statut', 'Nombre'],
       ...(data.value.etudiants.par_statut as any[]).map((s: any) => [statutLabels[s.statut] ?? s.statut, String(s.total)]),
     ]
+  } else if (tab === 'classement') {
+    filename = 'classement_enseignants.csv'
+    rows = [
+      ['Rang', 'Enseignant', 'Spécialité', 'Séances évaluées', 'Nb avis', 'Moyenne /5'],
+      ...classement.value.map((item, i) => [String(i + 1), item.nom_complet, item.specialite ?? '', String(item.nb_seances_evaluees), String(item.nb_evaluations), Number(item.moyenne).toFixed(1)]),
+    ]
   } else {
     filename = 'rapport_etudiants.csv'
     rows = [
@@ -163,10 +194,10 @@ onMounted(load)
 
     <!-- Tabs -->
     <div class="rp-tabs">
-      <button v-for="tab in ['financier', 'pedagogique', 'rh', 'etudiants', 'ministeriel']" :key="tab"
-        @click="activeTab = tab as Tab"
+      <button v-for="tab in ['financier', 'pedagogique', 'rh', 'etudiants', 'ministeriel', 'classement']" :key="tab"
+        @click="switchTab(tab as Tab)"
         class="rp-tab" :class="activeTab === tab ? 'rp-tab--active' : ''">
-        {{ tab === 'financier' ? 'Financier' : tab === 'pedagogique' ? 'Pédagogique' : tab === 'rh' ? 'RH' : tab === 'etudiants' ? 'Étudiants' : 'Ministériel' }}
+        {{ tab === 'financier' ? 'Financier' : tab === 'pedagogique' ? 'Pédagogique' : tab === 'rh' ? 'RH' : tab === 'etudiants' ? 'Étudiants' : tab === 'ministeriel' ? 'Ministériel' : '★ Classement profs' }}
       </button>
     </div>
 
@@ -404,6 +435,97 @@ onMounted(load)
 
       </div>
 
+      <!-- CLASSEMENT PROFS -->
+      <div v-else-if="activeTab === 'classement'" style="display:flex;flex-direction:column;gap:16px;">
+        <div v-if="loadingClassement" style="text-align:center;padding:40px;color:#aaa;font-size:13px;">Chargement…</div>
+        <template v-else-if="classement.length">
+          <!-- Podium top 3 -->
+          <div class="rp-card" v-if="classement.length >= 1">
+            <h3 class="rp-card-title">Podium des enseignants</h3>
+            <div style="display:flex;align-items:flex-end;justify-content:center;gap:12px;padding:10px 0;">
+              <!-- 2e place -->
+              <div v-if="classement[1]" style="text-align:center;flex:1;max-width:140px;">
+                <div style="font-size:28px;margin-bottom:4px;">🥈</div>
+                <div style="font-size:12.5px;font-weight:700;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ classement[1].nom_complet }}</div>
+                <div style="font-size:11px;color:#9ca3af;margin-top:2px;">{{ classement[1].specialite ?? '' }}</div>
+                <div style="font-size:22px;font-weight:800;color:#6b7280;margin-top:6px;">{{ Number(classement[1].moyenne).toFixed(1) }}</div>
+                <div style="font-size:10.5px;color:#9ca3af;">{{ classement[1].nb_evaluations }} avis</div>
+                <div style="height:60px;background:#e5e7eb;border-radius:6px 6px 0 0;margin-top:8px;"></div>
+              </div>
+              <!-- 1re place -->
+              <div style="text-align:center;flex:1;max-width:160px;">
+                <div style="font-size:36px;margin-bottom:4px;">🥇</div>
+                <div style="font-size:13px;font-weight:700;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ classement[0].nom_complet }}</div>
+                <div style="font-size:11px;color:#9ca3af;margin-top:2px;">{{ classement[0].specialite ?? '' }}</div>
+                <div style="font-size:28px;font-weight:800;color:#E30613;margin-top:6px;">{{ Number(classement[0].moyenne).toFixed(1) }}</div>
+                <div style="font-size:10.5px;color:#9ca3af;">{{ classement[0].nb_evaluations }} avis</div>
+                <div style="height:80px;background:#E30613;opacity:0.15;border-radius:6px 6px 0 0;margin-top:8px;"></div>
+              </div>
+              <!-- 3e place -->
+              <div v-if="classement[2]" style="text-align:center;flex:1;max-width:140px;">
+                <div style="font-size:28px;margin-bottom:4px;">🥉</div>
+                <div style="font-size:12.5px;font-weight:700;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ classement[2].nom_complet }}</div>
+                <div style="font-size:11px;color:#9ca3af;margin-top:2px;">{{ classement[2].specialite ?? '' }}</div>
+                <div style="font-size:22px;font-weight:800;color:#6b7280;margin-top:6px;">{{ Number(classement[2].moyenne).toFixed(1) }}</div>
+                <div style="font-size:10.5px;color:#9ca3af;">{{ classement[2].nb_evaluations }} avis</div>
+                <div style="height:44px;background:#e5e7eb;border-radius:6px 6px 0 0;margin-top:8px;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tableau complet -->
+          <div class="rp-card">
+            <h3 class="rp-card-title">Classement complet ({{ classement.length }} enseignants évalués)</h3>
+            <table class="rp-classement-table">
+              <thead>
+                <tr>
+                  <th style="width:36px;">Rang</th>
+                  <th>Enseignant</th>
+                  <th>Spécialité</th>
+                  <th style="text-align:center;">Séances</th>
+                  <th style="text-align:center;">Avis</th>
+                  <th style="text-align:center;">Note moy.</th>
+                  <th style="min-width:120px;">Étoiles</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, i) in classement" :key="item.id" :class="i === 0 ? 'rp-rank-first' : ''">
+                  <td style="text-align:center;">
+                    <span style="font-size:14px;">{{ i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}` }}</span>
+                  </td>
+                  <td style="font-size:13px;font-weight:600;color:#111;">{{ item.nom_complet }}</td>
+                  <td style="font-size:12px;color:#6b7280;">{{ item.specialite ?? '—' }}</td>
+                  <td style="text-align:center;font-size:13px;font-weight:600;">{{ item.nb_seances_evaluees }}</td>
+                  <td style="text-align:center;font-size:13px;color:#6b7280;">{{ item.nb_evaluations }}</td>
+                  <td style="text-align:center;">
+                    <span style="font-size:16px;font-weight:800;" :style="{ color: Number(item.moyenne) >= 4 ? '#16a34a' : Number(item.moyenne) >= 3 ? '#d97706' : '#b91c1c' }">
+                      {{ Number(item.moyenne).toFixed(1) }}/5
+                    </span>
+                  </td>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:4px;">
+                      <div style="flex:1;background:#f0f0f0;border-radius:10px;height:8px;overflow:hidden;">
+                        <div style="height:100%;border-radius:10px;transition:width 0.3s;"
+                          :style="{ width: `${(Number(item.moyenne) / 5) * 100}%`, background: Number(item.moyenne) >= 4 ? '#22c55e' : Number(item.moyenne) >= 3 ? '#f59e0b' : '#ef4444' }"></div>
+                      </div>
+                      <span style="font-size:10px;color:#9ca3af;min-width:16px;">{{ Number(item.moyenne).toFixed(1) }}</span>
+                    </div>
+                    <div style="display:flex;gap:1px;margin-top:2px;">
+                      <span v-for="n in 5" :key="n" :style="{ color: n <= Math.round(Number(item.moyenne)) ? '#f59e0b' : '#e5e7eb', fontSize:'11px' }">★</span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+        <div v-else style="text-align:center;padding:60px 20px;color:#aaa;">
+          <div style="font-size:40px;margin-bottom:12px;">⭐</div>
+          <p style="font-size:13px;">Aucune évaluation d'enseignant disponible pour l'instant.</p>
+          <p style="font-size:12px;color:#ccc;margin-top:4px;">Les étudiants pourront noter les cours depuis leur espace étudiant après chaque séance émargée.</p>
+        </div>
+      </div>
+
     </div>
   </div>
 </template>
@@ -421,4 +543,13 @@ onMounted(load)
 .rp-bar-pair { display:flex; align-items:flex-end; gap:2px; }
 .rp-bar { border-radius:3px 3px 0 0; transition:height 0.3s; }
 .rp-bar-label { font-size:10px; color:#888; margin-top:4px; text-align:center; }
+
+/* Classement table */
+.rp-classement-table { width:100%; border-collapse:collapse; }
+.rp-classement-table th { background:#f9fafb; padding:8px 12px; font-size:10.5px; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:0.3px; text-align:left; border-bottom:1.5px solid #e5e7eb; }
+.rp-classement-table td { padding:10px 12px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+.rp-classement-table tbody tr:last-child td { border-bottom:none; }
+.rp-classement-table tbody tr:hover { background:#fafafa; }
+.rp-rank-first { background:#fffbeb; }
+.rp-rank-first:hover { background:#fef3c7 !important; }
 </style>

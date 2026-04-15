@@ -235,6 +235,17 @@ pool.query(`CREATE TABLE IF NOT EXISTS clotures_mensuelles (
   notes TEXT
 )`).catch(() => {})
 
+// Évaluations des cours par les étudiants (étoiles + commentaire anonyme)
+pool.query(`CREATE TABLE IF NOT EXISTS evaluations_cours (
+  id             SERIAL PRIMARY KEY,
+  seance_id      INT NOT NULL REFERENCES seances(id) ON DELETE CASCADE,
+  inscription_id INT NOT NULL REFERENCES inscriptions(id) ON DELETE CASCADE,
+  note           SMALLINT NOT NULL CHECK (note BETWEEN 1 AND 5),
+  commentaire    TEXT,
+  created_at     TIMESTAMP DEFAULT NOW(),
+  UNIQUE(seance_id, inscription_id)
+)`).catch(() => {})
+
 const JWT_SECRET = process.env.JWT_SECRET || 'uptech-dev-secret-2026'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -4833,6 +4844,138 @@ app.delete('/commentaires/:id', requireAuth, async (c) => {
 
   await pool.query('DELETE FROM commentaires_etudiant WHERE id = $1', [c.req.param('id')])
   return c.json({ message: 'Commentaire supprimé.' })
+})
+
+// ─── Évaluations cours ────────────────────────────────────────────────────────
+
+// Étudiant soumet ou met à jour son évaluation d'une séance
+app.post('/seances/:id/evaluation', requireAuth, role('etudiant'), async (c) => {
+  const user = c.get('user') as any
+  const seanceId = Number(c.req.param('id'))
+  const b = await c.req.json()
+  const note = Number(b.note)
+  if (!note || note < 1 || note > 5) return c.json({ message: 'Note invalide (1-5)' }, 422)
+
+  // Trouver l'inscription active de cet étudiant
+  const etudiantR = await pool.query(
+    `SELECT e.id FROM etudiants e WHERE e.user_id = $1`, [user.id]
+  )
+  if (!etudiantR.rows.length) return c.json({ message: 'Étudiant introuvable' }, 404)
+  const etudiantId = etudiantR.rows[0].id
+
+  // Vérifier que la séance est émargée (effectue)
+  const seanceR = await pool.query(`SELECT statut FROM seances WHERE id = $1`, [seanceId])
+  if (!seanceR.rows.length) return c.json({ message: 'Séance introuvable' }, 404)
+  if (seanceR.rows[0].statut !== 'effectue') return c.json({ message: 'Séance non encore émargée' }, 422)
+
+  // Trouver l'inscription liée à cette séance (même classe)
+  const inscR = await pool.query(
+    `SELECT i.id FROM inscriptions i
+     JOIN seances s ON s.classe_id = i.classe_id
+     WHERE s.id = $1 AND i.etudiant_id = $2
+       AND i.statut IN ('inscrit_actif','inscrit')
+     LIMIT 1`,
+    [seanceId, etudiantId]
+  )
+  if (!inscR.rows.length) return c.json({ message: 'Vous n\'êtes pas inscrit à cette séance' }, 403)
+  const inscriptionId = inscR.rows[0].id
+
+  const r = await pool.query(
+    `INSERT INTO evaluations_cours (seance_id, inscription_id, note, commentaire)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (seance_id, inscription_id)
+     DO UPDATE SET note = EXCLUDED.note, commentaire = EXCLUDED.commentaire
+     RETURNING *`,
+    [seanceId, inscriptionId, note, b.commentaire?.trim() || null]
+  )
+  return c.json(r.rows[0], 201)
+})
+
+// Étudiant récupère sa propre évaluation pour une séance
+app.get('/seances/:id/mon-evaluation', requireAuth, role('etudiant'), async (c) => {
+  const user = c.get('user') as any
+  const seanceId = Number(c.req.param('id'))
+
+  const etudiantR = await pool.query(`SELECT e.id FROM etudiants e WHERE e.user_id = $1`, [user.id])
+  if (!etudiantR.rows.length) return c.json(null)
+  const etudiantId = etudiantR.rows[0].id
+
+  const r = await pool.query(
+    `SELECT ev.note, ev.commentaire FROM evaluations_cours ev
+     JOIN inscriptions i ON i.id = ev.inscription_id
+     WHERE ev.seance_id = $1 AND i.etudiant_id = $2`,
+    [seanceId, etudiantId]
+  )
+  return c.json(r.rows[0] ?? null)
+})
+
+// Admin/prof voit les évaluations anonymisées d'une séance
+app.get('/seances/:id/evaluations', requireAuth, async (c) => {
+  const user = c.get('user') as any
+  if (!['dg','dir_peda','coordinateur','enseignant'].includes(user.role))
+    return c.json({ message: 'Accès refusé' }, 403)
+  const seanceId = Number(c.req.param('id'))
+  const r = await pool.query(
+    `SELECT ev.note, ev.commentaire, ev.created_at
+     FROM evaluations_cours ev WHERE ev.seance_id = $1
+     ORDER BY ev.created_at DESC`,
+    [seanceId]
+  )
+  const rows = r.rows
+  const nb = rows.length
+  const moy = nb > 0 ? Math.round(rows.reduce((s: number, x: any) => s + x.note, 0) / nb * 10) / 10 : null
+  return c.json({ moyenne: moy, nb_evaluations: nb, evaluations: rows })
+})
+
+// Admin voit toutes les évaluations d'un enseignant (agrégées par séance, anonymes)
+app.get('/enseignants/:id/evaluations', requireAuth, async (c) => {
+  const user = c.get('user') as any
+  if (!['dg','dir_peda','coordinateur'].includes(user.role))
+    return c.json({ message: 'Accès refusé' }, 403)
+  const ensId = Number(c.req.param('id'))
+
+  const r = await pool.query(
+    `SELECT
+       s.id as seance_id, s.matiere, s.date_debut,
+       cl.nom as classe,
+       COUNT(ev.id)::int as nb_evaluations,
+       ROUND(AVG(ev.note)::numeric, 1) as moyenne,
+       ARRAY_AGG(ev.commentaire ORDER BY ev.created_at DESC) FILTER (WHERE ev.commentaire IS NOT NULL) as commentaires
+     FROM seances s
+     JOIN classes cl ON cl.id = s.classe_id
+     LEFT JOIN evaluations_cours ev ON ev.seance_id = s.id
+     WHERE s.enseignant_id = $1
+     GROUP BY s.id, s.matiere, s.date_debut, cl.nom
+     HAVING COUNT(ev.id) > 0
+     ORDER BY s.date_debut DESC`,
+    [ensId]
+  )
+
+  const moyGlobale = r.rows.length > 0
+    ? Math.round(r.rows.reduce((s: number, x: any) => s + Number(x.moyenne || 0), 0) / r.rows.length * 10) / 10
+    : null
+  const nbTotal = r.rows.reduce((s: number, x: any) => s + x.nb_evaluations, 0)
+
+  return c.json({ moyenne_globale: moyGlobale, nb_total: nbTotal, seances: r.rows })
+})
+
+// Classement de tous les enseignants par note étudiants (admin uniquement)
+app.get('/evaluations/classement', requireAuth, role('dg', 'dir_peda'), async (c) => {
+  const r = await pool.query(
+    `SELECT
+       ens.id,
+       ens.nom || ' ' || ens.prenom as nom_complet,
+       ens.specialite,
+       COUNT(DISTINCT ev.seance_id)::int as nb_seances_evaluees,
+       COUNT(ev.id)::int as nb_evaluations,
+       ROUND(AVG(ev.note)::numeric, 2) as moyenne
+     FROM enseignants ens
+     JOIN seances s ON s.enseignant_id = ens.id
+     JOIN evaluations_cours ev ON ev.seance_id = s.id
+     GROUP BY ens.id, ens.nom, ens.prenom, ens.specialite
+     ORDER BY moyenne DESC, nb_evaluations DESC`
+  )
+  return c.json(r.rows)
 })
 
 // ─── Health check ─────────────────────────────────────────────────────────────

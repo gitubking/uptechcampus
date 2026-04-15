@@ -1,7 +1,37 @@
 <script setup lang="ts">
-import { inject, computed } from 'vue'
+import { inject, computed, ref } from 'vue'
+import api from '@/services/api'
 
 const dashboardData = inject<any>('dashboardData')
+
+// ── Évaluation cours ─────────────────────────────────────────────────
+const evalModal = ref<{ seance: any } | null>(null)
+const evalNote = ref(0)
+const evalCommentaire = ref('')
+const evalSubmitting = ref(false)
+const evalDone = ref<Record<number, number>>({}) // seanceId → note soumise
+
+function openEval(seance: any) {
+  evalNote.value = evalDone.value[seance.id] ?? 0
+  evalCommentaire.value = ''
+  evalModal.value = { seance }
+}
+
+function setNote(n: number) { evalNote.value = n }
+
+async function submitEval() {
+  if (!evalModal.value || evalNote.value === 0) return
+  evalSubmitting.value = true
+  try {
+    await api.post(`/seances/${evalModal.value.seance.id}/evaluation`, {
+      note: evalNote.value,
+      commentaire: evalCommentaire.value.trim() || null,
+    })
+    evalDone.value[evalModal.value.seance.id] = evalNote.value
+    evalModal.value = null
+  } catch { /* ignore */ }
+  finally { evalSubmitting.value = false }
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -281,6 +311,14 @@ const progressionFinanciere = computed(() => {
                   <p class="ee-seance-sub">{{ s.enseignant }} · {{ s.salle || 'Salle TBD' }}</p>
                 </div>
                 <span class="ee-mode-badge" :class="modeBadgeClass(s.mode)">{{ modeLabel(s.mode) }}</span>
+                <!-- Bouton évaluation pour séances émargées -->
+                <button v-if="s.statut === 'effectue'" @click="openEval(s)"
+                  class="ee-eval-btn" :class="evalDone[s.id] ? 'ee-eval-btn--done' : ''">
+                  <template v-if="evalDone[s.id]">
+                    <span>{{ '★'.repeat(evalDone[s.id]) }}</span>
+                  </template>
+                  <template v-else>⭐ Évaluer</template>
+                </button>
               </div>
             </div>
           </div>
@@ -475,6 +513,48 @@ const progressionFinanciere = computed(() => {
       </div>
     </div>
   </div>
+
+  <!-- ── Modale évaluation ──────────────────────────────────────────── -->
+  <Teleport to="body">
+    <div v-if="evalModal" class="ee-eval-overlay" @click.self="evalModal = null">
+      <div class="ee-eval-modal">
+        <div class="ee-eval-modal-head">
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#111;">Évaluer ce cours</div>
+            <div style="font-size:11px;color:#888;margin-top:2px;">{{ evalModal.seance.matiere }}</div>
+          </div>
+          <button @click="evalModal = null" style="background:none;border:none;font-size:18px;cursor:pointer;color:#aaa;">✕</button>
+        </div>
+        <div class="ee-eval-modal-body">
+          <!-- Étoiles -->
+          <div style="display:flex;gap:6px;justify-content:center;margin-bottom:16px;">
+            <button v-for="n in 5" :key="n" @click="setNote(n)"
+              style="background:none;border:none;cursor:pointer;font-size:32px;padding:2px;transition:transform 0.1s;"
+              :style="{ transform: evalNote >= n ? 'scale(1.15)' : 'scale(1)' }">
+              {{ evalNote >= n ? '★' : '☆' }}
+            </button>
+          </div>
+          <p style="text-align:center;font-size:12px;color:#888;margin-bottom:14px;">
+            {{ evalNote === 0 ? 'Touchez une étoile' : evalNote === 1 ? 'Très insuffisant' : evalNote === 2 ? 'Insuffisant' : evalNote === 3 ? 'Satisfaisant' : evalNote === 4 ? 'Bien' : 'Excellent !' }}
+          </p>
+          <!-- Commentaire -->
+          <textarea v-model="evalCommentaire" rows="3"
+            placeholder="Commentaire (optionnel) — votre avis restera anonyme"
+            style="width:100%;border:1.5px solid #e5e7eb;border-radius:8px;padding:10px;font-size:12.5px;font-family:'Poppins',sans-serif;resize:none;outline:none;"></textarea>
+          <p style="font-size:10.5px;color:#aaa;margin-top:4px;">🔒 Anonyme — le prof ne verra pas votre nom</p>
+        </div>
+        <div class="ee-eval-modal-foot">
+          <button @click="evalModal = null" style="padding:9px 16px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;font-family:'Poppins',sans-serif;font-size:12.5px;cursor:pointer;">Annuler</button>
+          <button @click="submitEval" :disabled="evalNote === 0 || evalSubmitting"
+            style="padding:9px 20px;background:#E30613;color:#fff;border:none;border-radius:8px;font-family:'Poppins',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;opacity:1;"
+            :style="{ opacity: evalNote === 0 ? '0.4' : '1' }">
+            {{ evalSubmitting ? 'Envoi…' : 'Envoyer mon avis' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
 </template>
 
 <style scoped>
@@ -614,6 +694,16 @@ const progressionFinanciere = computed(() => {
 .ee-doc-meta { font-size:11.5px; color:#888; margin-top:2px; }
 .ee-doc-dl { font-size:12px; background:#e5e7eb; color:#444; border:none; border-radius:7px; padding:6px 12px; cursor:pointer; flex-shrink:0; }
 .ee-doc-dl:hover { background:#d1d5db; }
+
+/* Évaluation cours */
+.ee-eval-btn { font-size:11px; font-weight:600; padding:4px 10px; border-radius:20px; border:1.5px solid #E30613; background:#fff; color:#E30613; cursor:pointer; flex-shrink:0; transition:all 0.15s; }
+.ee-eval-btn:hover { background:#E30613; color:#fff; }
+.ee-eval-btn--done { background:#fef2f2; border-color:#fca5a5; color:#E30613; }
+.ee-eval-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; z-index:9999; padding:16px; }
+.ee-eval-modal { background:#fff; border-radius:14px; width:100%; max-width:400px; box-shadow:0 20px 60px rgba(0,0,0,0.2); overflow:hidden; }
+.ee-eval-modal-head { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; }
+.ee-eval-modal-body { padding:20px; }
+.ee-eval-modal-foot { display:flex; align-items:center; justify-content:flex-end; gap:10px; padding:14px 20px; border-top:1px solid #f0f0f0; background:#f9f9f9; }
 
 /* Utility classes used by helper functions */
 .text-gray-400 { color:#9ca3af; }

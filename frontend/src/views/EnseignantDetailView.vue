@@ -9,7 +9,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const canWrite = computed(() => ['dg', 'secretariat'].includes(auth.user?.role ?? ''))
 
-const activeTab = ref<'infos'|'classes'|'seances'|'vacations'>('infos')
+const activeTab = ref<'infos'|'classes'|'seances'|'vacations'|'avis'>('infos')
 
 interface Filiere { id: number; nom: string; code: string }
 interface EnseignantFiliere { filiere_id: number; matiere: string; filiere?: Filiere }
@@ -121,9 +121,29 @@ const seancesPassees = computed(() =>
 )
 const openVenir = ref(false)
 
+// ── Avis (évaluations étudiants) ─────────────────────────────────────
+interface AvisSeance {
+  seance_id: number; matiere: string; date_debut: string; classe: string
+  nb_evaluations: number; moyenne: string | number; commentaires: string[] | null
+}
+interface AvisData { moyenne_globale: number | null; nb_total: number; seances: AvisSeance[] }
+const avisData = ref<AvisData | null>(null)
+const loadingAvis = ref(false)
+
+async function loadAvis() {
+  if (avisData.value) return
+  loadingAvis.value = true
+  try {
+    const { data } = await api.get(`/enseignants/${route.params.id}/evaluations`)
+    avisData.value = data
+  } catch { /* ignore */ }
+  finally { loadingAvis.value = false }
+}
+
 async function switchTab(tab: typeof activeTab.value) {
   activeTab.value = tab
   if (tab === 'seances' && seances.value.length === 0) loadSeances()
+  if (tab === 'avis') loadAvis()
 }
 
 onMounted(load)
@@ -240,6 +260,11 @@ onMounted(load)
         <button @click="switchTab('vacations')" :class="['ed-tab', activeTab==='vacations' && 'ed-tab-active']">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
           Vacations
+        </button>
+        <button @click="switchTab('avis')" :class="['ed-tab', activeTab==='avis' && 'ed-tab-active']">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+          Avis étudiants
+          <span v-if="avisData?.nb_total" class="ed-tab-badge">{{ avisData.nb_total }}</span>
         </button>
       </div>
 
@@ -483,6 +508,67 @@ onMounted(load)
         </div>
       </div>
 
+      <!-- ─── TAB AVIS ÉTUDIANTS ─────────────────────────────────────── -->
+      <div v-else-if="activeTab==='avis'" class="ed-panel">
+        <div v-if="loadingAvis" style="text-align:center;padding:40px;color:#9ca3af;font-size:13px;">Chargement…</div>
+        <template v-else-if="avisData">
+          <!-- Global score -->
+          <div class="ed-card" style="margin-bottom:14px;">
+            <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+              <div style="text-align:center;min-width:90px;">
+                <div style="font-size:48px;font-weight:800;color:#111;line-height:1;">
+                  {{ avisData.moyenne_globale ?? '—' }}
+                </div>
+                <div style="display:flex;justify-content:center;gap:2px;margin:4px 0;">
+                  <span v-for="n in 5" :key="n"
+                    :style="{ color: avisData.moyenne_globale && n <= Math.round(Number(avisData.moyenne_globale)) ? '#f59e0b' : '#e5e7eb', fontSize:'18px' }">★</span>
+                </div>
+                <div style="font-size:11px;color:#9ca3af;">Note globale / 5</div>
+              </div>
+              <div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:140px;">
+                <div style="font-size:13px;color:#374151;"><strong>{{ avisData.nb_total }}</strong> évaluation{{ avisData.nb_total > 1 ? 's' : '' }} au total</div>
+                <div style="font-size:13px;color:#374151;"><strong>{{ avisData.seances.length }}</strong> séance{{ avisData.seances.length > 1 ? 's' : '' }} évaluée{{ avisData.seances.length > 1 ? 's' : '' }}</div>
+                <div style="font-size:11px;color:#9ca3af;">Tous les avis sont anonymes</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Avis par séance -->
+          <div v-if="!avisData.seances.length" class="ed-empty-state">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:36px;height:36px;color:#d1d5db;margin-bottom:8px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+            <p style="color:#6b7280;font-size:13px;">Aucun cours évalué pour l'instant</p>
+          </div>
+          <div v-else style="display:flex;flex-direction:column;gap:10px;">
+            <div v-for="s in avisData.seances" :key="s.seance_id" class="ed-card ed-avis-card">
+              <div class="ed-avis-header">
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:13px;font-weight:600;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.matiere }}</div>
+                  <div style="font-size:11.5px;color:#9ca3af;margin-top:2px;">{{ fmtDate(s.date_debut) }} · {{ s.classe }}</div>
+                </div>
+                <div style="text-align:center;flex-shrink:0;">
+                  <div style="font-size:20px;font-weight:800;color:#111;">{{ s.moyenne }}</div>
+                  <div style="display:flex;gap:1px;justify-content:center;">
+                    <span v-for="n in 5" :key="n"
+                      :style="{ color: n <= Math.round(Number(s.moyenne)) ? '#f59e0b' : '#e5e7eb', fontSize:'13px' }">★</span>
+                  </div>
+                  <div style="font-size:10.5px;color:#9ca3af;">{{ s.nb_evaluations }} avis</div>
+                </div>
+              </div>
+              <!-- Commentaires anonymes -->
+              <div v-if="s.commentaires && s.commentaires.length" style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
+                <div v-for="(c, i) in s.commentaires" :key="i" class="ed-avis-comment">
+                  <svg fill="none" stroke="#9ca3af" viewBox="0 0 24 24" style="width:12px;height:12px;flex-shrink:0;margin-top:2px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                  <span style="font-size:12px;color:#374151;">{{ c }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+        <div v-else class="ed-empty-state">
+          <p style="color:#6b7280;font-size:13px;">Aucun avis disponible</p>
+        </div>
+      </div>
+
     </template>
   </div>
 </template>
@@ -584,6 +670,11 @@ onMounted(load)
 
 /* Filière chips */
 .ed-filiere-chip { background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;display:flex;flex-direction:column;gap:2px;min-width:160px; }
+
+/* Avis étudiants */
+.ed-avis-card { padding:14px; }
+.ed-avis-header { display:flex;align-items:flex-start;justify-content:space-between;gap:12px; }
+.ed-avis-comment { display:flex;align-items:flex-start;gap:6px;background:#f9fafb;border-radius:6px;padding:8px 10px; }
 
 /* Empty state */
 .ed-empty-state { display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center; }
