@@ -66,6 +66,7 @@ const classementProfs = ref<{ enseignant_id: number; enseignant: string; moyenne
 const classementLoading = ref(false)
 const classementVisible = ref(false)
 const classementPeriode = ref<'tout' | 'mois' | '3mois'>('tout')
+const showClassementModal = ref(false)
 
 async function loadClassement() {
   if (classementLoading.value) return
@@ -1217,6 +1218,10 @@ function stopQrScanner() {
         <template #actions>
           <a href="/suivi-emargements" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:#1e293b;color:#fff;font-size:12px;font-weight:600;text-decoration:none;">📊 Suivi émargements</a>
           <a href="/cahier-de-textes" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:#E30613;color:#fff;font-size:12px;font-weight:600;text-decoration:none;">📓 Cahier de textes</a>
+          <button @click="toggleTousAvis" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;font-size:12px;font-weight:600;border:none;cursor:pointer;font-family:'Poppins',sans-serif;">
+            ⭐ Avis étudiants
+            <span v-if="tousAvis.length" style="background:rgba(255,255,255,.25);padding:0px 6px;border-radius:20px;font-size:11px;">{{ tousAvis.length }}</span>
+          </button>
         </template>
       </UcPageHeader>
 
@@ -1242,15 +1247,6 @@ function stopQrScanner() {
           <div class="em-today-val">{{ enseignantsActifsAujourdHui }}</div>
           <div class="em-today-lbl">Enseignants actifs</div>
         </div>
-      </div>
-
-      <!-- ── Bouton unique Avis étudiants ── -->
-      <div style="margin:16px 0 0;">
-        <button @click="toggleTousAvis"
-          style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;font-size:14px;font-weight:700;border:none;cursor:pointer;font-family:'Poppins',sans-serif;box-shadow:0 2px 8px rgba(99,102,241,.3);">
-          ⭐ Avis étudiants
-          <span v-if="tousAvis.length" style="background:rgba(255,255,255,.25);padding:1px 8px;border-radius:20px;font-size:12px;">{{ tousAvis.length }}</span>
-        </button>
       </div>
 
       <!-- ── Séances émargées aujourd'hui (détail rapide) ── -->
@@ -1708,108 +1704,111 @@ function stopQrScanner() {
     </Transition>
   </Teleport>
 
-  <!-- ══ MODALE AVIS ÉTUDIANTS ══ -->
+  <!-- ══ PAGE AVIS ÉTUDIANTS ══ -->
   <Teleport to="body">
-    <div v-if="tousAvisVisible"
-      style="position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,.55);display:flex;align-items:stretch;justify-content:flex-end;"
-      @click.self="tousAvisVisible=false">
-      <div style="width:100%;max-width:860px;background:#f8fafc;display:flex;flex-direction:column;box-shadow:-4px 0 40px rgba(0,0,0,.18);overflow:hidden;">
+    <div v-if="tousAvisVisible" style="position:fixed;inset:0;z-index:9000;background:#f1f5f9;display:flex;flex-direction:column;overflow:hidden;">
 
-        <!-- Header -->
-        <div style="background:linear-gradient(135deg,#1e293b 0%,#334155 100%);padding:20px 28px;display:flex;align-items:center;gap:16px;flex-shrink:0;">
-          <div style="flex:1;">
-            <div style="color:#fff;font-size:18px;font-weight:800;font-family:'Poppins',sans-serif;">⭐ Avis étudiants</div>
-            <div style="color:#94a3b8;font-size:12px;margin-top:2px;font-family:'Poppins',sans-serif;">Évaluations anonymes des séances</div>
-          </div>
-          <button @click="tousAvisVisible=false"
-            style="background:rgba(255,255,255,.1);border:none;color:#fff;border-radius:8px;width:34px;height:34px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+      <!-- ── Header fixe ── -->
+      <div style="background:linear-gradient(135deg,#1e293b 0%,#334155 100%);padding:16px 28px;display:flex;align-items:center;gap:16px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.2);">
+        <div style="flex:1;">
+          <div style="color:#fff;font-size:18px;font-weight:800;font-family:'Poppins',sans-serif;">⭐ Avis étudiants</div>
+          <div style="color:#94a3b8;font-size:12px;margin-top:1px;font-family:'Poppins',sans-serif;">Évaluations anonymes des séances</div>
         </div>
+        <!-- Bouton classement toujours visible -->
+        <button @click="showClassementModal=true"
+          style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:9px;background:linear-gradient(135deg,#f59e0b,#fbbf24);color:#1e293b;font-size:13px;font-weight:700;border:none;cursor:pointer;font-family:'Poppins',sans-serif;flex-shrink:0;">
+          🏆 Classement des profs par avis
+        </button>
+        <button @click="tousAvisVisible=false"
+          style="background:rgba(255,255,255,.1);border:none;color:#fff;border-radius:8px;width:34px;height:34px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>
+      </div>
 
-        <!-- Contenu scrollable -->
-        <div style="flex:1;overflow-y:auto;padding:24px 28px;display:flex;flex-direction:column;gap:24px;">
+      <!-- ── Barre filtres fixe ── -->
+      <div style="background:#fff;border-bottom:1px solid #e2e8f0;padding:12px 28px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-shrink:0;">
+        <input v-model="tousAvisSearch" placeholder="🔍 Rechercher prof, matière, commentaire…"
+          style="flex:1;min-width:200px;padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Poppins',sans-serif;background:#f8fafc;" />
+        <select v-model="tousAvisFilterNote"
+          style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Poppins',sans-serif;background:#f8fafc;">
+          <option value="">Toutes les notes</option>
+          <option :value="5">★★★★★ 5/5</option>
+          <option :value="4">★★★★☆ 4/5</option>
+          <option :value="3">★★★☆☆ 3/5</option>
+          <option :value="2">★★☆☆☆ 2/5</option>
+          <option :value="1">★☆☆☆☆ 1/5</option>
+        </select>
+        <button @click="loadTousAvis" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;font-size:12px;cursor:pointer;color:#475569;font-family:'Poppins',sans-serif;">🔄</button>
+        <span v-if="!tousAvisLoading && tousAvis.length" style="font-size:12px;color:#64748b;font-family:'Poppins',sans-serif;white-space:nowrap;">
+          <strong>{{ tousAvisFiltres.length }}</strong> avis · moy. <strong style="color:#f59e0b;">{{ tousAvis.length ? (tousAvisFiltres.reduce((s,a)=>s+a.note,0)/(tousAvisFiltres.length||1)).toFixed(1) : '—' }}</strong>/5
+        </span>
+      </div>
 
-          <!-- ── Section 1 : Classement des profs ── -->
-          <div style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden;">
-            <div style="padding:16px 20px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;">
-              <div style="font-size:15px;font-weight:700;color:#1e293b;font-family:'Poppins',sans-serif;">🏆 Classement des professeurs</div>
-              <button @click="loadClassement" style="padding:5px 12px;border:1px solid #e2e8f0;border-radius:7px;background:#f8fafc;font-size:12px;cursor:pointer;color:#475569;font-family:'Poppins',sans-serif;">🔄 Actualiser</button>
+      <!-- ── Liste scrollable ── -->
+      <div style="flex:1;overflow-y:auto;padding:20px 28px;">
+        <div v-if="tousAvisLoading" style="text-align:center;padding:60px;color:#94a3b8;font-family:'Poppins',sans-serif;font-size:14px;">Chargement…</div>
+        <div v-else-if="tousAvisFiltres.length === 0" style="text-align:center;padding:60px;color:#94a3b8;font-family:'Poppins',sans-serif;font-size:14px;">
+          {{ tousAvis.length === 0 ? 'Aucun avis étudiant pour le moment.' : 'Aucun résultat pour cette recherche.' }}
+        </div>
+        <div v-else style="display:flex;flex-direction:column;gap:12px;">
+          <div v-for="a in tousAvisFiltres" :key="a.id"
+            style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 20px;display:flex;gap:16px;align-items:flex-start;">
+            <!-- Étoiles + score -->
+            <div style="min-width:56px;text-align:center;flex-shrink:0;">
+              <div style="font-size:16px;color:#f59e0b;letter-spacing:1px;">{{ '★'.repeat(a.note) }}{{ '☆'.repeat(5-a.note) }}</div>
+              <div style="font-size:22px;font-weight:800;color:#1e293b;font-family:'Poppins',sans-serif;line-height:1.1;">{{ a.note }}<span style="font-size:12px;color:#94a3b8;font-weight:500;">/5</span></div>
             </div>
-            <div style="padding:16px 20px;">
-              <div v-if="classementLoading" style="text-align:center;color:#94a3b8;padding:16px;font-family:'Poppins',sans-serif;font-size:13px;">Chargement…</div>
-              <div v-else-if="classementProfs.length === 0" style="text-align:center;color:#94a3b8;padding:16px;font-family:'Poppins',sans-serif;font-size:13px;">Aucun avis enregistré.</div>
-              <div v-else style="display:flex;flex-direction:column;gap:10px;">
-                <div v-for="(prof, idx) in classementProfs" :key="prof.enseignant_id" class="em-classement-card"
-                  :class="{ 'em-classement-card--gold': idx === 0, 'em-classement-card--silver': idx === 1, 'em-classement-card--bronze': idx === 2 }">
-                  <div class="em-classement-rank">
-                    <span v-if="idx === 0">🥇</span>
-                    <span v-else-if="idx === 1">🥈</span>
-                    <span v-else-if="idx === 2">🥉</span>
-                    <span v-else class="em-classement-rank-num">{{ idx + 1 }}</span>
-                  </div>
-                  <div class="em-classement-info">
-                    <div class="em-classement-name">{{ prof.enseignant }}</div>
-                    <div class="em-classement-meta">{{ prof.seances_evaluees }} séance(s) · {{ prof.total_avis }} avis</div>
-                  </div>
-                  <div class="em-classement-score">
-                    <div class="em-classement-stars">{{ starsStr(prof.moyenne) }}</div>
-                    <div class="em-classement-avg">{{ prof.moyenne }}<span class="em-classement-denom">/5</span></div>
-                  </div>
-                </div>
+            <!-- Contenu -->
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:14px;color:#1e293b;line-height:1.6;font-family:'Poppins',sans-serif;margin-bottom:10px;font-style:italic;">
+                "{{ a.commentaire }}"
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                <span style="font-size:11px;background:#f1f5f9;color:#475569;padding:3px 10px;border-radius:20px;font-family:'Poppins',sans-serif;font-weight:600;">👤 {{ a.enseignant ?? '—' }}</span>
+                <span style="font-size:11px;background:#ede9fe;color:#6d28d9;padding:3px 10px;border-radius:20px;font-family:'Poppins',sans-serif;font-weight:600;">📚 {{ a.matiere }}</span>
+                <span v-if="a.classe_nom" style="font-size:11px;background:#ecfdf5;color:#059669;padding:3px 10px;border-radius:20px;font-family:'Poppins',sans-serif;font-weight:600;">🏫 {{ a.classe_nom }}</span>
+                <span style="font-size:11px;color:#94a3b8;font-family:'Poppins',sans-serif;">{{ new Date(a.created_at).toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'}) }}</span>
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 
-          <!-- ── Section 2 : Tous les commentaires ── -->
-          <div style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden;">
-            <div style="padding:16px 20px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-              <div style="font-size:15px;font-weight:700;color:#1e293b;font-family:'Poppins',sans-serif;flex:none;">💬 Tous les commentaires</div>
-              <input v-model="tousAvisSearch" placeholder="🔍 Prof, matière, commentaire…"
-                style="flex:1;min-width:160px;padding:7px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Poppins',sans-serif;background:#f8fafc;" />
-              <select v-model="tousAvisFilterNote"
-                style="padding:7px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Poppins',sans-serif;background:#f8fafc;">
-                <option value="">Toutes les notes</option>
-                <option :value="5">★★★★★ 5/5</option>
-                <option :value="4">★★★★☆ 4/5</option>
-                <option :value="3">★★★☆☆ 3/5</option>
-                <option :value="2">★★☆☆☆ 2/5</option>
-                <option :value="1">★☆☆☆☆ 1/5</option>
-              </select>
-              <button @click="loadTousAvis" style="padding:7px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;font-size:12px;cursor:pointer;color:#475569;font-family:'Poppins',sans-serif;">🔄</button>
-            </div>
-
-            <div v-if="tousAvisLoading" style="text-align:center;padding:30px;color:#94a3b8;font-family:'Poppins',sans-serif;font-size:13px;">Chargement…</div>
-            <div v-else-if="tousAvisFiltres.length === 0" style="text-align:center;padding:30px;color:#94a3b8;font-family:'Poppins',sans-serif;font-size:13px;">
-              {{ tousAvis.length === 0 ? 'Aucun avis pour le moment.' : 'Aucun résultat.' }}
-            </div>
-            <div v-else>
-              <div v-for="a in tousAvisFiltres" :key="a.id"
-                style="display:flex;gap:16px;padding:16px 20px;border-bottom:1px solid #f8fafc;align-items:flex-start;">
-                <!-- Étoiles + score -->
-                <div style="min-width:52px;text-align:center;flex-shrink:0;">
-                  <div style="font-size:15px;color:#f59e0b;letter-spacing:1px;line-height:1.2;">{{ '★'.repeat(a.note) }}{{ '☆'.repeat(5-a.note) }}</div>
-                  <div style="font-size:20px;font-weight:800;color:#1e293b;font-family:'Poppins',sans-serif;line-height:1.1;">{{ a.note }}<span style="font-size:11px;color:#94a3b8;font-weight:500;">/5</span></div>
-                </div>
-                <!-- Commentaire + méta -->
-                <div style="flex:1;min-width:0;">
-                  <div style="font-size:13px;color:#1e293b;line-height:1.6;font-family:'Poppins',sans-serif;margin-bottom:8px;font-style:italic;">
-                    "{{ a.commentaire }}"
-                  </div>
-                  <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
-                    <span style="font-size:11px;background:#f1f5f9;color:#475569;padding:2px 8px;border-radius:20px;font-family:'Poppins',sans-serif;font-weight:600;">👤 {{ a.enseignant ?? '—' }}</span>
-                    <span style="font-size:11px;background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:20px;font-family:'Poppins',sans-serif;font-weight:600;">📚 {{ a.matiere }}</span>
-                    <span v-if="a.classe_nom" style="font-size:11px;background:#ecfdf5;color:#059669;padding:2px 8px;border-radius:20px;font-family:'Poppins',sans-serif;font-weight:600;">🏫 {{ a.classe_nom }}</span>
-                    <span style="font-size:11px;color:#94a3b8;font-family:'Poppins',sans-serif;">{{ new Date(a.created_at).toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'}) }}</span>
-                  </div>
-                </div>
+  <!-- ══ MODALE CLASSEMENT PROFS ══ -->
+  <Teleport to="body">
+    <div v-if="showClassementModal"
+      style="position:fixed;inset:0;z-index:9100;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;padding:20px;"
+      @click.self="showClassementModal=false">
+      <div style="background:#fff;border-radius:16px;width:100%;max-width:520px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;">
+        <div style="background:linear-gradient(135deg,#f59e0b,#fbbf24);padding:18px 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+          <div style="font-size:17px;font-weight:800;color:#1e293b;font-family:'Poppins',sans-serif;">🏆 Classement des professeurs</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button @click="loadClassement" style="padding:5px 12px;border:none;border-radius:7px;background:rgba(0,0,0,.1);font-size:12px;cursor:pointer;color:#1e293b;font-family:'Poppins',sans-serif;">🔄</button>
+            <button @click="showClassementModal=false" style="background:rgba(0,0,0,.1);border:none;color:#1e293b;border-radius:7px;width:30px;height:30px;font-size:16px;cursor:pointer;">✕</button>
+          </div>
+        </div>
+        <div style="overflow-y:auto;padding:20px 24px;">
+          <div v-if="classementLoading" style="text-align:center;color:#94a3b8;padding:24px;font-family:'Poppins',sans-serif;font-size:13px;">Chargement…</div>
+          <div v-else-if="classementProfs.length === 0" style="text-align:center;color:#94a3b8;padding:24px;font-family:'Poppins',sans-serif;font-size:13px;">Aucun avis enregistré.</div>
+          <div v-else style="display:flex;flex-direction:column;gap:10px;">
+            <div v-for="(prof, idx) in classementProfs" :key="prof.enseignant_id" class="em-classement-card"
+              :class="{ 'em-classement-card--gold': idx === 0, 'em-classement-card--silver': idx === 1, 'em-classement-card--bronze': idx === 2 }">
+              <div class="em-classement-rank">
+                <span v-if="idx === 0">🥇</span>
+                <span v-else-if="idx === 1">🥈</span>
+                <span v-else-if="idx === 2">🥉</span>
+                <span v-else class="em-classement-rank-num">{{ idx + 1 }}</span>
               </div>
-              <!-- Footer stats -->
-              <div style="padding:12px 20px;background:#f8fafc;display:flex;gap:20px;align-items:center;">
-                <span style="font-size:12px;color:#64748b;font-family:'Poppins',sans-serif;"><strong>{{ tousAvisFiltres.length }}</strong> avis</span>
-                <span style="font-size:12px;color:#64748b;font-family:'Poppins',sans-serif;">Moyenne : <strong style="color:#f59e0b;">{{ (tousAvisFiltres.reduce((s,a)=>s+a.note,0)/tousAvisFiltres.length).toFixed(1) }}</strong>/5</span>
+              <div class="em-classement-info">
+                <div class="em-classement-name">{{ prof.enseignant }}</div>
+                <div class="em-classement-meta">{{ prof.seances_evaluees }} séance(s) · {{ prof.total_avis }} avis</div>
+              </div>
+              <div class="em-classement-score">
+                <div class="em-classement-stars">{{ starsStr(prof.moyenne) }}</div>
+                <div class="em-classement-avg">{{ prof.moyenne }}<span class="em-classement-denom">/5</span></div>
               </div>
             </div>
           </div>
-
         </div>
       </div>
     </div>
