@@ -135,6 +135,9 @@ pool.query(`CREATE TABLE IF NOT EXISTS avis_seance (
 pool.query(`ALTER TABLE matieres DROP CONSTRAINT IF EXISTS matieres_code_unique`).catch(() => {})
 pool.query(`ALTER TABLE matieres DROP CONSTRAINT IF EXISTS matieres_code_key`).catch(() => {})
 
+// ─── Migration: created_at avec DEFAULT NOW() sur inscriptions ────────────────
+pool.query(`ALTER TABLE inscriptions ALTER COLUMN created_at SET DEFAULT NOW()`).catch(() => {})
+
 // ─── Migration: strip HTML de contenu_seance / objectifs / notes existants ────
 pool.query(`
   UPDATE seances
@@ -2726,8 +2729,8 @@ app.post('/inscriptions', requireAuth, role('secretariat', 'dg'), async (c) => {
   const moisDebutVal = b.mois_debut ? b.mois_debut + (b.mois_debut.length === 7 ? '-01' : '') : null
   const { rows } = await pool.query(
     `INSERT INTO inscriptions (etudiant_id,filiere_id,classe_id,parcours_id,annee_academique_id,
-      niveau_entree_id,niveau_bourse_id,statut,frais_inscription,mensualite,frais_tenue,reduction_type,reduction_valeur,mois_debut,created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+      niveau_entree_id,niveau_bourse_id,statut,frais_inscription,mensualite,frais_tenue,reduction_type,reduction_valeur,mois_debut,created_by,created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW()) RETURNING *`,
     [b.etudiant_id, b.filiere_id || null, b.classe_id || null, b.parcours_id || null, b.annee_academique_id,
      b.niveau_entree_id || null, b.niveau_bourse_id || null, b.statut || 'pre_inscrit',
      fraisInscription, mensualite, fraisTenue,
@@ -6377,7 +6380,7 @@ app.get('/suivi-paiements-global', requireAuth, async (c) => {
       mensualite: mensualiteMontant, mensualites_dues: mensualitesDues,
       mensualites_payees: mensPayees, retard, montant_du: montantDu,
       total_paye: parseFloat(ins.total_paye), statut,
-      date_inscription: ins.created_at,
+      date_inscription: ins.created_at ?? ins.mois_debut ?? null,
       date_debut_cours: classe.date_debut_cours ?? null,
     }
   }).filter(Boolean)
