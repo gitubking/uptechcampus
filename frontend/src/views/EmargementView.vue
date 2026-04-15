@@ -1706,7 +1706,8 @@ function stopQrScanner() {
 
   <!-- ══ PAGE AVIS ÉTUDIANTS ══ -->
   <Teleport to="body">
-    <div v-if="tousAvisVisible" style="position:fixed;inset:0;z-index:9000;background:#f1f5f9;display:flex;flex-direction:column;overflow:hidden;">
+    <div v-if="tousAvisVisible" style="position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,.5);display:flex;align-items:stretch;justify-content:flex-end;" @click.self="tousAvisVisible=false">
+      <div style="width:100%;max-width:720px;background:#f1f5f9;display:flex;flex-direction:column;overflow:hidden;box-shadow:-4px 0 40px rgba(0,0,0,.18);">
 
       <!-- ── Header fixe ── -->
       <div style="background:linear-gradient(135deg,#1e293b 0%,#334155 100%);padding:16px 28px;display:flex;align-items:center;gap:16px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.2);">
@@ -1770,6 +1771,7 @@ function stopQrScanner() {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   </Teleport>
