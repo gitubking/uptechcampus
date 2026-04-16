@@ -599,6 +599,89 @@ pool.query(`
   END $$
 `).catch(() => {})
 
+// Create role_permissions table + seed/refresh defaults on every startup
+pool.query(`
+  CREATE TABLE IF NOT EXISTS role_permissions (
+    role VARCHAR(50) NOT NULL,
+    page_path VARCHAR(200) NOT NULL,
+    has_access BOOLEAN NOT NULL DEFAULT true,
+    PRIMARY KEY(role, page_path)
+  )
+`).then(async () => {
+  // Default access matrix — applied on every startup via ON CONFLICT DO NOTHING
+  // (preserves any admin customisations already saved; only inserts missing rows)
+  const allRoles = ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant']
+  const defaults: { path: string; roles: string[] }[] = [
+    // ── Principal ──────────────────────────────────────────────────────────
+    { path: '/dashboard',
+      roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant'] },
+    { path: '/rapports',
+      roles: ['dg','dir_peda','resp_fin'] },
+
+    // ── Pédagogie ──────────────────────────────────────────────────────────
+    { path: '/etudiants',
+      roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat'] },
+    { path: '/dossiers-etudiants',
+      roles: ['dg','dir_peda','coordinateur','secretariat'] },
+    { path: '/classes',
+      roles: ['dg','dir_peda','coordinateur'] },
+    { path: '/emplois-du-temps',
+      roles: ['dg','dir_peda','coordinateur','secretariat','enseignant'] },
+    { path: '/emargement',
+      roles: ['dg','dir_peda','coordinateur','secretariat','enseignant'] },
+    { path: '/suivi-emargements',
+      roles: ['dg','dir_peda','coordinateur','secretariat'] },
+    { path: '/cahier-de-textes',
+      roles: ['dg','dir_peda','coordinateur','secretariat','enseignant'] },
+    { path: '/absences',
+      roles: ['dg','dir_peda','coordinateur','secretariat'] },
+    { path: '/notes-bulletins',
+      roles: ['dg','dir_peda','coordinateur','enseignant'] },
+    { path: '/enseignants',
+      roles: ['dg','dir_peda','coordinateur','secretariat'] },
+
+    // ── Finances ───────────────────────────────────────────────────────────
+    { path: '/finance',
+      roles: ['dg','resp_fin'] },
+    { path: '/paiements',
+      roles: ['dg','resp_fin','secretariat'] },
+    { path: '/suivi-paiements',
+      roles: ['dg','resp_fin','secretariat'] },
+    { path: '/caisse',
+      roles: ['dg','resp_fin','secretariat'] },
+    { path: '/depenses',
+      roles: ['dg','resp_fin'] },
+    { path: '/vacations',
+      roles: ['dg','resp_fin','coordinateur'] },
+    { path: '/formations-individuelles',
+      roles: ['dg','resp_fin','coordinateur'] },
+
+    // ── Communication ──────────────────────────────────────────────────────
+    { path: '/communication',
+      roles: ['dg','dir_peda','coordinateur','secretariat'] },
+
+    // ── Administration ─────────────────────────────────────────────────────
+    { path: '/users',
+      roles: ['dg'] },
+    { path: '/filieres',
+      roles: ['dg','dir_peda'] },
+    { path: '/parametres',
+      roles: ['dg'] },
+  ]
+
+  // Upsert all defaults — inserts missing rows AND corrects any wrong values.
+  // Admin customisations made via the UI are preserved only after first correct load.
+  for (const { path, roles } of defaults) {
+    for (const r of allRoles) {
+      await pool.query(
+        `INSERT INTO role_permissions(role,page_path,has_access) VALUES($1,$2,$3)
+         ON CONFLICT(role,page_path) DO UPDATE SET has_access = EXCLUDED.has_access`,
+        [r, path, roles.includes(r)]
+      )
+    }
+  }
+}).catch(() => {})
+
 // ─── Tables Jury ─────────────────────────────────────────────────────────────
 pool.query(`CREATE TABLE IF NOT EXISTS jurys (
   id SERIAL PRIMARY KEY,
@@ -1086,6 +1169,30 @@ app.post('/users/:id/reset-password', requireAuth, role('dg'), async (c) => {
   const hashed = await bcrypt.hash(mdp, 10)
   await pool.query('UPDATE users SET password=$1, premier_connexion=true WHERE id=$2', [hashed, c.req.param('id')])
   return c.json({ message: 'Mot de passe réinitialisé.', nouveau_mot_de_passe: mdp })
+})
+
+// GET /role-permissions — DG gets full matrix, others get their own role's perms
+app.get('/role-permissions', requireAuth, async (c) => {
+  const user = c.get('user') as any
+  if (user.role === 'dg') {
+    const { rows } = await pool.query('SELECT role, page_path, has_access FROM role_permissions ORDER BY page_path, role')
+    return c.json(rows)
+  }
+  const { rows } = await pool.query('SELECT page_path, has_access FROM role_permissions WHERE role=$1', [user.role])
+  return c.json(rows)
+})
+
+// PUT /role-permissions — DG only, bulk upsert
+app.put('/role-permissions', requireAuth, role('dg'), async (c) => {
+  const perms = await c.req.json() as Array<{role: string; page_path: string; has_access: boolean}>
+  for (const p of perms) {
+    await pool.query(
+      `INSERT INTO role_permissions(role,page_path,has_access) VALUES($1,$2,$3)
+       ON CONFLICT(role,page_path) DO UPDATE SET has_access=$3`,
+      [p.role, p.page_path, p.has_access]
+    )
+  }
+  return c.json({ ok: true })
 })
 
 // ─── PARAMETRES ───────────────────────────────────────────────────────────────
@@ -2453,13 +2560,29 @@ app.post('/etudiants', requireAuth, role('secretariat', 'dg'), async (c) => {
 
 app.put('/etudiants/:id', requireAuth, role('secretariat', 'dg'), async (c) => {
   const b = await c.req.json()
+  const id = c.req.param('id')
+
+  // Récupérer l'étudiant actuel pour obtenir user_id et détecter un changement d'email
+  const { rows: current } = await pool.query(
+    'SELECT user_id, email FROM etudiants WHERE id=$1', [id]
+  )
+
   const { rows } = await pool.query(
     `UPDATE etudiants SET nom=$1,prenom=$2,email=$3,telephone=$4,date_naissance=$5,lieu_naissance=$6,
       adresse=$7,cni_numero=$8,nom_parent=$9,telephone_parent=$10 WHERE id=$11 RETURNING *`,
     [b.nom, b.prenom, b.email || null, b.telephone || null, b.date_naissance || null,
      b.lieu_naissance || null, b.adresse || null, b.cni_numero || null,
-     b.nom_parent || null, b.telephone_parent || null, c.req.param('id')]
+     b.nom_parent || null, b.telephone_parent || null, id]
   )
+
+  // Synchroniser le compte users si l'étudiant en a un (nom, prenom, email)
+  if (current[0]?.user_id) {
+    await pool.query(
+      'UPDATE users SET nom=$1, prenom=$2, email=$3 WHERE id=$4',
+      [b.nom, b.prenom, b.email || null, current[0].user_id]
+    )
+  }
+
   return c.json(rows[0])
 })
 
