@@ -12,6 +12,7 @@ export default defineConfig({
     vueJsx(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: 'auto',
       includeAssets: ['favicon.ico', 'favicon.svg', 'icons/*.png'],
       manifest: {
         name: 'UPTECH Campus',
@@ -49,6 +50,8 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        navigateFallback: '/offline.html',
+        navigateFallbackDenylist: [/^\/api/, /^\/icons/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/uptechcampus\.vercel\.app\/api\//,
@@ -60,6 +63,28 @@ export default defineConfig({
                 maxAgeSeconds: 60 * 5, // 5 minutes
               },
               networkTimeoutSeconds: 10,
+            },
+          },
+          {
+            urlPattern: /\.(woff2?|ttf|otf|eot)$/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'fonts-cache',
+              expiration: {
+                maxEntries: 20,
+                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
+              },
+            },
+          },
+          {
+            urlPattern: /\.(png|jpe?g|gif|svg|webp|ico)$/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'images-cache',
+              expiration: {
+                maxEntries: 60,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+              },
             },
           },
         ],
