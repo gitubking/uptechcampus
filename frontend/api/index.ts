@@ -599,89 +599,74 @@ pool.query(`
   END $$
 `).catch(() => {})
 
-// Create role_permissions table + seed/refresh defaults on every startup
-pool.query(`
-  CREATE TABLE IF NOT EXISTS role_permissions (
-    role VARCHAR(50) NOT NULL,
-    page_path VARCHAR(200) NOT NULL,
-    has_access BOOLEAN NOT NULL DEFAULT true,
-    PRIMARY KEY(role, page_path)
-  )
-`).then(async () => {
-  // Default access matrix — applied on every startup via ON CONFLICT DO NOTHING
-  // (preserves any admin customisations already saved; only inserts missing rows)
-  const allRoles = ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant']
-  const defaults: { path: string; roles: string[] }[] = [
-    // ── Principal ──────────────────────────────────────────────────────────
-    { path: '/dashboard',
-      roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant'] },
-    { path: '/rapports',
-      roles: ['dg','dir_peda','resp_fin'] },
+// ─── role_permissions — initialisation à la demande ───────────────────────
+// Le fire-and-forget au module load ne marche pas sur Vercel serverless :
+// la CREATE TABLE ne termine pas avant la première requête. On initialise
+// explicitement dans chaque endpoint via ensureRolePermissionsReady().
 
-    // ── Pédagogie ──────────────────────────────────────────────────────────
-    { path: '/etudiants',
-      roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat'] },
-    { path: '/dossiers-etudiants',
-      roles: ['dg','dir_peda','coordinateur','secretariat'] },
-    { path: '/classes',
-      roles: ['dg','dir_peda','coordinateur'] },
-    { path: '/emplois-du-temps',
-      roles: ['dg','dir_peda','coordinateur','secretariat','enseignant'] },
-    { path: '/emargement',
-      roles: ['dg','dir_peda','coordinateur','secretariat','enseignant'] },
-    { path: '/suivi-emargements',
-      roles: ['dg','dir_peda','coordinateur','secretariat'] },
-    { path: '/cahier-de-textes',
-      roles: ['dg','dir_peda','coordinateur','secretariat','enseignant'] },
-    { path: '/absences',
-      roles: ['dg','dir_peda','coordinateur','secretariat'] },
-    { path: '/notes-bulletins',
-      roles: ['dg','dir_peda','coordinateur','enseignant'] },
-    { path: '/enseignants',
-      roles: ['dg','dir_peda','coordinateur','secretariat'] },
+const ROLE_PERMS_ALL_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant']
+const ROLE_PERMS_DEFAULTS: { path: string; roles: string[] }[] = [
+  // Principal
+  { path: '/dashboard',               roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant'] },
+  { path: '/rapports',                roles: ['dg','dir_peda','resp_fin'] },
+  // Pédagogie
+  { path: '/etudiants',               roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat'] },
+  { path: '/dossiers-etudiants',      roles: ['dg','dir_peda','coordinateur','secretariat'] },
+  { path: '/classes',                 roles: ['dg','dir_peda','coordinateur'] },
+  { path: '/emplois-du-temps',        roles: ['dg','dir_peda','coordinateur','secretariat','enseignant'] },
+  { path: '/emargement',              roles: ['dg','dir_peda','coordinateur','secretariat','enseignant'] },
+  { path: '/suivi-emargements',       roles: ['dg','dir_peda','coordinateur','secretariat'] },
+  { path: '/cahier-de-textes',        roles: ['dg','dir_peda','coordinateur','secretariat','enseignant'] },
+  { path: '/absences',                roles: ['dg','dir_peda','coordinateur','secretariat'] },
+  { path: '/notes-bulletins',         roles: ['dg','dir_peda','coordinateur','enseignant'] },
+  { path: '/enseignants',             roles: ['dg','dir_peda','coordinateur','secretariat'] },
+  // Finances
+  { path: '/finance',                 roles: ['dg','resp_fin'] },
+  { path: '/paiements',               roles: ['dg','resp_fin','secretariat'] },
+  { path: '/suivi-paiements',         roles: ['dg','resp_fin','secretariat'] },
+  { path: '/caisse',                  roles: ['dg','resp_fin','secretariat'] },
+  { path: '/depenses',                roles: ['dg','resp_fin'] },
+  { path: '/vacations',               roles: ['dg','resp_fin','coordinateur'] },
+  { path: '/formations-individuelles',roles: ['dg','resp_fin','coordinateur'] },
+  // Communication
+  { path: '/communication',           roles: ['dg','dir_peda','coordinateur','secretariat'] },
+  // Administration
+  { path: '/users',                   roles: ['dg'] },
+  { path: '/filieres',                roles: ['dg','dir_peda'] },
+  { path: '/parametres',              roles: ['dg'] },
+]
 
-    // ── Finances ───────────────────────────────────────────────────────────
-    { path: '/finance',
-      roles: ['dg','resp_fin'] },
-    { path: '/paiements',
-      roles: ['dg','resp_fin','secretariat'] },
-    { path: '/suivi-paiements',
-      roles: ['dg','resp_fin','secretariat'] },
-    { path: '/caisse',
-      roles: ['dg','resp_fin','secretariat'] },
-    { path: '/depenses',
-      roles: ['dg','resp_fin'] },
-    { path: '/vacations',
-      roles: ['dg','resp_fin','coordinateur'] },
-    { path: '/formations-individuelles',
-      roles: ['dg','resp_fin','coordinateur'] },
+let rolePermsReady: Promise<void> | null = null
 
-    // ── Communication ──────────────────────────────────────────────────────
-    { path: '/communication',
-      roles: ['dg','dir_peda','coordinateur','secretariat'] },
-
-    // ── Administration ─────────────────────────────────────────────────────
-    { path: '/users',
-      roles: ['dg'] },
-    { path: '/filieres',
-      roles: ['dg','dir_peda'] },
-    { path: '/parametres',
-      roles: ['dg'] },
-  ]
-
-  // Seed defaults ONLY for missing rows — existing rows (including admin
-  // customisations) are NEVER overwritten. This is critical because Vercel
-  // cold-starts re-run this block; DO UPDATE would erase every saved change.
-  for (const { path, roles } of defaults) {
-    for (const r of allRoles) {
-      await pool.query(
-        `INSERT INTO role_permissions(role,page_path,has_access) VALUES($1,$2,$3)
-         ON CONFLICT(role,page_path) DO NOTHING`,
-        [r, path, roles.includes(r)]
+async function ensureRolePermissionsReady(): Promise<void> {
+  if (rolePermsReady) return rolePermsReady
+  rolePermsReady = (async () => {
+    // 1. Create table if missing
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS role_permissions (
+        role VARCHAR(50) NOT NULL,
+        page_path VARCHAR(200) NOT NULL,
+        has_access BOOLEAN NOT NULL DEFAULT true,
+        PRIMARY KEY(role, page_path)
       )
+    `)
+    // 2. Seed defaults ONLY for missing rows (DO NOTHING preserves customisations)
+    for (const { path, roles } of ROLE_PERMS_DEFAULTS) {
+      for (const r of ROLE_PERMS_ALL_ROLES) {
+        await pool.query(
+          `INSERT INTO role_permissions(role,page_path,has_access) VALUES($1,$2,$3)
+           ON CONFLICT(role,page_path) DO NOTHING`,
+          [r, path, roles.includes(r)]
+        )
+      }
     }
-  }
-}).catch(() => {})
+  })().catch((err) => {
+    // Reset so a later request can retry
+    rolePermsReady = null
+    throw err
+  })
+  return rolePermsReady
+}
 
 // ─── Tables Jury ─────────────────────────────────────────────────────────────
 pool.query(`CREATE TABLE IF NOT EXISTS jurys (
@@ -1174,6 +1159,7 @@ app.post('/users/:id/reset-password', requireAuth, role('dg'), async (c) => {
 
 // GET /role-permissions — DG gets full matrix, others get their own role's perms
 app.get('/role-permissions', requireAuth, async (c) => {
+  await ensureRolePermissionsReady()
   const user = c.get('user') as any
   if (user.role === 'dg') {
     const { rows } = await pool.query('SELECT role, page_path, has_access FROM role_permissions ORDER BY page_path, role')
@@ -1185,6 +1171,7 @@ app.get('/role-permissions', requireAuth, async (c) => {
 
 // PUT /role-permissions — DG only, bulk upsert
 app.put('/role-permissions', requireAuth, role('dg'), async (c) => {
+  await ensureRolePermissionsReady()
   const perms = await c.req.json() as Array<{role: string; page_path: string; has_access: boolean}>
   for (const p of perms) {
     await pool.query(
