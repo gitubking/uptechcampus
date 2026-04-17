@@ -18,6 +18,7 @@ const loading = ref(true)
 const saving = ref(false)
 const resetting = ref<number | null>(null)
 const error = ref('')
+const successMsg = ref('')
 const showForm = ref(false)
 const editTarget = ref<User | null>(null)
 const filterRole = ref('')
@@ -97,11 +98,16 @@ async function save() {
       const { data } = await api.put(`/users/${editTarget.value.id}`, form.value)
       const idx = users.value.findIndex(u => u.id === data.id)
       if (idx !== -1) users.value[idx] = { ...users.value[idx], ...data }
+      // Clear filters so the updated user stays visible regardless of role/statut change
+      filterRole.value = ''
+      filterStatut.value = ''
     } else {
       const { data } = await api.post('/users', form.value)
-      users.value.push(data)
+      users.value.unshift(data)
     }
     closeForm()
+    successMsg.value = editTarget.value ? `Compte mis à jour.` : 'Compte créé.'
+    setTimeout(() => { successMsg.value = '' }, 3000)
   } catch (e: any) {
     const errs = e.response?.data?.errors as Record<string, string[]> | undefined
     error.value = (errs ? Object.values(errs)[0]?.[0] : undefined) ?? e.response?.data?.message ?? 'Erreur'
@@ -126,6 +132,17 @@ onMounted(load)
 
 <template>
   <div class="p-6 max-w-6xl mx-auto">
+
+    <!-- Toast succès -->
+    <Transition name="fade">
+      <div v-if="successMsg"
+        class="fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 bg-green-600 text-white text-sm font-medium rounded-lg shadow-lg">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        {{ successMsg }}
+      </div>
+    </Transition>
 
     <!-- Header -->
     <div class="flex items-center justify-between mb-6">
@@ -302,3 +319,9 @@ onMounted(load)
 
   </div>
 </template>
+
+<style scoped>
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s, transform 0.3s; }
+.fade-enter-from { opacity: 0; transform: translateY(-8px); }
+.fade-leave-to  { opacity: 0; transform: translateY(-8px); }
+</style>
