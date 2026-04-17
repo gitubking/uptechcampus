@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader, UcTable } from '@/components/ui'
@@ -42,6 +42,7 @@ interface Classe {
   annee_academique?: AnneeAcademique
   parcours?: Parcours[]
   date_debut_cours?: string | null
+  exempt_tenue?: boolean
 }
 
 interface InscriptionItem {
@@ -82,6 +83,7 @@ const form = ref({
   est_tronc_commun: false,
   tronc_commun_ids: [] as number[],
   date_debut_cours: '' as string,
+  exempt_tenue: false,
 })
 
 // Classes qui sont tronc commun (pour le sélecteur de liaison)
@@ -260,6 +262,17 @@ function onTypeChange() {
   if (!isAcademique.value) form.value.niveau = 1
 }
 
+// Auto-détecter le type de formation depuis la filière choisie
+// Cas 1 : création → l'utilisateur choisit d'abord la filière
+// Cas 2 : modification → la filière est pré-sélectionnée mais type_formation_id peut être null sur l'ancienne filière
+watch(() => form.value.filiere_id, (newId) => {
+  if (!newId) return
+  const f = filieres.value.find(f => f.id === newId)
+  if (f?.type_formation_id) {
+    selectedType.value = f.type_formation_id
+  }
+})
+
 function openCreate() {
   const anneeActive = annees.value.find(a => a.actif)
   editTarget.value = null
@@ -273,6 +286,7 @@ function openCreate() {
     est_tronc_commun: false,
     tronc_commun_ids: [],
     date_debut_cours: '',
+    exempt_tenue: false,
   }
   error.value = ''
   showForm.value = true
@@ -290,6 +304,7 @@ function openEdit(c: Classe) {
     est_tronc_commun: c.est_tronc_commun ?? false,
     tronc_commun_ids: tcIds,
     date_debut_cours: (c as any).date_debut_cours ? String((c as any).date_debut_cours).slice(0, 10) : '',
+    exempt_tenue: (c as any).exempt_tenue === true,
   }
   selectedType.value = c.filiere?.type_formation_id ?? null
   error.value = ''
@@ -1618,6 +1633,19 @@ onMounted(load)
           <p style="font-size:11px;color:#64748b;margin:4px 0 0;">Cochez les tronc commun auxquels cette classe participe.</p>
         </div>
         <p v-else-if="!form.est_tronc_commun && troncCommunClasses.length === 0" style="font-size:11px;color:#f59e0b;margin:4px 0 0;">Aucune classe tronc commun créée. Créez d'abord une classe avec l'option ci-dessus.</p>
+
+        <!-- Exempter la tenue -->
+        <div style="padding:10px 12px;border:1.5px solid #fed7aa;background:#fff7ed;border-radius:6px;">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" v-model="form.exempt_tenue" style="width:16px;height:16px;margin-top:2px;accent-color:#E30613;" />
+            <span>
+              <span style="font-size:13px;font-weight:600;color:#9a3412;">👕 Exempter les étudiants de la tenue</span>
+              <span style="display:block;font-size:11px;color:#9a3412;margin-top:2px;">
+                Cochez si les étudiants de cette classe ne doivent pas payer la tenue. L'échéance « tenue » ne sera pas générée (ou sera retirée si elle existe déjà, sauf si déjà payée).
+              </span>
+            </span>
+          </label>
+        </div>
 
         <div>
           <label class="cl-label" style="margin-bottom:6px;">Parcours associés</label>

@@ -49,6 +49,7 @@ pool.query(`ALTER TABLE enseignants ADD COLUMN IF NOT EXISTS tarif_horaire DECIM
 pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS tronc_commun_id INT REFERENCES classes(id) ON DELETE SET NULL`).catch(() => {})
 pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS date_debut_cours DATE`).catch(() => {})
 pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS capacite INT DEFAULT 30`).catch(() => {})
+pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS exempt_tenue BOOLEAN DEFAULT FALSE`).catch(() => {})
 // Table de jonction many-to-many : une classe peut appartenir à plusieurs tronc commun
 pool.query(`CREATE TABLE IF NOT EXISTS classe_tronc_commun (
   id SERIAL PRIMARY KEY,
@@ -2161,8 +2162,8 @@ app.post('/classes', requireAuth, role('dg', 'coordinateur'), async (c) => {
   const b = await c.req.json()
   const estTronc = b.est_tronc_commun ?? false
   const { rows } = await pool.query(
-    'INSERT INTO classes (nom,filiere_id,annee_academique_id,niveau,est_tronc_commun,created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-    [b.nom, estTronc ? null : b.filiere_id, b.annee_academique_id, b.niveau ?? 1, estTronc, u(c).id]
+    'INSERT INTO classes (nom,filiere_id,annee_academique_id,niveau,est_tronc_commun,exempt_tenue,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+    [b.nom, estTronc ? null : b.filiere_id, b.annee_academique_id, b.niveau ?? 1, estTronc, b.exempt_tenue ?? false, u(c).id]
   )
   const classe = rows[0]
   if (Array.isArray(b.parcours_ids)) {
@@ -2200,22 +2201,39 @@ app.post('/classes', requireAuth, role('dg', 'coordinateur'), async (c) => {
 app.put('/classes/:id', requireAuth, role('dg', 'coordinateur'), async (c) => {
   const b = await c.req.json()
   const estTronc = b.est_tronc_commun ?? false
+  const classeId = parseInt(c.req.param('id'))
+  // État avant mise à jour (pour détecter changement d'exempt_tenue)
+  const { rows: prevRows } = await pool.query('SELECT exempt_tenue FROM classes WHERE id=$1', [classeId])
+  const prevExempt: boolean = prevRows[0]?.exempt_tenue === true
+  const nextExempt: boolean = b.exempt_tenue ?? false
   const { rows } = await pool.query(
-    'UPDATE classes SET nom=$1,filiere_id=$2,annee_academique_id=$3,niveau=$4,est_tronc_commun=$5,date_debut_cours=$7 WHERE id=$6 RETURNING *',
-    [b.nom, estTronc ? null : b.filiere_id, b.annee_academique_id, b.niveau ?? 1, estTronc, c.req.param('id'), b.date_debut_cours || null]
+    'UPDATE classes SET nom=$1,filiere_id=$2,annee_academique_id=$3,niveau=$4,est_tronc_commun=$5,date_debut_cours=$7,exempt_tenue=$8 WHERE id=$6 RETURNING *',
+    [b.nom, estTronc ? null : b.filiere_id, b.annee_academique_id, b.niveau ?? 1, estTronc, classeId, b.date_debut_cours || null, nextExempt]
   )
-  await pool.query('DELETE FROM classes_parcours WHERE classe_id=$1', [c.req.param('id')])
+  await pool.query('DELETE FROM classes_parcours WHERE classe_id=$1', [classeId])
   if (Array.isArray(b.parcours_ids)) {
     for (const pid of b.parcours_ids)
-      await pool.query('INSERT INTO classes_parcours (classe_id,parcours_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [c.req.param('id'), pid])
+      await pool.query('INSERT INTO classes_parcours (classe_id,parcours_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [classeId, pid])
   }
   // Tronc commun : remplacer les liens
-  await pool.query('DELETE FROM classe_tronc_commun WHERE classe_id=$1', [c.req.param('id')])
+  await pool.query('DELETE FROM classe_tronc_commun WHERE classe_id=$1', [classeId])
   if (Array.isArray(b.tronc_commun_ids)) {
     for (const tcId of b.tronc_commun_ids)
-      await pool.query('INSERT INTO classe_tronc_commun (classe_id,tronc_commun_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [c.req.param('id'), tcId])
+      await pool.query('INSERT INTO classe_tronc_commun (classe_id,tronc_commun_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [classeId, tcId])
   } else if (b.tronc_commun_id) {
-    await pool.query('INSERT INTO classe_tronc_commun (classe_id,tronc_commun_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [c.req.param('id'), b.tronc_commun_id])
+    await pool.query('INSERT INTO classe_tronc_commun (classe_id,tronc_commun_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [classeId, b.tronc_commun_id])
+  }
+  // Si l'exemption de tenue a changé, recalculer les échéances des inscrits de la classe
+  if (prevExempt !== nextExempt) {
+    try {
+      const { rows: inscrits } = await pool.query(
+        `SELECT id FROM inscriptions WHERE classe_id=$1 AND statut='actif'`,
+        [classeId]
+      )
+      for (const { id } of inscrits) {
+        try { await genererEcheances(id) } catch { /* best-effort */ }
+      }
+    } catch { /* best-effort */ }
   }
   return c.json(rows[0])
 })
@@ -4002,7 +4020,10 @@ async function genererEcheances(inscriptionId: number, moisDebut?: string) {
     SELECT
       COALESCE(NULLIF(f.mensualite, 0), i.mensualite, 0)               AS mensualite,
       COALESCE(NULLIF(f.frais_inscription, 0), i.frais_inscription, 0) AS frais_inscription,
-      COALESCE(NULLIF(f.montant_tenue, 0), i.frais_tenue, 0)           AS frais_tenue,
+      CASE WHEN COALESCE(cl.exempt_tenue, FALSE) THEN 0
+           ELSE COALESCE(NULLIF(f.montant_tenue, 0), i.frais_tenue, 0)
+      END                                                              AS frais_tenue,
+      COALESCE(cl.exempt_tenue, FALSE)                                 AS classe_exempt_tenue,
       COALESCE(f.duree_mois, 12)      AS duree_mois,
       COALESCE(nb.pourcentage, 0)     AS bourse_pct,
       COALESCE(nb.applique_inscription, false) AS bourse_applique,
@@ -4011,6 +4032,7 @@ async function genererEcheances(inscriptionId: number, moisDebut?: string) {
       aa.date_debut AS annee_date_debut
     FROM inscriptions i
     LEFT JOIN filieres f ON i.filiere_id = f.id
+    LEFT JOIN classes cl ON i.classe_id = cl.id
     LEFT JOIN niveaux_bourse nb ON i.niveau_bourse_id = nb.id
     LEFT JOIN annees_academiques aa ON i.annee_academique_id = aa.id
     WHERE i.id = $1
@@ -4065,18 +4087,27 @@ async function genererEcheances(inscriptionId: number, moisDebut?: string) {
   ).catch(() => {})
 
   // 5. Tenue (une seule fois, au premier mois)
-  if (tenueBase > 0) {
+  //    Si la classe est exemptée de tenue, on supprime toute échéance 'tenue' non payée
+  //    (celles déjà payées sont conservées telles quelles pour préserver l'historique)
+  if (insc.classe_exempt_tenue) {
     await pool.query(
-      `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ($1,$2,$3,'tenue')
-       ON CONFLICT (inscription_id,mois,type_echeance) DO UPDATE SET montant=$3 WHERE echeances.statut='non_paye'`,
-      [inscriptionId, moisPremier, tenueEff]
+      `DELETE FROM echeances WHERE inscription_id = $1 AND type_echeance = 'tenue' AND statut = 'non_paye'`,
+      [inscriptionId]
+    ).catch(() => {})
+  } else {
+    if (tenueBase > 0) {
+      await pool.query(
+        `INSERT INTO echeances (inscription_id,mois,montant,type_echeance) VALUES ($1,$2,$3,'tenue')
+         ON CONFLICT (inscription_id,mois,type_echeance) DO UPDATE SET montant=$3 WHERE echeances.statut='non_paye'`,
+        [inscriptionId, moisPremier, tenueEff]
+      ).catch(() => {})
+    }
+    // Nettoyer les doublons tenue à d'autres mois (non payés)
+    await pool.query(
+      `DELETE FROM echeances WHERE inscription_id = $1 AND type_echeance = 'tenue' AND statut = 'non_paye' AND mois != $2::date`,
+      [inscriptionId, moisPremier]
     ).catch(() => {})
   }
-  // Nettoyer les doublons tenue à d'autres mois (non payés)
-  await pool.query(
-    `DELETE FROM echeances WHERE inscription_id = $1 AND type_echeance = 'tenue' AND statut = 'non_paye' AND mois != $2::date`,
-    [inscriptionId, moisPremier]
-  ).catch(() => {})
 
   // 6. Mensualités — liste fixe de N mois depuis mois_debut
   // Construire la liste des N mois attendus
