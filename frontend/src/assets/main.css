@@ -87,6 +87,11 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   border-right: 1px solid rgba(255,255,255,0.04);
+  will-change: transform;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  /* iOS notch support */
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .uc-sidebar::-webkit-scrollbar { width: 3px; }
@@ -261,6 +266,7 @@ body {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   padding: 0 28px;
+  padding-right: max(28px, env(safe-area-inset-right));
   height: var(--topbar-h);
   display: flex;
   align-items: center;
