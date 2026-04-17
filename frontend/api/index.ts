@@ -873,29 +873,36 @@ app.delete('/types-formation/:id', requireAuth, role('dg'), async (c) => {
 })
 
 // ─── PARCOURS ─────────────────────────────────────────────────────────────────
+const PARCOURS_WITH_TYPE = `
+  SELECT p.*,
+    CASE WHEN tf.id IS NOT NULL
+      THEN jsonb_build_object('id',tf.id,'nom',tf.nom,'code',tf.code)
+      ELSE NULL END AS type_formation
+  FROM parcours p
+  LEFT JOIN types_formation tf ON p.type_formation_id = tf.id`
+
 app.get('/parcours', requireAuth, async (c) => {
-  const { rows } = await pool.query(`
-    SELECT p.*, tf.nom as type_formation_nom
-    FROM parcours p LEFT JOIN types_formation tf ON p.type_formation_id = tf.id ORDER BY p.nom
-  `)
+  const { rows } = await pool.query(`${PARCOURS_WITH_TYPE} ORDER BY p.nom`)
   return c.json(rows)
 })
 
 app.post('/parcours', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
-  const { rows } = await pool.query(
-    'INSERT INTO parcours (nom,code,description,type_formation_id,actif) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-    [b.nom, b.code || null, b.description || null, b.type_formation_id || null, b.actif ?? true]
+  const { rows: ins } = await pool.query(
+    'INSERT INTO parcours (nom,code,description,type_formation_id,niveau_entree,diplome_vise,actif) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+    [b.nom, b.code || null, b.description || null, b.type_formation_id || null, b.niveau_entree || null, b.diplome_vise || null, b.actif ?? true]
   )
+  const { rows } = await pool.query(`${PARCOURS_WITH_TYPE} WHERE p.id=$1`, [ins[0].id])
   return c.json(rows[0], 201)
 })
 
 app.put('/parcours/:id', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
-  const { rows } = await pool.query(
-    'UPDATE parcours SET nom=$1,code=$2,description=$3,type_formation_id=$4,actif=$5 WHERE id=$6 RETURNING *',
-    [b.nom, b.code || null, b.description || null, b.type_formation_id || null, b.actif ?? true, c.req.param('id')]
+  await pool.query(
+    'UPDATE parcours SET nom=$1,code=$2,type_formation_id=$3,niveau_entree=$4,diplome_vise=$5,actif=$6 WHERE id=$7',
+    [b.nom, b.code || null, b.type_formation_id || null, b.niveau_entree || null, b.diplome_vise || null, b.actif ?? true, c.req.param('id')]
   )
+  const { rows } = await pool.query(`${PARCOURS_WITH_TYPE} WHERE p.id=$1`, [c.req.param('id')])
   return c.json(rows[0])
 })
 
