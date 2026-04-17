@@ -2161,6 +2161,7 @@ app.get('/classes', requireAuth, async (c) => {
 app.post('/classes', requireAuth, role('dg', 'coordinateur'), async (c) => {
   const b = await c.req.json()
   const estTronc = b.est_tronc_commun ?? false
+  await ensureExemptTenueColumn()
   const { rows } = await pool.query(
     'INSERT INTO classes (nom,filiere_id,annee_academique_id,niveau,est_tronc_commun,exempt_tenue,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
     [b.nom, estTronc ? null : b.filiere_id, b.annee_academique_id, b.niveau ?? 1, estTronc, b.exempt_tenue ?? false, u(c).id]
@@ -2202,6 +2203,7 @@ app.put('/classes/:id', requireAuth, role('dg', 'coordinateur'), async (c) => {
   const b = await c.req.json()
   const estTronc = b.est_tronc_commun ?? false
   const classeId = parseInt(c.req.param('id'))
+  await ensureExemptTenueColumn()
   // État avant mise à jour (pour détecter changement d'exempt_tenue)
   const { rows: prevRows } = await pool.query('SELECT exempt_tenue FROM classes WHERE id=$1', [classeId])
   const prevExempt: boolean = prevRows[0]?.exempt_tenue === true
@@ -2227,7 +2229,7 @@ app.put('/classes/:id', requireAuth, role('dg', 'coordinateur'), async (c) => {
   if (prevExempt !== nextExempt) {
     try {
       const { rows: inscrits } = await pool.query(
-        `SELECT id FROM inscriptions WHERE classe_id=$1 AND statut='actif'`,
+        `SELECT id FROM inscriptions WHERE classe_id=$1 AND statut IN ('inscrit_actif','pre_inscrit')`,
         [classeId]
       )
       for (const { id } of inscrits) {
@@ -4014,7 +4016,21 @@ function pgDateToStr(val: any): string {
   return String(val).substring(0, 10)
 }
 
+// Garantit que la colonne classes.exempt_tenue existe avant toute lecture —
+// le ALTER TABLE top-level est "fire-and-forget" et peut ne pas avoir eu le
+// temps de se terminer sur un cold-start serverless.
+let exemptTenueReady: Promise<void> | null = null
+async function ensureExemptTenueColumn(): Promise<void> {
+  if (exemptTenueReady) return exemptTenueReady
+  exemptTenueReady = (async () => {
+    await pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS exempt_tenue BOOLEAN DEFAULT FALSE`)
+  })().catch((err) => { exemptTenueReady = null; throw err })
+  return exemptTenueReady
+}
+
 async function genererEcheances(inscriptionId: number, moisDebut?: string) {
+  // 0. S'assurer que la colonne exempt_tenue existe (idempotent, memoïsé)
+  await ensureExemptTenueColumn()
   // 1. Récupérer toutes les infos nécessaires en une seule requête
   const { rows } = await pool.query(`
     SELECT
