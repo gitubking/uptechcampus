@@ -53,11 +53,12 @@ class UserController extends Controller
             'prenom'    => 'sometimes|string|max:100',
             'email'     => 'sometimes|email|unique:users,email,' . $user->id,
             'telephone' => 'nullable|string|max:20',
+            'role'      => 'sometimes|in:dg,dir_peda,resp_fin,coordinateur,secretariat,intervenant,etudiant',
             'statut'    => 'sometimes|in:actif,inactif,suspendu,bloque',
         ]);
 
         $avant = $user->toArray();
-        $user->update($request->only(['nom','prenom','email','telephone','statut']));
+        $user->update($request->only(['nom','prenom','email','telephone','role','statut']));
         AuditService::log('user_updated', 'App\\Models\\User', $user->id, $avant, $user->fresh()->toArray(), $request);
 
         return response()->json($user->fresh());
