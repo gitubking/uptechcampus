@@ -884,8 +884,8 @@ app.get('/parcours', requireAuth, async (c) => {
 app.post('/parcours', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'INSERT INTO parcours (nom,code,description,type_formation_id) VALUES ($1,$2,$3,$4) RETURNING *',
-    [b.nom, b.code || null, b.description || null, b.type_formation_id || null]
+    'INSERT INTO parcours (nom,code,description,type_formation_id,actif) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+    [b.nom, b.code || null, b.description || null, b.type_formation_id || null, b.actif ?? true]
   )
   return c.json(rows[0], 201)
 })
@@ -893,8 +893,8 @@ app.post('/parcours', requireAuth, role('dg'), async (c) => {
 app.put('/parcours/:id', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json()
   const { rows } = await pool.query(
-    'UPDATE parcours SET nom=$1,code=$2,description=$3,type_formation_id=$4 WHERE id=$5 RETURNING *',
-    [b.nom, b.code || null, b.description || null, b.type_formation_id || null, c.req.param('id')]
+    'UPDATE parcours SET nom=$1,code=$2,description=$3,type_formation_id=$4,actif=$5 WHERE id=$6 RETURNING *',
+    [b.nom, b.code || null, b.description || null, b.type_formation_id || null, b.actif ?? true, c.req.param('id')]
   )
   return c.json(rows[0])
 })
