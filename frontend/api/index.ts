@@ -669,13 +669,14 @@ pool.query(`
       roles: ['dg'] },
   ]
 
-  // Upsert all defaults — inserts missing rows AND corrects any wrong values.
-  // Admin customisations made via the UI are preserved only after first correct load.
+  // Seed defaults ONLY for missing rows — existing rows (including admin
+  // customisations) are NEVER overwritten. This is critical because Vercel
+  // cold-starts re-run this block; DO UPDATE would erase every saved change.
   for (const { path, roles } of defaults) {
     for (const r of allRoles) {
       await pool.query(
         `INSERT INTO role_permissions(role,page_path,has_access) VALUES($1,$2,$3)
-         ON CONFLICT(role,page_path) DO UPDATE SET has_access = EXCLUDED.has_access`,
+         ON CONFLICT(role,page_path) DO NOTHING`,
         [r, path, roles.includes(r)]
       )
     }

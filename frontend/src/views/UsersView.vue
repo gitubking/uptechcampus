@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import api from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
+const isDG = computed(() => auth.user?.role === 'dg')
 
 interface User {
   id: number
@@ -169,6 +173,7 @@ const activeTab = ref<'users' | 'permissions'>('users')
 const permSaving = ref(false)
 const permSaved = ref(false)
 const permLoading = ref(false)
+const permError = ref('')
 
 const PERM_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant']
 const PERM_ROLE_LABELS: Record<string,string> = {
@@ -293,23 +298,28 @@ function setPerm(path: string, role: string, val: boolean) {
 
 async function loadPermissions() {
   permLoading.value = true
+  permError.value = ''
   try {
     // 1. Partir des défauts (déjà affichés) puis écraser avec ce que la DB a sauvegardé
     const map = buildDefaultMap()
     const { data } = await api.get('/role-permissions')
-    for (const p of data) {
-      if (map[p.page_path]) map[p.page_path]![p.role] = p.has_access
+    if (Array.isArray(data)) {
+      for (const p of data) {
+        if (map[p.page_path]) map[p.page_path]![p.role] = p.has_access
+      }
     }
     permissions.value = map
-  } catch (_) {
-    // En cas d'erreur réseau, on garde les défauts déjà affichés
+  } catch (e: any) {
+    permError.value = `Impossible de charger les permissions : ${e.response?.data?.message ?? e.message ?? 'erreur réseau'}`
+    console.error('[permissions] load failed:', e)
   }
   permLoading.value = false
 }
 
 async function savePermissions() {
   permSaving.value = true
-  const perms: any[] = []
+  permError.value = ''
+  const perms: Array<{ role: string; page_path: string; has_access: boolean }> = []
   for (const [path, roleMap] of Object.entries(permissions.value)) {
     for (const [r, has] of Object.entries(roleMap)) {
       perms.push({ role: r, page_path: path, has_access: has })
@@ -317,9 +327,19 @@ async function savePermissions() {
   }
   try {
     await api.put('/role-permissions', perms)
+    // Re-fetch pour confirmer que la DB a bien enregistré
+    await loadPermissions()
     permSaved.value = true
     setTimeout(() => { permSaved.value = false }, 3000)
-  } catch (_) {}
+  } catch (e: any) {
+    const msg = e.response?.data?.message
+      ?? (e.response?.status === 403 ? 'Seul le DG peut modifier les permissions.' : null)
+      ?? e.response?.status
+      ?? e.message
+      ?? 'Erreur inconnue'
+    permError.value = `Échec de la sauvegarde : ${msg}`
+    console.error('[permissions] save failed:', e.response ?? e)
+  }
   permSaving.value = false
 }
 
@@ -488,10 +508,20 @@ watch(activeTab, (tab) => {
           <transition name="pm-fade">
             <span v-if="permSaved" style="color:#16a34a;font-size:13px;font-weight:600;">✓ Sauvegardé</span>
           </transition>
-          <button @click="savePermissions" :disabled="permSaving" class="pm-save-btn">
+          <button @click="savePermissions" :disabled="permSaving || !isDG" class="pm-save-btn" :title="!isDG ? 'Seul le DG peut sauvegarder' : ''">
             {{ permSaving ? '⏳ Sauvegarde…' : '💾 Sauvegarder' }}
           </button>
         </div>
+      </div>
+
+      <!-- Message d'erreur visible -->
+      <div v-if="permError" style="margin:12px 20px 0;padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#b91c1c;font-size:13px;font-weight:500;">
+        ⚠️ {{ permError }}
+      </div>
+
+      <!-- Info role non-DG -->
+      <div v-if="!isDG" style="margin:12px 20px 0;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;color:#9a3412;font-size:13px;">
+        ℹ️ Seul le Directeur Général peut modifier les permissions. Vous êtes en lecture seule.
       </div>
 
       <div v-if="permLoading" style="padding:48px;text-align:center;color:#94a3b8;">Chargement…</div>
@@ -522,11 +552,11 @@ watch(activeTab, (tab) => {
                     <input
                       type="checkbox"
                       class="pm-checkbox"
-                      :disabled="r === 'dg'"
+                      :disabled="r === 'dg' || !isDG"
                       :checked="getPerm(page.path, r)"
                       @change="setPerm(page.path, r, ($event.target as HTMLInputElement).checked)"
                     />
-                    <span class="pm-check-box" :style="r==='dg' ? 'opacity:.4' : ''"></span>
+                    <span class="pm-check-box" :style="(r==='dg' || !isDG) ? 'opacity:.4' : ''"></span>
                   </label>
                 </td>
               </tr>
