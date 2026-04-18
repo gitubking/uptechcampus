@@ -85,6 +85,8 @@ interface Etudiant {
   sexe: string | null
   handicape: boolean | null
   type_handicap: string | null
+  statut_professionnel: string | null
+  employeur: string | null
   inscription_active: InscriptionActive | null
 }
 
@@ -600,6 +602,8 @@ const studentForm = ref({
   sexe: '' as '' | 'masculin' | 'feminin',
   handicape: false,
   type_handicap: '',
+  statut_professionnel: '' as '' | 'salarie' | 'independant' | 'sans_emploi' | 'etudiant' | 'autre',
+  employeur: '',
 })
 
 // ── Formulaire inscription ────────────────────────────────────────────
@@ -613,6 +617,7 @@ const inscriptionForm = ref({
   frais_tenue: 0,
   statut: 'inscrit_actif',
   mois_debut: '',
+  regime_formation: '' as '' | 'initiale' | 'continue',
 })
 
 // ── Formation individuelle (à la carte) ──────────────────────────────
@@ -697,7 +702,7 @@ async function openInscrire() {
   panelError.value = ''
   currentStep.value = 1
   editingEtudiantId.value = null
-  studentForm.value = { prenom: '', nom: '', email: '', telephone: '', date_naissance: '', lieu_naissance: '', adresse: '', cni_numero: '', nom_parent: '', telephone_parent: '', sexe: '', handicape: false, type_handicap: '' }
+  studentForm.value = { prenom: '', nom: '', email: '', telephone: '', date_naissance: '', lieu_naissance: '', adresse: '', cni_numero: '', nom_parent: '', telephone_parent: '', sexe: '', handicape: false, type_handicap: '', statut_professionnel: '', employeur: '' }
   selectedType.value = null
   selectedFiliereObj.value = null
   const anneeActive = annees.value.find(a => a.actif)
@@ -705,6 +710,7 @@ async function openInscrire() {
     filiere_id: null, niveau_entree_id: null, niveau_bourse_id: null,
     annee_academique_id: anneeActive?.id ?? annees.value[0]?.id ?? null,
     frais_tenue: 0, statut: 'inscrit_actif', mois_debut: '',
+    regime_formation: '',
   }
   fiForm.value = {
     cout_total: 0, pct_inscription: 50, pct_formateur: 50,
@@ -731,6 +737,10 @@ function openEditEtudiant(etudiant: Etudiant) {
     sexe: (etudiant.sexe === 'masculin' || etudiant.sexe === 'feminin') ? etudiant.sexe : '',
     handicape: etudiant.handicape === true,
     type_handicap: etudiant.type_handicap ?? '',
+    statut_professionnel: ['salarie','independant','sans_emploi','etudiant','autre'].includes(etudiant.statut_professionnel ?? '')
+      ? (etudiant.statut_professionnel as any)
+      : '',
+    employeur: etudiant.employeur ?? '',
   }
   showPanel.value = true
 }
@@ -800,6 +810,7 @@ async function submitInscrire() {
         frais_tenue: inscriptionForm.value.frais_tenue || 0,
         statut: inscriptionForm.value.statut,
         mois_debut: inscriptionForm.value.mois_debut || undefined,
+        regime_formation: inscriptionForm.value.regime_formation || undefined,
       })
       inscription = data
     }
@@ -1850,6 +1861,32 @@ onMounted(() => {
                     />
                   </div>
                 </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Statut professionnel</label>
+                    <select v-model="studentForm.statut_professionnel">
+                      <option value="">— Non renseigné —</option>
+                      <option value="salarie">💼 Salarié·e</option>
+                      <option value="independant">🧑‍💻 Indépendant·e / freelance</option>
+                      <option value="sans_emploi">🔍 Sans emploi</option>
+                      <option value="etudiant">🎓 Étudiant·e à temps plein</option>
+                      <option value="autre">Autre</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>
+                      Employeur / structure
+                      <span v-if="!['salarie','independant'].includes(studentForm.statut_professionnel)" style="color:#94a3b8;font-weight:400;font-size:0.85em;">(si salarié·e ou indépendant·e)</span>
+                    </label>
+                    <input
+                      v-model="studentForm.employeur"
+                      type="text"
+                      maxlength="150"
+                      :disabled="!['salarie','independant'].includes(studentForm.statut_professionnel)"
+                      :placeholder="['salarie','independant'].includes(studentForm.statut_professionnel) ? 'Nom de l\'entreprise' : '—'"
+                    />
+                  </div>
+                </div>
                 <div class="form-row full">
                   <div class="form-group">
                     <label>Adresse</label>
@@ -1892,6 +1929,30 @@ onMounted(() => {
                     <div class="radio-card-title">Pré-inscrit</div>
                     <div class="radio-card-sub">En attente</div>
                   </label>
+                </div>
+
+                <!-- Régime de formation -->
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Régime de formation</label>
+                    <div style="display:flex;gap:14px;align-items:center;padding-top:6px;flex-wrap:wrap;">
+                      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:500;">
+                        <input type="radio" v-model="inscriptionForm.regime_formation" value="initiale" />
+                        <span>🎓 Formation initiale</span>
+                      </label>
+                      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:500;">
+                        <input type="radio" v-model="inscriptionForm.regime_formation" value="continue" />
+                        <span>🔄 Formation continue</span>
+                      </label>
+                      <button
+                        v-if="inscriptionForm.regime_formation"
+                        type="button"
+                        @click="inscriptionForm.regime_formation = ''"
+                        style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:0.85em;text-decoration:underline;"
+                      >effacer</button>
+                    </div>
+                  </div>
+                  <div class="form-group"></div>
                 </div>
 
                 <div class="form-row">

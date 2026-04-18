@@ -56,12 +56,18 @@ const resultats = ref<ResultatsData | null>(null)
 
 interface DemographicsData {
   total: number
+  total_inscriptions?: number
   sexe: { masculin: number; feminin: number; non_renseigne: number }
   handicap: {
     handicape: number
     valides: number
     par_type: { type_handicap: string; nb: number }[]
   }
+  statut_professionnel?: {
+    salarie: number; independant: number; sans_emploi: number
+    etudiant: number; autre: number; non_renseigne: number
+  }
+  regime_formation?: { initiale: number; continue: number; non_renseigne: number }
 }
 const demographics = ref<DemographicsData | null>(null)
 
@@ -568,6 +574,69 @@ function exportCSV() {
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+        <!-- Statut professionnel + régime de formation -->
+        <div v-if="demographics && demographics.total > 0" class="rp-grid-2">
+          <div class="rp-card">
+            <h3 class="rp-card-title">Statut professionnel</h3>
+            <p style="font-size:11px;color:#888;margin:-4px 0 12px;">
+              Sur {{ demographics.total }} étudiant(s) actif(s) ou pré-inscrit(s)
+            </p>
+            <div v-if="demographics.statut_professionnel" style="display:flex;flex-direction:column;gap:10px;">
+              <div v-for="row in [
+                { key: 'salarie',     label: '💼 Salarié·e',                color: '#16a34a' },
+                { key: 'independant', label: '🧑‍💻 Indépendant·e',          color: '#7c3aed' },
+                { key: 'sans_emploi', label: '🔍 Sans emploi',              color: '#dc2626' },
+                { key: 'etudiant',    label: '🎓 Étudiant·e temps plein',   color: '#3b82f6' },
+                { key: 'autre',       label: 'Autre',                        color: '#64748b' },
+                { key: 'non_renseigne', label: 'Non renseigné',              color: '#9ca3af' },
+              ]" :key="row.key" v-show="(demographics.statut_professionnel as any)[row.key] > 0 || row.key === 'salarie' || row.key === 'sans_emploi'">
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                  <span :style="{ color: row.color, fontWeight: 600 }">{{ row.label }}</span>
+                  <span style="font-weight:700;">
+                    {{ (demographics.statut_professionnel as any)[row.key] }}
+                    ({{ demographics.total ? Math.round((demographics.statut_professionnel as any)[row.key] / demographics.total * 100) : 0 }}%)
+                  </span>
+                </div>
+                <div style="height:8px;background:#f0f0f0;border-radius:20px;overflow:hidden;">
+                  <div style="height:100%;border-radius:20px;"
+                    :style="{ width: `${demographics.total ? ((demographics.statut_professionnel as any)[row.key] / demographics.total * 100) : 0}%`, background: row.color }"></div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="rp-empty">Donnée non disponible.</div>
+          </div>
+          <div class="rp-card">
+            <h3 class="rp-card-title">Régime de formation</h3>
+            <p style="font-size:11px;color:#888;margin:-4px 0 12px;">
+              Sur {{ demographics.total_inscriptions ?? 0 }} inscription(s) active(s) ou pré-inscrite(s)
+            </p>
+            <div v-if="demographics.regime_formation" style="display:flex;align-items:stretch;gap:14px;">
+              <div style="flex:1;background:#e0f2fe;border-radius:10px;padding:14px;text-align:center;">
+                <div style="font-size:11px;font-weight:600;color:#075985;margin-bottom:6px;">🎓 Formation initiale</div>
+                <div style="font-size:30px;font-weight:800;color:#0c4a6e;">{{ demographics.regime_formation.initiale }}</div>
+                <div style="font-size:11px;color:#0369a1;margin-top:4px;">
+                  {{ demographics.total_inscriptions ? Math.round(demographics.regime_formation.initiale / demographics.total_inscriptions * 100) : 0 }}%
+                </div>
+              </div>
+              <div style="flex:1;background:#fef3c7;border-radius:10px;padding:14px;text-align:center;">
+                <div style="font-size:11px;font-weight:600;color:#854d0e;margin-bottom:6px;">🔄 Formation continue</div>
+                <div style="font-size:30px;font-weight:800;color:#713f12;">{{ demographics.regime_formation.continue }}</div>
+                <div style="font-size:11px;color:#a16207;margin-top:4px;">
+                  {{ demographics.total_inscriptions ? Math.round(demographics.regime_formation.continue / demographics.total_inscriptions * 100) : 0 }}%
+                </div>
+              </div>
+              <div v-if="demographics.regime_formation.non_renseigne > 0"
+                style="flex:1;background:#f3f4f6;border-radius:10px;padding:14px;text-align:center;">
+                <div style="font-size:11px;font-weight:600;color:#4b5563;margin-bottom:6px;">Non renseigné</div>
+                <div style="font-size:30px;font-weight:800;color:#374151;">{{ demographics.regime_formation.non_renseigne }}</div>
+                <div style="font-size:11px;color:#6b7280;margin-top:4px;">
+                  {{ demographics.total_inscriptions ? Math.round(demographics.regime_formation.non_renseigne / demographics.total_inscriptions * 100) : 0 }}%
+                </div>
+              </div>
+            </div>
+            <div v-else class="rp-empty">Donnée non disponible.</div>
           </div>
         </div>
         <div class="rp-card">

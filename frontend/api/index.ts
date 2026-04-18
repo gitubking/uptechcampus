@@ -54,6 +54,11 @@ pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS exempt_tenue BOOLEAN DE
 pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS sexe VARCHAR(15)`).catch(() => {})
 pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS handicape BOOLEAN DEFAULT FALSE`).catch(() => {})
 pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS type_handicap VARCHAR(100)`).catch(() => {})
+// Statut professionnel (salarié, indépendant, sans emploi, étudiant, autre)
+pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS statut_professionnel VARCHAR(20)`).catch(() => {})
+pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS employeur VARCHAR(150)`).catch(() => {})
+// Régime de formation par inscription : 'initiale' (cursus standard) / 'continue' (reprise d'études, formation pro)
+pool.query(`ALTER TABLE inscriptions ADD COLUMN IF NOT EXISTS regime_formation VARCHAR(20)`).catch(() => {})
 // Table de jonction many-to-many : une classe peut appartenir à plusieurs tronc commun
 pool.query(`CREATE TABLE IF NOT EXISTS classe_tronc_commun (
   id SERIAL PRIMARY KEY,
@@ -2557,6 +2562,8 @@ app.get('/etudiants/:id', requireAuth, async (c) => {
   return c.json({ ...rows[0], inscriptions: inscrRows.rows, documents: docRows.rows })
 })
 
+const STATUTS_PRO_VALIDES = ['salarie', 'independant', 'sans_emploi', 'etudiant', 'autre'] as const
+
 app.post('/etudiants', requireAuth, role('secretariat', 'dg'), async (c) => {
   const b = await c.req.json()
   await ensureEtudiantDemographicsColumns()
@@ -2567,13 +2574,19 @@ app.post('/etudiants', requireAuth, role('secretariat', 'dg'), async (c) => {
     : null
   const handicape = b.handicape === true || b.handicape === 'true'
   const typeHandicap = handicape && b.type_handicap ? String(b.type_handicap).slice(0, 100) : null
+  const statutPro = b.statut_professionnel && (STATUTS_PRO_VALIDES as readonly string[]).includes(String(b.statut_professionnel).toLowerCase())
+    ? String(b.statut_professionnel).toLowerCase()
+    : null
+  const employeur = (statutPro === 'salarie' || statutPro === 'independant') && b.employeur
+    ? String(b.employeur).slice(0, 150)
+    : null
   const { rows } = await pool.query(
-    `INSERT INTO etudiants (numero_etudiant,nom,prenom,email,telephone,date_naissance,lieu_naissance,adresse,cni_numero,nom_parent,telephone_parent,sexe,handicape,type_handicap)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+    `INSERT INTO etudiants (numero_etudiant,nom,prenom,email,telephone,date_naissance,lieu_naissance,adresse,cni_numero,nom_parent,telephone_parent,sexe,handicape,type_handicap,statut_professionnel,employeur)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
     [numero, b.nom, b.prenom, b.email || null, b.telephone || null,
      b.date_naissance || null, b.lieu_naissance || null, b.adresse || null,
      b.cni_numero || null, b.nom_parent || null, b.telephone_parent || null,
-     sexe, handicape, typeHandicap]
+     sexe, handicape, typeHandicap, statutPro, employeur]
   )
   return c.json(rows[0], 201)
 })
@@ -2593,15 +2606,22 @@ app.put('/etudiants/:id', requireAuth, role('secretariat', 'dg'), async (c) => {
     : null
   const handicape = b.handicape === true || b.handicape === 'true'
   const typeHandicap = handicape && b.type_handicap ? String(b.type_handicap).slice(0, 100) : null
+  const statutPro = b.statut_professionnel && (STATUTS_PRO_VALIDES as readonly string[]).includes(String(b.statut_professionnel).toLowerCase())
+    ? String(b.statut_professionnel).toLowerCase()
+    : null
+  const employeur = (statutPro === 'salarie' || statutPro === 'independant') && b.employeur
+    ? String(b.employeur).slice(0, 150)
+    : null
 
   const { rows } = await pool.query(
     `UPDATE etudiants SET nom=$1,prenom=$2,email=$3,telephone=$4,date_naissance=$5,lieu_naissance=$6,
-      adresse=$7,cni_numero=$8,nom_parent=$9,telephone_parent=$10,sexe=$11,handicape=$12,type_handicap=$13
-     WHERE id=$14 RETURNING *`,
+      adresse=$7,cni_numero=$8,nom_parent=$9,telephone_parent=$10,sexe=$11,handicape=$12,type_handicap=$13,
+      statut_professionnel=$14,employeur=$15
+     WHERE id=$16 RETURNING *`,
     [b.nom, b.prenom, b.email || null, b.telephone || null, b.date_naissance || null,
      b.lieu_naissance || null, b.adresse || null, b.cni_numero || null,
      b.nom_parent || null, b.telephone_parent || null,
-     sexe, handicape, typeHandicap, id]
+     sexe, handicape, typeHandicap, statutPro, employeur, id]
   )
 
   // Synchroniser le compte users si l'étudiant en a un (nom, prenom, email)
@@ -2864,8 +2884,11 @@ app.get('/inscriptions', requireAuth, async (c) => {
   return c.json(rows)
 })
 
+const REGIMES_FORMATION_VALIDES = ['initiale', 'continue'] as const
+
 app.post('/inscriptions', requireAuth, role('secretariat', 'dg'), async (c) => {
   const b = await c.req.json()
+  await ensureInscriptionRegimeColumn()
   // Auto-populate tariffs from filière if not explicitly provided
   let fraisInscription = b.frais_inscription || 0
   let mensualite = b.mensualite || 0
@@ -2878,15 +2901,18 @@ app.post('/inscriptions', requireAuth, role('secretariat', 'dg'), async (c) => {
       if (!fraisTenue) fraisTenue = parseFloat(fil[0].montant_tenue) || 0
     }
   }
+  const regimeFormation = b.regime_formation && (REGIMES_FORMATION_VALIDES as readonly string[]).includes(String(b.regime_formation).toLowerCase())
+    ? String(b.regime_formation).toLowerCase()
+    : null
   const moisDebutVal = b.mois_debut ? b.mois_debut + (b.mois_debut.length === 7 ? '-01' : '') : null
   const { rows } = await pool.query(
     `INSERT INTO inscriptions (etudiant_id,filiere_id,classe_id,parcours_id,annee_academique_id,
-      niveau_entree_id,niveau_bourse_id,statut,frais_inscription,mensualite,frais_tenue,reduction_type,reduction_valeur,mois_debut,created_by,created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW()) RETURNING *`,
+      niveau_entree_id,niveau_bourse_id,statut,frais_inscription,mensualite,frais_tenue,reduction_type,reduction_valeur,mois_debut,regime_formation,created_by,created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW()) RETURNING *`,
     [b.etudiant_id, b.filiere_id || null, b.classe_id || null, b.parcours_id || null, b.annee_academique_id,
      b.niveau_entree_id || null, b.niveau_bourse_id || null, b.statut || 'pre_inscrit',
      fraisInscription, mensualite, fraisTenue,
-     b.reduction_type || null, b.reduction_valeur || null, moisDebutVal, u(c).id]
+     b.reduction_type || null, b.reduction_valeur || null, moisDebutVal, regimeFormation, u(c).id]
   )
   // Générer les échéances immédiatement dès l'inscription (await = fiable, pas de fire-and-forget)
   try {
@@ -2914,6 +2940,7 @@ app.post('/inscriptions', requireAuth, role('secretariat', 'dg'), async (c) => {
 
 app.put('/inscriptions/:id', requireAuth, role('secretariat', 'dg'), async (c) => {
   const b = await c.req.json()
+  await ensureInscriptionRegimeColumn()
   // Si la filière a changé, on vide automatiquement la classe (l'étudiant retourne dans le pool de la nouvelle filière)
   const { rows: cur } = await pool.query('SELECT filiere_id FROM inscriptions WHERE id=$1', [c.req.param('id')])
   const filiereChanged = cur[0] && String(cur[0].filiere_id) !== String(b.filiere_id || '')
@@ -2928,17 +2955,21 @@ app.put('/inscriptions/:id', requireAuth, role('secretariat', 'dg'), async (c) =
       mensualite = parseFloat(fil[0].mensualite) || 0
     }
   }
+  const regimeFormation = b.regime_formation && (REGIMES_FORMATION_VALIDES as readonly string[]).includes(String(b.regime_formation).toLowerCase())
+    ? String(b.regime_formation).toLowerCase()
+    : null
   const moisDebutVal = b.mois_debut ? b.mois_debut + (b.mois_debut.length === 7 ? '-01' : '') : undefined
-  const moisDebutClause = moisDebutVal ? ',mois_debut=$14' : ''
+  // Paramètres ordonnés : 1..12 = champs fixes, 13 = id, 14 = regime_formation, 15 (optionnel) = mois_debut
+  const moisDebutClause = moisDebutVal ? ',mois_debut=$15' : ''
   const params: any[] = [b.filiere_id || null, classeId, b.parcours_id || null, b.annee_academique_id,
      b.niveau_entree_id || null, b.niveau_bourse_id || null, b.statut || 'pre_inscrit',
      fraisInscription, mensualite, b.frais_tenue || 0,
-     b.reduction_type || null, b.reduction_valeur || null, c.req.param('id')]
+     b.reduction_type || null, b.reduction_valeur || null, c.req.param('id'), regimeFormation]
   if (moisDebutVal) params.push(moisDebutVal)
   const { rows } = await pool.query(
     `UPDATE inscriptions SET filiere_id=$1,classe_id=$2,parcours_id=$3,annee_academique_id=$4,
       niveau_entree_id=$5,niveau_bourse_id=$6,statut=$7,frais_inscription=$8,mensualite=$9,
-      frais_tenue=$10,reduction_type=$11,reduction_valeur=$12${moisDebutClause}
+      frais_tenue=$10,reduction_type=$11,reduction_valeur=$12,regime_formation=$14${moisDebutClause}
      WHERE id=$13 RETURNING *`,
     params
   )
@@ -3948,13 +3979,15 @@ app.get('/stats', requireAuth, async (c) => {
 })
 
 // ─── STATS DÉMOGRAPHIQUES ÉTUDIANTS ──────────────────────────────────────────
-// Répartition sexe + handicap pour reporting (DG, secrétariat, comptabilité).
+// Répartition sexe + handicap + statut pro + régime formation pour reporting
+// (DG, secrétariat, comptabilité).
 app.get('/stats/etudiants/demographics', requireAuth, async (c) => {
   await ensureEtudiantDemographicsColumns()
+  await ensureInscriptionRegimeColumn()
 
   // Base = étudiants ayant au moins une inscription active OU pré-inscrite
   // (pour exclure les étudiants archivés / abandonnés des stats courantes).
-  const [sexeRows, handicapRows, typeHandicapRows, totalRow] = await Promise.all([
+  const [sexeRows, handicapRows, typeHandicapRows, statutProRows, regimeRows, totalRow] = await Promise.all([
     pool.query(`
       SELECT COALESCE(LOWER(e.sexe), 'non_renseigne') AS sexe, COUNT(DISTINCT e.id)::int AS nb
       FROM etudiants e
@@ -3982,6 +4015,20 @@ app.get('/stats/etudiants/demographics', requireAuth, async (c) => {
       ORDER BY nb DESC
     `),
     pool.query(`
+      SELECT COALESCE(LOWER(e.statut_professionnel), 'non_renseigne') AS statut, COUNT(DISTINCT e.id)::int AS nb
+      FROM etudiants e
+      JOIN inscriptions i ON i.etudiant_id = e.id
+        AND i.statut IN ('inscrit_actif','pre_inscrit')
+      GROUP BY 1
+    `),
+    // Régime de formation : on agrège au niveau inscription (un étudiant peut avoir 2 inscriptions actives)
+    pool.query(`
+      SELECT COALESCE(LOWER(i.regime_formation), 'non_renseigne') AS regime, COUNT(*)::int AS nb
+      FROM inscriptions i
+      WHERE i.statut IN ('inscrit_actif','pre_inscrit')
+      GROUP BY 1
+    `),
+    pool.query(`
       SELECT COUNT(DISTINCT e.id)::int AS total
       FROM etudiants e
       JOIN inscriptions i ON i.etudiant_id = e.id
@@ -4002,14 +4049,32 @@ app.get('/stats/etudiants/demographics', requireAuth, async (c) => {
     else valides += Number(r.nb)
   }
 
+  const statutPro = { salarie: 0, independant: 0, sans_emploi: 0, etudiant: 0, autre: 0, non_renseigne: 0 } as Record<string, number>
+  const STATUTS = ['salarie', 'independant', 'sans_emploi', 'etudiant', 'autre']
+  for (const r of statutProRows.rows) {
+    const key = STATUTS.includes(r.statut) ? r.statut : 'non_renseigne'
+    statutPro[key] = (statutPro[key] || 0) + Number(r.nb)
+  }
+
+  const regime = { initiale: 0, continue: 0, non_renseigne: 0 } as Record<string, number>
+  let totalInscriptions = 0
+  for (const r of regimeRows.rows) {
+    const key = r.regime === 'initiale' || r.regime === 'continue' ? r.regime : 'non_renseigne'
+    regime[key] = (regime[key] || 0) + Number(r.nb)
+    totalInscriptions += Number(r.nb)
+  }
+
   return c.json({
     total,
+    total_inscriptions: totalInscriptions,
     sexe,
     handicap: {
       handicape,
       valides,
       par_type: typeHandicapRows.rows,
     },
+    statut_professionnel: statutPro,
+    regime_formation: regime,
   })
 })
 
@@ -4115,7 +4180,8 @@ async function ensureExemptTenueColumn(): Promise<void> {
   return exemptTenueReady
 }
 
-// Idem pour les colonnes démographiques étudiants (sexe, handicape, type_handicap).
+// Idem pour les colonnes démographiques étudiants (sexe, handicape, type_handicap,
+// statut professionnel + employeur).
 let etudiantDemographicsReady: Promise<void> | null = null
 async function ensureEtudiantDemographicsColumns(): Promise<void> {
   if (etudiantDemographicsReady) return etudiantDemographicsReady
@@ -4123,8 +4189,20 @@ async function ensureEtudiantDemographicsColumns(): Promise<void> {
     await pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS sexe VARCHAR(15)`)
     await pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS handicape BOOLEAN DEFAULT FALSE`)
     await pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS type_handicap VARCHAR(100)`)
+    await pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS statut_professionnel VARCHAR(20)`)
+    await pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS employeur VARCHAR(150)`)
   })().catch((err) => { etudiantDemographicsReady = null; throw err })
   return etudiantDemographicsReady
+}
+
+// Régime de formation par inscription : 'initiale' / 'continue'.
+let inscriptionRegimeReady: Promise<void> | null = null
+async function ensureInscriptionRegimeColumn(): Promise<void> {
+  if (inscriptionRegimeReady) return inscriptionRegimeReady
+  inscriptionRegimeReady = (async () => {
+    await pool.query(`ALTER TABLE inscriptions ADD COLUMN IF NOT EXISTS regime_formation VARCHAR(20)`)
+  })().catch((err) => { inscriptionRegimeReady = null; throw err })
+  return inscriptionRegimeReady
 }
 
 async function genererEcheances(inscriptionId: number, moisDebut?: string) {

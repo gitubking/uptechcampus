@@ -2140,6 +2140,18 @@ async function delierParent(lienId: number) {
                 <span v-if="etudiant.handicape"
                   :title="etudiant.type_handicap || 'Personne en situation de handicap'"
                   style="background:#fef3c7;color:#78350f;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">♿ Handicap</span>
+                <span v-if="etudiant.statut_professionnel === 'salarie'"
+                  :title="etudiant.employeur ? 'Employeur : ' + etudiant.employeur : 'Salarié·e'"
+                  style="background:#dcfce7;color:#166534;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">💼 Salarié·e</span>
+                <span v-else-if="etudiant.statut_professionnel === 'independant'"
+                  :title="etudiant.employeur ? 'Structure : ' + etudiant.employeur : 'Indépendant·e'"
+                  style="background:#ede9fe;color:#5b21b6;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">🧑‍💻 Indépendant·e</span>
+                <span v-else-if="etudiant.statut_professionnel === 'sans_emploi'"
+                  title="Sans emploi"
+                  style="background:#fee2e2;color:#991b1b;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">🔍 Sans emploi</span>
+                <span v-else-if="etudiant.statut_professionnel === 'etudiant'"
+                  title="Étudiant·e à temps plein"
+                  style="background:#dbeafe;color:#1e40af;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">🎓 Étudiant·e</span>
               </div>
               <p class="text-sm text-gray-500 font-mono mt-0.5">{{ etudiant.numero_etudiant }}</p>
               <!-- Détail risque si alerte -->
@@ -2168,6 +2180,16 @@ async function delierParent(lienId: number) {
               </span>
               <span v-if="isFiStudent" style="background:#eef2ff;color:#4f46e5;font-size:11px;padding:3px 10px;border-radius:10px;font-weight:600;">
                 🎓 Formation Individuelle
+              </span>
+              <span v-if="etudiant.inscriptions?.[0]?.regime_formation === 'initiale'"
+                title="Formation initiale"
+                style="background:#e0f2fe;color:#075985;font-size:11px;padding:3px 10px;border-radius:10px;font-weight:600;">
+                🎓 Initiale
+              </span>
+              <span v-else-if="etudiant.inscriptions?.[0]?.regime_formation === 'continue'"
+                title="Formation continue"
+                style="background:#fef3c7;color:#854d0e;font-size:11px;padding:3px 10px;border-radius:10px;font-weight:600;">
+                🔄 Continue
               </span>
               <!-- Bouton Badge étudiant -->
               <button @click="generateBadge"
@@ -2384,6 +2406,14 @@ async function delierParent(lienId: number) {
             { label: 'Lieu de naissance', value: etudiant.lieu_naissance },
             { label: 'Sexe', value: etudiant.sexe === 'masculin' ? '♂ Masculin' : etudiant.sexe === 'feminin' ? '♀ Féminin' : null },
             { label: 'Situation', value: etudiant.handicape ? `♿ Personne en situation de handicap${etudiant.type_handicap ? ' (' + etudiant.type_handicap + ')' : ''}` : null },
+            { label: 'Statut professionnel', value: ({
+                salarie: '💼 Salarié·e',
+                independant: '🧑‍💻 Indépendant·e / freelance',
+                sans_emploi: '🔍 Sans emploi',
+                etudiant: '🎓 Étudiant·e à temps plein',
+                autre: 'Autre',
+              } as Record<string, string>)[etudiant.statut_professionnel] ?? null },
+            { label: 'Employeur / structure', value: etudiant.employeur },
             { label: 'Adresse', value: etudiant.adresse },
             { label: 'N° CNI', value: etudiant.cni_numero },
           ]" :key="field.label">
