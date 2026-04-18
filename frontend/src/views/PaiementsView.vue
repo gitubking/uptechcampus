@@ -225,7 +225,9 @@ const ficheEtudiants = computed(() => {
     if (!entry) continue
     if (entry.frais_prevu === 0) entry.frais_prevu = Number(insc.filiere?.frais_inscription) || Number(insc.frais_inscription) || 0
     if (entry.mensualite_montant === 0) entry.mensualite_montant = Number(insc.filiere?.mensualite) || Number(insc.mensualite) || 0
-    if (entry.tenue_prevu === 0) entry.tenue_prevu = Number(insc.filiere?.montant_tenue) || 0
+    // Si la classe est exemptée de tenue, on n'affiche aucun montant prévu même si la filière a un montant_tenue
+    const classeExempte = (insc.classe as any)?.exempt_tenue === true
+    if (!classeExempte && entry.tenue_prevu === 0) entry.tenue_prevu = Number(insc.filiere?.montant_tenue) || 0
   }
 
   for (const p of paiements.value) {

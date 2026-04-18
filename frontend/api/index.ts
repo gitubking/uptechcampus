@@ -2530,6 +2530,7 @@ app.get('/etudiants/:id', requireAuth, async (c) => {
       SELECT i.*,
         CASE WHEN fi.id IS NOT NULL THEN jsonb_build_object('id',fi.id,'nom',fi.nom,'code',fi.code,'type_formation_id',fi.type_formation_id,'type_formation_nom',tfi.nom,'type_has_niveau',COALESCE(tfi.has_niveau,false)) ELSE NULL END as filiere,
         CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom,'niveau',c.niveau,'date_debut_cours',c.date_debut_cours,
+          'exempt_tenue',COALESCE(c.exempt_tenue,FALSE),
           'filiere', CASE WHEN fc.id IS NOT NULL THEN jsonb_build_object('id',fc.id,'nom',fc.nom,'type_formation_id',fc.type_formation_id,'type_formation_nom',tfc.nom,'type_has_niveau',COALESCE(tfc.has_niveau,false)) ELSE NULL END
         ) ELSE NULL END as classe,
         CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique,
@@ -2823,7 +2824,7 @@ app.get('/inscriptions', requireAuth, async (c) => {
   const { rows } = await pool.query(`
     SELECT i.*,
       jsonb_build_object('id',e.id,'nom',e.nom,'prenom',e.prenom,'email',e.email,'numero_etudiant',e.numero_etudiant) as etudiant,
-      CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom,'niveau',c.niveau) ELSE NULL END as classe,
+      CASE WHEN c.id IS NOT NULL THEN jsonb_build_object('id',c.id,'nom',c.nom,'niveau',c.niveau,'exempt_tenue',COALESCE(c.exempt_tenue,FALSE)) ELSE NULL END as classe,
       CASE WHEN f.id IS NOT NULL THEN jsonb_build_object('id',f.id,'nom',f.nom,'code',f.code,'type_formation_id',f.type_formation_id,'frais_inscription',f.frais_inscription,'mensualite',f.mensualite,'montant_tenue',COALESCE(f.montant_tenue,0),'duree_mois',COALESCE(f.duree_mois,12)) ELSE NULL END as filiere,
       CASE WHEN p.id IS NOT NULL THEN jsonb_build_object('id',p.id,'nom',p.nom) ELSE NULL END as parcours,
       CASE WHEN aa.id IS NOT NULL THEN jsonb_build_object('id',aa.id,'libelle',aa.libelle) ELSE NULL END as annee_academique,
@@ -4623,17 +4624,22 @@ app.post('/paiements/:id/confirmer', requireAuth, role('dg', 'resp_fin'), async 
 // Recalcule les MONTANTS des échéances selon les tarifs actuels des filières, puis recalcule les statuts
 app.post('/echeances/recalculer-tarifs', requireAuth, role('dg'), async (c) => {
   try {
+    await ensureExemptTenueColumn()
     // Récupérer toutes les inscriptions actives avec les tarifs actuels de leur filière
     const { rows: inscriptions } = await pool.query(`
       SELECT i.id AS inscription_id,
              COALESCE(NULLIF(f.frais_inscription,0), i.frais_inscription, 0) AS frais_inscription,
              COALESCE(NULLIF(f.mensualite,0), i.mensualite, 0)               AS mensualite,
-             COALESCE(NULLIF(f.montant_tenue,0), i.frais_tenue, 0)           AS montant_tenue,
+             CASE WHEN COALESCE(cl.exempt_tenue,FALSE) THEN 0
+                  ELSE COALESCE(NULLIF(f.montant_tenue,0), i.frais_tenue, 0)
+             END                                                              AS montant_tenue,
+             COALESCE(cl.exempt_tenue,FALSE)                                  AS classe_exempt_tenue,
              COALESCE(nb.pourcentage, 0)                                      AS bourse_pct,
              COALESCE(nb.applique_inscription, false)                         AS bourse_applique,
              COALESCE(nb.applique_tenue, false)                               AS bourse_applique_tenue
       FROM inscriptions i
       LEFT JOIN filieres f ON f.id = i.filiere_id
+      LEFT JOIN classes cl ON cl.id = i.classe_id
       LEFT JOIN niveaux_bourse nb ON nb.id = i.niveau_bourse_id
       WHERE i.statut NOT IN ('annule','archive')
     `)
@@ -4659,8 +4665,14 @@ app.post('/echeances/recalculer-tarifs', requireAuth, role('dg'), async (c) => {
           [mensEff, insc.inscription_id]
         )
       }
-      // Tenue : mettre à jour si elle existe, sinon la créer (avec bourse)
-      if (Number(insc.montant_tenue) > 0) {
+      // Tenue : si classe exemptée, supprimer les tenue non payées ;
+      //         sinon mettre à jour si elle existe, sinon la créer (avec bourse)
+      if (insc.classe_exempt_tenue) {
+        await pool.query(
+          `DELETE FROM echeances WHERE inscription_id=$1 AND type_echeance='tenue' AND statut='non_paye'`,
+          [insc.inscription_id]
+        )
+      } else if (Number(insc.montant_tenue) > 0) {
         const moisCourant = new Date().toISOString().substring(0, 7) + '-01'
         await pool.query(
           `INSERT INTO echeances (inscription_id,mois,montant,type_echeance)
