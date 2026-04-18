@@ -1149,16 +1149,34 @@ async function genererEcheancesManquantes(insc: Inscription) {
 }
 
 const regenererToutLoading = ref(false)
+const regenererToutProgress = ref('')
 async function regenererTout() {
   if (!confirm('Régénérer les échéances de TOUS les étudiants inscrits ? Les paiements existants ne seront pas touchés.')) return
   regenererToutLoading.value = true
+  regenererToutProgress.value = ''
+  // On traite par lots de 40 inscriptions pour rester largement sous le timeout Vercel (60 s).
+  const BATCH = 40
+  let offset = 0
+  let totalOk = 0, totalErr = 0, total = 0
   try {
-    const { data } = await api.post('/echeances/regenerer-tout')
-    showToast(`Échéances régénérées : ${data.ok}/${data.total} réussis`)
+    // Premier appel : récupère aussi le total global
+    while (true) {
+      const { data } = await api.post(`/echeances/regenerer-tout?offset=${offset}&limit=${BATCH}`)
+      totalOk += data.ok || 0
+      totalErr += data.erreurs || 0
+      total = data.totalGlobal ?? data.total ?? 0
+      regenererToutProgress.value = `${Math.min(offset + BATCH, total)}/${total}`
+      if (!data.nextOffset) break
+      offset = data.nextOffset
+    }
+    showToast(`Échéances régénérées : ${totalOk}/${total} réussis${totalErr ? ` (${totalErr} erreurs)` : ''}`)
     await load()
   } catch (e: any) {
     showToast(e.response?.data?.message ?? 'Erreur lors de la régénération', 'error')
-  } finally { regenererToutLoading.value = false }
+  } finally {
+    regenererToutLoading.value = false
+    regenererToutProgress.value = ''
+  }
 }
 
 const showTenueDetail = ref(false)
@@ -1725,7 +1743,7 @@ function exportRetardsPDF() {
         <button @click="regenererTout" :disabled="regenererToutLoading"
           class="border border-blue-300 bg-blue-50 text-blue-700 text-xs px-3 py-2 rounded-lg hover:bg-blue-100 transition disabled:opacity-50 font-medium whitespace-nowrap"
           title="Régénérer les échéances de tous les étudiants (crée les mois manquants, supprime le surplus, ne touche pas aux payés)">
-          {{ regenererToutLoading ? '…' : '⟳ Tout régénérer' }}
+          {{ regenererToutLoading ? (regenererToutProgress ? `… ${regenererToutProgress}` : '…') : '⟳ Tout régénérer' }}
         </button>
       </div>
       <!-- Ligne 2 : mode d'affichage -->

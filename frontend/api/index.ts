@@ -4371,30 +4371,54 @@ app.post('/echeances/regenerer', requireAuth, role('secretariat', 'dg'), async (
 })
 
 // Régénérer les échéances de TOUTES les inscriptions actives + nettoyage profond
+// Supporte un paramètre ?classe_id=N pour ne régénérer qu'une classe précise
+// et un paramètre ?offset=N&limit=N pour découper en lots (évite le timeout Vercel).
 app.post('/echeances/regenerer-tout', requireAuth, role('secretariat', 'dg'), async (c) => {
-  const { rows: inscriptions } = await pool.query(
-    `SELECT i.id, i.mois_debut FROM inscriptions i WHERE i.statut IN ('inscrit_actif','pre_inscrit')`
-  )
+  await ensureExemptTenueColumn()
+  const classeId = c.req.query('classe_id')
+  const offset = parseInt(c.req.query('offset') || '0') || 0
+  const limit = Math.max(1, Math.min(parseInt(c.req.query('limit') || '0') || 0, 200))
 
-  // Phase 1 : nettoyage profond des doublons (y compris payés)
-  let cleaned = 0
-  for (const insc of inscriptions) {
-    if (!insc.mois_debut) continue
-    const moisPremier = pgDateToStr(insc.mois_debut)
-    // Supprimer les frais_inscription en doublon (hors mois_debut) — même payés
-    const { rowCount: c1 } = await pool.query(
-      `DELETE FROM echeances WHERE inscription_id = $1 AND type_echeance = 'frais_inscription' AND mois != $2::date`,
-      [insc.id, moisPremier]
-    ).catch(() => ({ rowCount: 0 }))
-    // Supprimer les tenue en doublon (hors mois_debut) — même payés
-    const { rowCount: c2 } = await pool.query(
-      `DELETE FROM echeances WHERE inscription_id = $1 AND type_echeance = 'tenue' AND mois != $2::date`,
-      [insc.id, moisPremier]
-    ).catch(() => ({ rowCount: 0 }))
-    cleaned += (c1 || 0) + (c2 || 0)
+  // Sélection des inscriptions cibles
+  const params: any[] = []
+  let where = `i.statut IN ('inscrit_actif','pre_inscrit')`
+  if (classeId) { params.push(parseInt(classeId)); where += ` AND i.classe_id=$${params.length}` }
+  let sql = `SELECT i.id, i.mois_debut FROM inscriptions i WHERE ${where} ORDER BY i.id`
+  if (limit) { sql += ` LIMIT ${limit} OFFSET ${offset}` }
+  const { rows: inscriptions } = await pool.query(sql, params)
+
+  // Total pour pagination côté client (utile quand on bat en lots)
+  let totalGlobal = inscriptions.length
+  if (limit || classeId) {
+    const paramsCount: any[] = classeId ? [parseInt(classeId)] : []
+    const whereCount = classeId ? `i.statut IN ('inscrit_actif','pre_inscrit') AND i.classe_id=$1`
+                                 : `i.statut IN ('inscrit_actif','pre_inscrit')`
+    const { rows: cRows } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM inscriptions i WHERE ${whereCount}`,
+      paramsCount
+    )
+    totalGlobal = cRows[0]?.n ?? totalGlobal
   }
 
-  // Phase 2 : régénérer proprement
+  // genererEcheances fait déjà le nettoyage des doublons non-payés.
+  // Pour ce chemin "régénération totale", on supprime aussi les doublons payés
+  // (même mois != mois_debut) — mais en un seul DELETE groupé au lieu de 2 par inscription.
+  if (inscriptions.length > 0) {
+    const ids = inscriptions.map(i => i.id)
+    await pool.query(
+      `DELETE FROM echeances e
+       USING inscriptions i
+       WHERE e.inscription_id = i.id
+         AND e.inscription_id = ANY($1::int[])
+         AND e.type_echeance IN ('frais_inscription','tenue')
+         AND e.mois != i.mois_debut
+         AND i.mois_debut IS NOT NULL`,
+      [ids]
+    ).catch(() => {})
+  }
+
+  // Régénération avec concurrence limitée (pool pg max=1, donc sequentiel de fait,
+  // mais on évite les await imbriqués qui ajoutent de la latence).
   let ok = 0, erreurs = 0
   for (const insc of inscriptions) {
     try {
@@ -4402,7 +4426,15 @@ app.post('/echeances/regenerer-tout', requireAuth, role('secretariat', 'dg'), as
       ok++
     } catch { erreurs++ }
   }
-  return c.json({ success: true, total: inscriptions.length, ok, erreurs, cleaned })
+  return c.json({
+    success: true,
+    total: inscriptions.length,
+    totalGlobal,
+    ok,
+    erreurs,
+    offset,
+    nextOffset: limit && offset + inscriptions.length < totalGlobal ? offset + inscriptions.length : null
+  })
 })
 
 // ─── PAIEMENTS ────────────────────────────────────────────────────────────────
