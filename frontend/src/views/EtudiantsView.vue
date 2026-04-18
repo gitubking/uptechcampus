@@ -847,12 +847,35 @@ async function submitEditEtudiant() {
   panelError.value = ''
   panelLoading.value = true
   try {
-    const payload = Object.fromEntries(
-      Object.entries(studentForm.value).filter(([, v]) => v !== '')
-    )
-    await api.put(`/etudiants/${editingEtudiantId.value}`, payload)
+    // Payload explicite : on envoie TOUS les champs (y compris les booléens à
+    // false et les chaînes vides → null côté backend) pour que les
+    // décochages / effacements soient bien persistés.
+    const f = studentForm.value
+    const payload = {
+      prenom: f.prenom,
+      nom: f.nom,
+      email: f.email,
+      telephone: f.telephone || null,
+      date_naissance: f.date_naissance || null,
+      lieu_naissance: f.lieu_naissance || null,
+      adresse: f.adresse || null,
+      cni_numero: f.cni_numero || null,
+      nom_parent: f.nom_parent || null,
+      telephone_parent: f.telephone_parent || null,
+      sexe: f.sexe || null,
+      handicape: f.handicape === true,
+      type_handicap: f.handicape ? (f.type_handicap || null) : null,
+      statut_professionnel: f.statut_professionnel || null,
+      employeur: f.employeur || null,
+    }
+    const { data: updated } = await api.put(`/etudiants/${editingEtudiantId.value}`, payload)
+    // Mise à jour optimiste de la liste pour éviter tout problème de cache PWA
+    if (pagination.value?.data) {
+      const idx = pagination.value.data.findIndex(e => e.id === editingEtudiantId.value)
+      if (idx !== -1) pagination.value.data[idx] = { ...pagination.value.data[idx], ...updated }
+    }
     showPanel.value = false
-    fetchEtudiants()
+    await fetchEtudiants()
   } catch (err: any) {
     const errs = err.response?.data?.errors as Record<string, string[]> | undefined
     panelError.value = (errs ? Object.values(errs)[0]?.[0] : undefined) ?? err.response?.data?.message ?? 'Une erreur est survenue.'
