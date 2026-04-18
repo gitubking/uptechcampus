@@ -2182,6 +2182,75 @@ onMounted(() => {
                     <input v-model="studentForm.lieu_naissance" type="text" />
                   </div>
                 </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Sexe</label>
+                    <div style="display:flex;gap:14px;align-items:center;padding-top:6px;">
+                      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:500;">
+                        <input type="radio" v-model="studentForm.sexe" value="masculin" />
+                        <span>♂ Masculin</span>
+                      </label>
+                      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:500;">
+                        <input type="radio" v-model="studentForm.sexe" value="feminin" />
+                        <span>♀ Féminin</span>
+                      </label>
+                      <button
+                        v-if="studentForm.sexe"
+                        type="button"
+                        @click="studentForm.sexe = ''"
+                        style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:0.85em;text-decoration:underline;"
+                      >effacer</button>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>Situation</label>
+                    <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid #fde68a;background:#fffbeb;border-radius:6px;cursor:pointer;">
+                      <input
+                        type="checkbox"
+                        v-model="studentForm.handicape"
+                        style="width:16px;height:16px;cursor:pointer;"
+                      />
+                      <span style="font-size:0.92em;color:#78350f;">♿ Personne en situation de handicap</span>
+                    </label>
+                  </div>
+                </div>
+                <div v-if="studentForm.handicape" class="form-row full">
+                  <div class="form-group">
+                    <label>Type / nature du handicap (optionnel)</label>
+                    <input
+                      v-model="studentForm.type_handicap"
+                      type="text"
+                      maxlength="100"
+                      placeholder="Ex : moteur, visuel, auditif…"
+                    />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Statut professionnel</label>
+                    <select v-model="studentForm.statut_professionnel">
+                      <option value="">— Non renseigné —</option>
+                      <option value="salarie">💼 Salarié·e</option>
+                      <option value="independant">🧑‍💻 Indépendant·e / freelance</option>
+                      <option value="sans_emploi">🔍 Sans emploi</option>
+                      <option value="etudiant">🎓 Étudiant·e à temps plein</option>
+                      <option value="autre">Autre</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>
+                      Employeur / structure
+                      <span v-if="!['salarie','independant'].includes(studentForm.statut_professionnel)" style="color:#94a3b8;font-weight:400;font-size:0.85em;">(si salarié·e ou indépendant·e)</span>
+                    </label>
+                    <input
+                      v-model="studentForm.employeur"
+                      type="text"
+                      maxlength="150"
+                      :disabled="!['salarie','independant'].includes(studentForm.statut_professionnel)"
+                      :placeholder="['salarie','independant'].includes(studentForm.statut_professionnel) ? 'Nom de l\'entreprise' : '—'"
+                    />
+                  </div>
+                </div>
                 <div class="form-row full">
                   <div class="form-group">
                     <label>Adresse</label>
