@@ -721,6 +721,20 @@ async function openInscrire() {
   showPanel.value = true
 }
 
+// Normalise une date (potentiellement ISO étendue type "+020000-02-15..."
+// quand la base contient une année corrompue) vers "YYYY-MM-DD" valide
+// pour <input type="date">. Retourne '' si la date est inutilisable.
+function normalizeDateForInput(d: string | null | undefined): string {
+  if (!d) return ''
+  // Capture YYYY-MM-DD au début, en rejetant le préfixe '+' / '-' et toute
+  // année > 4 chiffres (format ISO étendu).
+  const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return ''
+  const year = parseInt(m[1], 10)
+  if (year < 1900 || year > 2100) return ''
+  return `${m[1]}-${m[2]}-${m[3]}`
+}
+
 function openEditEtudiant(etudiant: Etudiant) {
   panelMode.value = 'edit-etudiant'
   panelError.value = ''
@@ -728,7 +742,7 @@ function openEditEtudiant(etudiant: Etudiant) {
   studentForm.value = {
     prenom: etudiant.prenom, nom: etudiant.nom, email: etudiant.email,
     telephone: etudiant.telephone ?? '',
-    date_naissance: etudiant.date_naissance ? etudiant.date_naissance.substring(0, 10) : '',
+    date_naissance: normalizeDateForInput(etudiant.date_naissance),
     lieu_naissance: etudiant.lieu_naissance ?? '',
     adresse: etudiant.adresse ?? '',
     cni_numero: etudiant.cni_numero ?? '',
