@@ -177,5 +177,29 @@
     </div>
 
     <div class="footer">UPTECH Campus &copy; 2025</div>
+
+    <script>
+      // Auto-récupération : si cette page a été servie par erreur
+      // (cold-start, micro-coupure), on recharge dès que possible.
+      (function () {
+        function reloadIfOnline() {
+          if (navigator.onLine) {
+            // Petite sonde réseau : ne recharge que si on arrive vraiment à joindre le serveur.
+            fetch('/', { method: 'HEAD', cache: 'no-store' })
+              .then(function (r) { if (r.ok) location.reload() })
+              .catch(function () { /* toujours coupé — on reste ici */ })
+          }
+        }
+
+        // 1. Si on est déjà "en ligne" au chargement, on retente immédiatement.
+        reloadIfOnline()
+
+        // 2. Dès que le navigateur détecte le retour du réseau.
+        window.addEventListener('online', reloadIfOnline)
+
+        // 3. Filet de sécurité : ping toutes les 5 s.
+        setInterval(reloadIfOnline, 5000)
+      })()
+    </script>
   </body>
 </html>

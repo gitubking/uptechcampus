@@ -50,8 +50,12 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        navigateFallback: '/offline.html',
-        navigateFallbackDenylist: [/^\/api/, /^\/icons/],
+        // SPA : on sert index.html (précaché) pour toutes les navigations.
+        // L'app démarre depuis le cache, les appels API échouent proprement
+        // côté composant → pas d'écran "hors-ligne" intempestif sur
+        // un cold-start Vercel ou un micro-hoquet wifi.
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api/, /^\/icons/, /^\/offline\.html$/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/uptechcampus\.vercel\.app\/api\//,
@@ -62,7 +66,8 @@ export default defineConfig({
                 maxEntries: 100,
                 maxAgeSeconds: 60 * 5, // 5 minutes
               },
-              networkTimeoutSeconds: 10,
+              // 30 s : tolère les cold-starts Vercel (jusqu'à ~8 s) + marge
+              networkTimeoutSeconds: 30,
             },
           },
           {
