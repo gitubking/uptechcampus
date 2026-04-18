@@ -54,6 +54,17 @@ interface ResultatsData {
 const data      = ref<RapportData | null>(null)
 const resultats = ref<ResultatsData | null>(null)
 
+interface DemographicsData {
+  total: number
+  sexe: { masculin: number; feminin: number; non_renseigne: number }
+  handicap: {
+    handicape: number
+    valides: number
+    par_type: { type_handicap: string; nb: number }[]
+  }
+}
+const demographics = ref<DemographicsData | null>(null)
+
 // ── Formatters ───────────────────────────────────────────────────────────────
 function fmtPDF(n: number) {
   return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' FCFA'
@@ -111,6 +122,13 @@ async function load() {
   } finally { loading.value = false }
 }
 
+async function loadDemographics() {
+  try {
+    const { data: d } = await api.get('/stats/etudiants/demographics')
+    demographics.value = d
+  } catch { /* silent : feature optionnelle */ }
+}
+
 async function loadResultats() {
   loadingRes.value = true
   try {
@@ -135,6 +153,7 @@ watch(selectedAnneeId, () => {
 onMounted(async () => {
   await loadAnnees()
   await load()
+  loadDemographics()
 })
 
 // ── Export Excel (Résultats) ──────────────────────────────────────────────────
@@ -480,6 +499,73 @@ function exportCSV() {
                 style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f4f4f4;">
                 <span style="font-size:13px;color:#555;">{{ statutLabels[(s as any).statut] ?? (s as any).statut }}</span>
                 <span style="font-size:14px;font-weight:800;color:#111;">{{ (s as any).total }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Démographie : sexe + handicap -->
+        <div v-if="demographics && demographics.total > 0" class="rp-grid-2">
+          <div class="rp-card">
+            <h3 class="rp-card-title">Répartition par sexe</h3>
+            <p style="font-size:11px;color:#888;margin:-4px 0 12px;">
+              Sur {{ demographics.total }} étudiant(s) actif(s) ou pré-inscrit(s)
+            </p>
+            <div style="display:flex;flex-direction:column;gap:14px;">
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                  <span style="color:#1e40af;font-weight:600;">♂ Masculin</span>
+                  <span style="font-weight:700;">{{ demographics.sexe.masculin }} ({{ demographics.total ? Math.round(demographics.sexe.masculin / demographics.total * 100) : 0 }}%)</span>
+                </div>
+                <div style="height:8px;background:#f0f0f0;border-radius:20px;overflow:hidden;">
+                  <div style="height:100%;background:#3b82f6;border-radius:20px;"
+                    :style="{ width: `${demographics.total ? (demographics.sexe.masculin / demographics.total * 100) : 0}%` }"></div>
+                </div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                  <span style="color:#9d174d;font-weight:600;">♀ Féminin</span>
+                  <span style="font-weight:700;">{{ demographics.sexe.feminin }} ({{ demographics.total ? Math.round(demographics.sexe.feminin / demographics.total * 100) : 0 }}%)</span>
+                </div>
+                <div style="height:8px;background:#f0f0f0;border-radius:20px;overflow:hidden;">
+                  <div style="height:100%;background:#ec4899;border-radius:20px;"
+                    :style="{ width: `${demographics.total ? (demographics.sexe.feminin / demographics.total * 100) : 0}%` }"></div>
+                </div>
+              </div>
+              <div v-if="demographics.sexe.non_renseigne > 0">
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                  <span style="color:#6b7280;">Non renseigné</span>
+                  <span style="font-weight:700;color:#6b7280;">{{ demographics.sexe.non_renseigne }}</span>
+                </div>
+                <div style="height:8px;background:#f0f0f0;border-radius:20px;overflow:hidden;">
+                  <div style="height:100%;background:#9ca3af;border-radius:20px;"
+                    :style="{ width: `${demographics.total ? (demographics.sexe.non_renseigne / demographics.total * 100) : 0}%` }"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="rp-card">
+            <h3 class="rp-card-title">Inclusion — situation de handicap</h3>
+            <div style="display:flex;align-items:center;gap:18px;margin-top:10px;">
+              <div style="flex-shrink:0;width:90px;height:90px;border-radius:50%;background:#fef3c7;color:#78350f;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;">
+                {{ demographics.handicap.handicape }}
+              </div>
+              <div style="flex:1;min-width:0;">
+                <p style="font-size:13px;font-weight:600;color:#78350f;margin:0 0 4px;">
+                  ♿ Personnes en situation de handicap
+                </p>
+                <p style="font-size:11px;color:#888;margin:0 0 8px;">
+                  Soit {{ demographics.total ? Math.round(demographics.handicap.handicape / demographics.total * 100) : 0 }}% de l'effectif actif.
+                </p>
+                <div v-if="demographics.handicap.par_type.length" style="display:flex;flex-direction:column;gap:4px;">
+                  <div v-for="t in demographics.handicap.par_type" :key="t.type_handicap"
+                    style="display:flex;justify-content:space-between;font-size:12px;padding:4px 8px;background:#fffbeb;border-radius:4px;">
+                    <span>{{ t.type_handicap }}</span>
+                    <span style="font-weight:700;">{{ t.nb }}</span>
+                  </div>
+                </div>
+                <p v-else-if="demographics.handicap.handicape === 0" style="font-size:11px;color:#aaa;margin:0;">
+                  Aucun étudiant déclaré pour le moment.
+                </p>
               </div>
             </div>
           </div>

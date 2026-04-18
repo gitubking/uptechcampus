@@ -50,6 +50,10 @@ pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS tronc_commun_id INT REF
 pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS date_debut_cours DATE`).catch(() => {})
 pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS capacite INT DEFAULT 30`).catch(() => {})
 pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS exempt_tenue BOOLEAN DEFAULT FALSE`).catch(() => {})
+// Champs démographiques étudiants (sexe + situation de handicap)
+pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS sexe VARCHAR(15)`).catch(() => {})
+pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS handicape BOOLEAN DEFAULT FALSE`).catch(() => {})
+pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS type_handicap VARCHAR(100)`).catch(() => {})
 // Table de jonction many-to-many : une classe peut appartenir à plusieurs tronc commun
 pool.query(`CREATE TABLE IF NOT EXISTS classe_tronc_commun (
   id SERIAL PRIMARY KEY,
@@ -2555,14 +2559,21 @@ app.get('/etudiants/:id', requireAuth, async (c) => {
 
 app.post('/etudiants', requireAuth, role('secretariat', 'dg'), async (c) => {
   const b = await c.req.json()
+  await ensureEtudiantDemographicsColumns()
   const seq = await nextSeq('etudiants')
   const numero = `UPTECH-${year()}-${pad(seq)}`
+  const sexe = b.sexe && ['masculin', 'feminin'].includes(String(b.sexe).toLowerCase())
+    ? String(b.sexe).toLowerCase()
+    : null
+  const handicape = b.handicape === true || b.handicape === 'true'
+  const typeHandicap = handicape && b.type_handicap ? String(b.type_handicap).slice(0, 100) : null
   const { rows } = await pool.query(
-    `INSERT INTO etudiants (numero_etudiant,nom,prenom,email,telephone,date_naissance,lieu_naissance,adresse,cni_numero,nom_parent,telephone_parent)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    `INSERT INTO etudiants (numero_etudiant,nom,prenom,email,telephone,date_naissance,lieu_naissance,adresse,cni_numero,nom_parent,telephone_parent,sexe,handicape,type_handicap)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
     [numero, b.nom, b.prenom, b.email || null, b.telephone || null,
      b.date_naissance || null, b.lieu_naissance || null, b.adresse || null,
-     b.cni_numero || null, b.nom_parent || null, b.telephone_parent || null]
+     b.cni_numero || null, b.nom_parent || null, b.telephone_parent || null,
+     sexe, handicape, typeHandicap]
   )
   return c.json(rows[0], 201)
 })
@@ -2570,18 +2581,27 @@ app.post('/etudiants', requireAuth, role('secretariat', 'dg'), async (c) => {
 app.put('/etudiants/:id', requireAuth, role('secretariat', 'dg'), async (c) => {
   const b = await c.req.json()
   const id = c.req.param('id')
+  await ensureEtudiantDemographicsColumns()
 
   // Récupérer l'étudiant actuel pour obtenir user_id et détecter un changement d'email
   const { rows: current } = await pool.query(
     'SELECT user_id, email FROM etudiants WHERE id=$1', [id]
   )
 
+  const sexe = b.sexe && ['masculin', 'feminin'].includes(String(b.sexe).toLowerCase())
+    ? String(b.sexe).toLowerCase()
+    : null
+  const handicape = b.handicape === true || b.handicape === 'true'
+  const typeHandicap = handicape && b.type_handicap ? String(b.type_handicap).slice(0, 100) : null
+
   const { rows } = await pool.query(
     `UPDATE etudiants SET nom=$1,prenom=$2,email=$3,telephone=$4,date_naissance=$5,lieu_naissance=$6,
-      adresse=$7,cni_numero=$8,nom_parent=$9,telephone_parent=$10 WHERE id=$11 RETURNING *`,
+      adresse=$7,cni_numero=$8,nom_parent=$9,telephone_parent=$10,sexe=$11,handicape=$12,type_handicap=$13
+     WHERE id=$14 RETURNING *`,
     [b.nom, b.prenom, b.email || null, b.telephone || null, b.date_naissance || null,
      b.lieu_naissance || null, b.adresse || null, b.cni_numero || null,
-     b.nom_parent || null, b.telephone_parent || null, id]
+     b.nom_parent || null, b.telephone_parent || null,
+     sexe, handicape, typeHandicap, id]
   )
 
   // Synchroniser le compte users si l'étudiant en a un (nom, prenom, email)
@@ -3927,6 +3947,72 @@ app.get('/stats', requireAuth, async (c) => {
   })
 })
 
+// ─── STATS DÉMOGRAPHIQUES ÉTUDIANTS ──────────────────────────────────────────
+// Répartition sexe + handicap pour reporting (DG, secrétariat, comptabilité).
+app.get('/stats/etudiants/demographics', requireAuth, async (c) => {
+  await ensureEtudiantDemographicsColumns()
+
+  // Base = étudiants ayant au moins une inscription active OU pré-inscrite
+  // (pour exclure les étudiants archivés / abandonnés des stats courantes).
+  const [sexeRows, handicapRows, typeHandicapRows, totalRow] = await Promise.all([
+    pool.query(`
+      SELECT COALESCE(LOWER(e.sexe), 'non_renseigne') AS sexe, COUNT(DISTINCT e.id)::int AS nb
+      FROM etudiants e
+      LEFT JOIN inscriptions i ON i.etudiant_id = e.id
+        AND i.statut IN ('inscrit_actif','pre_inscrit')
+      WHERE i.id IS NOT NULL
+      GROUP BY 1
+    `),
+    pool.query(`
+      SELECT COALESCE(e.handicape, FALSE) AS handicape, COUNT(DISTINCT e.id)::int AS nb
+      FROM etudiants e
+      LEFT JOIN inscriptions i ON i.etudiant_id = e.id
+        AND i.statut IN ('inscrit_actif','pre_inscrit')
+      WHERE i.id IS NOT NULL
+      GROUP BY 1
+    `),
+    pool.query(`
+      SELECT COALESCE(NULLIF(TRIM(e.type_handicap), ''), 'Non précisé') AS type_handicap,
+             COUNT(DISTINCT e.id)::int AS nb
+      FROM etudiants e
+      JOIN inscriptions i ON i.etudiant_id = e.id
+        AND i.statut IN ('inscrit_actif','pre_inscrit')
+      WHERE COALESCE(e.handicape, FALSE) = TRUE
+      GROUP BY 1
+      ORDER BY nb DESC
+    `),
+    pool.query(`
+      SELECT COUNT(DISTINCT e.id)::int AS total
+      FROM etudiants e
+      JOIN inscriptions i ON i.etudiant_id = e.id
+        AND i.statut IN ('inscrit_actif','pre_inscrit')
+    `),
+  ])
+
+  const total = totalRow.rows[0]?.total ?? 0
+  const sexe = { masculin: 0, feminin: 0, non_renseigne: 0 } as Record<string, number>
+  for (const r of sexeRows.rows) {
+    const key = r.sexe === 'masculin' || r.sexe === 'feminin' ? r.sexe : 'non_renseigne'
+    sexe[key] = (sexe[key] || 0) + Number(r.nb)
+  }
+  let handicape = 0
+  let valides = 0
+  for (const r of handicapRows.rows) {
+    if (r.handicape) handicape += Number(r.nb)
+    else valides += Number(r.nb)
+  }
+
+  return c.json({
+    total,
+    sexe,
+    handicap: {
+      handicape,
+      valides,
+      par_type: typeHandicapRows.rows,
+    },
+  })
+})
+
 // ─── DASHBOARD STATS AVANCÉES ────────────────────────────────────────────────
 app.get('/dashboard/stats-avancees', requireAuth, async (c) => {
   // Chaque requête est indépendante : une erreur n'en bloque pas d'autres
@@ -4027,6 +4113,18 @@ async function ensureExemptTenueColumn(): Promise<void> {
     await pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS exempt_tenue BOOLEAN DEFAULT FALSE`)
   })().catch((err) => { exemptTenueReady = null; throw err })
   return exemptTenueReady
+}
+
+// Idem pour les colonnes démographiques étudiants (sexe, handicape, type_handicap).
+let etudiantDemographicsReady: Promise<void> | null = null
+async function ensureEtudiantDemographicsColumns(): Promise<void> {
+  if (etudiantDemographicsReady) return etudiantDemographicsReady
+  etudiantDemographicsReady = (async () => {
+    await pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS sexe VARCHAR(15)`)
+    await pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS handicape BOOLEAN DEFAULT FALSE`)
+    await pool.query(`ALTER TABLE etudiants ADD COLUMN IF NOT EXISTS type_handicap VARCHAR(100)`)
+  })().catch((err) => { etudiantDemographicsReady = null; throw err })
+  return etudiantDemographicsReady
 }
 
 async function genererEcheances(inscriptionId: number, moisDebut?: string) {

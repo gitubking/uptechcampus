@@ -2123,7 +2123,7 @@ async function delierParent(lienId: number) {
         <div class="flex-1 min-w-0">
           <div class="flex items-start justify-between gap-4 flex-wrap">
             <div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
                 <h1 class="text-xl font-bold text-gray-900">{{ etudiant.prenom }} {{ etudiant.nom }}</h1>
                 <!-- Feu tricolore risque -->
                 <span v-if="risque" :title="risqueLabel ?? ''"
@@ -2131,6 +2131,15 @@ async function delierParent(lienId: number) {
                   :class="`rqd-badge--${risque.risque_global}`">
                   {{ risqueIcon }} {{ risqueLabel }}
                 </span>
+                <span v-if="etudiant.sexe === 'masculin'"
+                  title="Masculin"
+                  style="background:#dbeafe;color:#1e40af;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">♂ M</span>
+                <span v-else-if="etudiant.sexe === 'feminin'"
+                  title="Féminin"
+                  style="background:#fce7f3;color:#9d174d;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">♀ F</span>
+                <span v-if="etudiant.handicape"
+                  :title="etudiant.type_handicap || 'Personne en situation de handicap'"
+                  style="background:#fef3c7;color:#78350f;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">♿ Handicap</span>
               </div>
               <p class="text-sm text-gray-500 font-mono mt-0.5">{{ etudiant.numero_etudiant }}</p>
               <!-- Détail risque si alerte -->
@@ -2373,6 +2382,8 @@ async function delierParent(lienId: number) {
             { label: 'Téléphone', value: etudiant.telephone },
             { label: 'Date de naissance', value: formatDate(etudiant.date_naissance) },
             { label: 'Lieu de naissance', value: etudiant.lieu_naissance },
+            { label: 'Sexe', value: etudiant.sexe === 'masculin' ? '♂ Masculin' : etudiant.sexe === 'feminin' ? '♀ Féminin' : null },
+            { label: 'Situation', value: etudiant.handicape ? `♿ Personne en situation de handicap${etudiant.type_handicap ? ' (' + etudiant.type_handicap + ')' : ''}` : null },
             { label: 'Adresse', value: etudiant.adresse },
             { label: 'N° CNI', value: etudiant.cni_numero },
           ]" :key="field.label">
