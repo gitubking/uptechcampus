@@ -416,25 +416,73 @@ async function supprimerDepense(d: Depense) {
 // ── Génération PDF ────────────────────────────────────────────────────────────
 const ETAB    = 'UPTECH Campus'
 const ADRESSE = 'Dakar, Sénégal'
-const COULEUR: [number, number, number] = [227, 6, 19]   // rouge UPTECH
+const COULEUR: [number, number, number] = [227, 6, 19]   // rouge UPTECH (accent uniquement)
+const NOIR: [number, number, number]    = [17, 17, 17]
+const GRIS_HEADER: [number, number, number] = [240, 240, 240]
 
-function pdfHeader(doc: jsPDF, titre: string, sous: string) {
+// Entête officielle (identique au reçu de paiement étudiant) : logo à gauche,
+// tagline rouge, nom complet, NINEA/adresse/tel, agrément, filet rouge en bas.
+// PAS de fond rouge — le rouge n'est utilisé que comme accent (tagline, filet).
+const INSTITUT_NOM_LONG = "Institut Supérieur de Formation aux Nouveaux Métiers de l'Informatique et de la Communication"
+const INSTITUT_META     = 'NINEA : 006118310 — BP 50281 RP DAKAR  |  Sicap Amitié 1, Villa N° 3031 — Dakar  |  Tél : 33 821 34 25 / 77 841 50 44'
+const INSTITUT_AGREE    = "Agréé par l'État : N°RepSEN/Ensup-priv/AP/387-2021 — N°14191/MFPAA/SG/DFPT"
+
+// Cache du logo pour éviter de re-fetcher à chaque génération PDF
+let _logoDataUrlCache: string | null = null
+async function loadLogoDataUrl(): Promise<string | null> {
+  if (_logoDataUrlCache) return _logoDataUrlCache
+  try {
+    const r = await fetch('/icons/icon-192.png')
+    if (!r.ok) return null
+    const blob = await r.blob()
+    _logoDataUrlCache = await new Promise<string>(resolve => {
+      const fr = new FileReader()
+      fr.onload = () => resolve(fr.result as string)
+      fr.readAsDataURL(blob)
+    })
+    return _logoDataUrlCache
+  } catch { return null }
+}
+
+async function pdfHeader(doc: jsPDF, titre: string, sous: string): Promise<number> {
   const W = doc.internal.pageSize.getWidth()
-  // Bandeau haut
-  doc.setFillColor(...COULEUR); doc.rect(0, 0, W, 28, 'F')
-  doc.setTextColor(255, 255, 255)
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
-  doc.text(ETAB, 14, 11)
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
-  doc.text(ADRESSE, 14, 17)
-  // Titre document (centré)
-  doc.setFontSize(11); doc.setFont('helvetica', 'bold')
-  doc.text(titre.toUpperCase(), W / 2, 24, { align: 'center' })
+  const logo = await loadLogoDataUrl()
+
+  // Logo (18×18 mm) à gauche
+  if (logo) {
+    try { doc.addImage(logo, 'PNG', 14, 10, 18, 18) } catch { /* ignore */ }
+  }
+
+  // Bloc texte entête — à droite du logo
+  const txtX = logo ? 36 : 14
+  // Tagline rouge
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...COULEUR)
+  doc.text('INSTITUT DE FORMATION', txtX, 13)
+  // Nom complet (wrap sur 2 lignes si besoin)
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...NOIR)
+  const nomLines = doc.splitTextToSize(INSTITUT_NOM_LONG, W - txtX - 14)
+  doc.text(nomLines, txtX, 17.5)
+  const afterNom = 17.5 + nomLines.length * 3.8
+  // Méta (NINEA, adresse, tel)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(90, 90, 90)
+  doc.text(INSTITUT_META, txtX, afterNom + 1.5)
+  doc.setFontSize(6.5); doc.setTextColor(130, 130, 130)
+  doc.text(INSTITUT_AGREE, txtX, afterNom + 5)
+
+  // Filet rouge en bas de l'entête
+  doc.setDrawColor(...COULEUR); doc.setLineWidth(0.8)
+  doc.line(14, 32, W - 14, 32)
+  doc.setLineWidth(0.2)
+
+  // Titre du document
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...NOIR)
+  doc.text(titre.toUpperCase(), W / 2, 40, { align: 'center' })
   // Sous-titre gris
-  doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5)
-  doc.text(sous, W / 2, 33, { align: 'center' })
+  doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'italic'); doc.setFontSize(9)
+  doc.text(sous, W / 2, 46, { align: 'center' })
   doc.setTextColor(30, 30, 30)
-  return 40  // y de départ
+
+  return 52  // y de départ du corps
 }
 
 function pdfLigne(doc: jsPDF, label: string, val: string, y: number, x1 = 14, x2 = 80): number {
@@ -454,11 +502,11 @@ function pdfFooter(doc: jsPDF, ref_: string) {
 }
 
 // ── 1. Bulletin de salaire ────────────────────────────────────────────────────
-function genererBulletinSalaire(p: Personnel, moisCible?: string) {
+async function genererBulletinSalaire(p: Personnel, moisCible?: string) {
   const mois = moisCible || new Date().toISOString().slice(0, 7)
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const W = doc.internal.pageSize.getWidth()
-  let y = pdfHeader(doc, 'Bulletin de Salaire', `Période : ${fmtMois(mois)}`)
+  let y = await pdfHeader(doc, 'Bulletin de Salaire', `Période : ${fmtMois(mois)}`)
 
   // Encadré employé
   doc.setFillColor(248, 250, 252); doc.setDrawColor(220)
@@ -486,17 +534,18 @@ function genererBulletinSalaire(p: Personnel, moisCible?: string) {
       ['Net à payer', '',        fmt(p.salaire_brut)],
     ],
     styles: { fontSize: 9.5, cellPadding: 4 },
-    headStyles: { fillColor: COULEUR, textColor: 255, fontStyle: 'bold' },
+    headStyles: { fillColor: GRIS_HEADER, textColor: NOIR, fontStyle: 'bold' },
     columnStyles: { 2: { halign: 'right', fontStyle: 'bold' } },
     alternateRowStyles: { fillColor: [250, 250, 252] },
     margin: { left: 14, right: 14 },
   })
   y = (doc as any).lastAutoTable.finalY + 8
 
-  // Montant net encadré
-  doc.setFillColor(...COULEUR)
-  doc.roundedRect(W / 2 - 10, y, W / 2 - 4, 14, 2, 2, 'F')
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 255, 255)
+  // Montant net encadré (bordure noire, pas de fond rouge)
+  doc.setDrawColor(...NOIR); doc.setLineWidth(0.6)
+  doc.roundedRect(W / 2 - 10, y, W / 2 - 4, 14, 2, 2, 'S')
+  doc.setLineWidth(0.2)
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...NOIR)
   doc.text(`NET À PAYER : ${fmt(p.salaire_brut)}`, W - 18, y + 9, { align: 'right' })
   y += 22
 
@@ -520,12 +569,12 @@ function fmtDateStr(d: string | null) {
 }
 
 // ── 2. Reçu de prestation ─────────────────────────────────────────────────────
-function genererRecuPrestation(ct: ContratFixe, moisCible?: string) {
+async function genererRecuPrestation(ct: ContratFixe, moisCible?: string) {
   const mois = moisCible || new Date().toISOString().slice(0, 7)
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const W = doc.internal.pageSize.getWidth()
   const ref_ = `PREST-${ct.id}-${mois.replace('-', '')}`
-  let y = pdfHeader(doc, 'Reçu de Prestation de Service', `Période : ${fmtMois(mois)}`)
+  let y = await pdfHeader(doc, 'Reçu de Prestation de Service', `Période : ${fmtMois(mois)}`)
 
   // Parties
   doc.setFillColor(248, 250, 252); doc.setDrawColor(220)
@@ -545,16 +594,17 @@ function genererRecuPrestation(ct: ContratFixe, moisCible?: string) {
     head: [['Désignation', 'Période', 'Montant (F CFA)']],
     body: [[ct.libelle, fmtMois(mois), fmt(ct.montant)]],
     styles: { fontSize: 9.5, cellPadding: 4 },
-    headStyles: { fillColor: COULEUR, textColor: 255, fontStyle: 'bold' },
+    headStyles: { fillColor: GRIS_HEADER, textColor: NOIR, fontStyle: 'bold' },
     columnStyles: { 2: { halign: 'right', fontStyle: 'bold' } },
     margin: { left: 14, right: 14 },
   })
   y = (doc as any).lastAutoTable.finalY + 8
 
-  // Montant encadré
-  doc.setFillColor(...COULEUR)
-  doc.roundedRect(W / 2 - 10, y, W / 2 - 4, 14, 2, 2, 'F')
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 255, 255)
+  // Montant encadré (bordure noire)
+  doc.setDrawColor(...NOIR); doc.setLineWidth(0.6)
+  doc.roundedRect(W / 2 - 10, y, W / 2 - 4, 14, 2, 2, 'S')
+  doc.setLineWidth(0.2)
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...NOIR)
   doc.text(`MONTANT DÛ : ${fmt(ct.montant)}`, W - 18, y + 9, { align: 'right' })
   y += 22
 
@@ -574,7 +624,7 @@ function genererRecuPrestation(ct: ContratFixe, moisCible?: string) {
 }
 
 // ── 3. Reçu de paiement (dépense quelconque) ─────────────────────────────────
-function genererRecuPaiement(d: Depense) {
+async function genererRecuPaiement(d: Depense) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const W = doc.internal.pageSize.getWidth()
   const H = doc.internal.pageSize.getHeight()
@@ -585,13 +635,13 @@ function genererRecuPaiement(d: Depense) {
   const idPadded = String(d.id).padStart(5, '0')
   const ref_ = `REC-${idPadded}-${shortDate(d.date_depense)}`
 
-  let y = pdfHeader(doc, 'Reçu de Paiement', `Date de paiement : ${fmtDateStr(d.date_depense)}`)
+  let y = await pdfHeader(doc, 'Reçu de Paiement', `Date de paiement : ${fmtDateStr(d.date_depense)}`)
 
-  // ── Marquage BROUILLON si non validé ───────────────────────────────────────
+  // ── Marquage BROUILLON si non validé (gris, pas rouge) ─────────────────────
   if (d.statut !== 'validee') {
     doc.setGState(new (doc as any).GState({ opacity: 0.08 }))
     doc.setFont('helvetica', 'bold'); doc.setFontSize(90)
-    doc.setTextColor(d.statut === 'rejetee' ? 185 : 180, 28, 28)
+    doc.setTextColor(80, 80, 80)
     doc.text(d.statut === 'rejetee' ? 'REJETE' : 'BROUILLON', W / 2, H / 2, {
       align: 'center', angle: 30,
     })
@@ -616,10 +666,11 @@ function genererRecuPaiement(d: Depense) {
   if (hasRefExt) { y = pdfLigne(doc, 'Pièce externe :', d.reference_facture!, y, 20, 75) }
   y += 6
 
-  // ── Bandeau montant ────────────────────────────────────────────────────────
-  doc.setFillColor(...COULEUR)
-  doc.roundedRect(14, y, W - 28, 18, 3, 3, 'F')
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(255, 255, 255)
+  // ── Bandeau montant (encadré noir épais, pas de fond rouge) ───────────────
+  doc.setDrawColor(...NOIR); doc.setLineWidth(0.8)
+  doc.roundedRect(14, y, W - 28, 18, 3, 3, 'S')
+  doc.setLineWidth(0.2)
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...NOIR)
   doc.text(`MONTANT PAYÉ : ${fmtFCFA(Number(d.montant))}`, W / 2, y + 12, { align: 'center' })
   y += 22
 
@@ -689,12 +740,12 @@ function openMoisModal(type: 'salaire' | 'prestation', item: Personnel | Contrat
   moisModalItem.value  = item
   showMoisModal.value  = true
 }
-function confirmMoisModal() {
+async function confirmMoisModal() {
   if (!moisModalItem.value) return
   if (moisModalType.value === 'salaire') {
-    genererBulletinSalaire(moisModalItem.value as Personnel, moisModalCible.value)
+    await genererBulletinSalaire(moisModalItem.value as Personnel, moisModalCible.value)
   } else {
-    genererRecuPrestation(moisModalItem.value as ContratFixe, moisModalCible.value)
+    await genererRecuPrestation(moisModalItem.value as ContratFixe, moisModalCible.value)
   }
   showMoisModal.value = false
 }
