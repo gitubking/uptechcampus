@@ -577,54 +577,104 @@ function genererRecuPrestation(ct: ContratFixe, moisCible?: string) {
 function genererRecuPaiement(d: Depense) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const W = doc.internal.pageSize.getWidth()
-  const ref_ = d.reference_facture || `REC-${d.id}-${String(d.date_depense).replace(/-/g, '')}`
-  let y = pdfHeader(doc, 'Reçu de Paiement', `Date : ${fmtDateStr(d.date_depense)}`)
+  const H = doc.internal.pageSize.getHeight()
 
-  // Bloc infos
+  // Référence séquentielle courte — N° pièce pour la comptabilité.
+  // Ex: REC-00123-20260417. La référence_facture (si saisie) est affichée
+  // en plus dans le corps sous « Pièce externe ».
+  const idPadded = String(d.id).padStart(5, '0')
+  const ref_ = `REC-${idPadded}-${shortDate(d.date_depense)}`
+
+  let y = pdfHeader(doc, 'Reçu de Paiement', `Date de paiement : ${fmtDateStr(d.date_depense)}`)
+
+  // ── Marquage BROUILLON si non validé ───────────────────────────────────────
+  if (d.statut !== 'validee') {
+    doc.setGState(new (doc as any).GState({ opacity: 0.08 }))
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(90)
+    doc.setTextColor(d.statut === 'rejetee' ? 185 : 180, 28, 28)
+    doc.text(d.statut === 'rejetee' ? 'REJETE' : 'BROUILLON', W / 2, H / 2, {
+      align: 'center', angle: 30,
+    })
+    doc.setGState(new (doc as any).GState({ opacity: 1 }))
+    doc.setTextColor(30, 30, 30)
+  }
+
+  // ── Bloc infos ─────────────────────────────────────────────────────────────
+  const hasMois = !!d.mois_concerne
+  const hasRefExt = !!d.reference_facture
+  const linesCount = 5 + (hasMois ? 1 : 0) + (hasRefExt ? 1 : 0) // réf, bénéf, libellé, catégorie, mode
+  const blocH = linesCount * 6 + 8
   doc.setFillColor(248, 250, 252); doc.setDrawColor(220)
-  doc.roundedRect(14, y, W - 28, 46, 3, 3, 'FD')
+  doc.roundedRect(14, y, W - 28, blocH, 3, 3, 'FD')
   y += 7
-  y = pdfLigne(doc, 'Référence :', ref_, y, 20, 75)
-  if (d.beneficiaire) { y = pdfLigne(doc, 'Bénéficiaire :', d.beneficiaire, y, 20, 75) }
+  y = pdfLigne(doc, 'N° de pièce :', ref_, y, 20, 75)
+  y = pdfLigne(doc, 'Bénéficiaire :', d.beneficiaire || '…………………………………………', y, 20, 75)
   y = pdfLigne(doc, 'Libellé :', d.libelle, y, 20, 75)
-  y = pdfLigne(doc, 'Catégorie :', d.categorie, y, 20, 75)
-  if (d.mode_paiement) { y = pdfLigne(doc, 'Mode de paiement :', d.mode_paiement, y, 20, 75) }
-  if (d.mois_concerne) { y = pdfLigne(doc, 'Mois concerné :', fmtMois(d.mois_concerne), y, 20, 75) }
-  y += 10
+  y = pdfLigne(doc, 'Catégorie :', catLabels.value[d.categorie] ?? d.categorie, y, 20, 75)
+  y = pdfLigne(doc, 'Mode de paiement :', d.mode_paiement ? (modeLabels[d.mode_paiement] ?? d.mode_paiement) : '—', y, 20, 75)
+  if (hasMois) { y = pdfLigne(doc, 'Mois concerné :', fmtMois(d.mois_concerne), y, 20, 75) }
+  if (hasRefExt) { y = pdfLigne(doc, 'Pièce externe :', d.reference_facture!, y, 20, 75) }
+  y += 6
 
-  // Montant
+  // ── Bandeau montant ────────────────────────────────────────────────────────
   doc.setFillColor(...COULEUR)
-  doc.roundedRect(14, y, W - 28, 20, 3, 3, 'F')
+  doc.roundedRect(14, y, W - 28, 18, 3, 3, 'F')
   doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(255, 255, 255)
-  doc.text(`MONTANT PAYÉ : ${fmt(Number(d.montant))} FCFA`, W / 2, y + 13, { align: 'center' })
-  y += 28
+  doc.text(`MONTANT PAYÉ : ${fmtFCFA(Number(d.montant))}`, W / 2, y + 12, { align: 'center' })
+  y += 22
 
-  // Notes
+  // ── Montant en lettres (comptabilité SN) ───────────────────────────────────
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.setTextColor(60, 60, 60)
+  const lettres = `Arrêté le présent reçu à la somme de : ${montantEnLettres(Number(d.montant))} francs CFA.`
+  const lettreLines = doc.splitTextToSize(lettres, W - 28)
+  doc.text(lettreLines, 14, y)
+  y += lettreLines.length * 5 + 4
+
+  // ── Notes ──────────────────────────────────────────────────────────────────
   if (d.notes) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(80)
     const lines = doc.splitTextToSize(`Note : ${d.notes}`, W - 28)
-    doc.text(lines, 14, y); y += lines.length * 5 + 6
+    doc.text(lines, 14, y); y += lines.length * 5 + 4
   }
 
-  // Statut
-  const statutTxt = d.statut === 'validee' ? '✓ Dépense validée' : d.statut === 'rejetee' ? '✗ Dépense rejetée' : '⏳ En attente de validation'
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
-  doc.setTextColor(d.statut === 'validee' ? 22 : d.statut === 'rejetee' ? 185 : 180,
-                   d.statut === 'validee' ? 163 : 28, d.statut === 'validee' ? 74 : 28)
-  doc.text(statutTxt, 14, y); y += 14
+  // ── Badge statut (sans emoji, rendu propre) ────────────────────────────────
+  const statutCfg =
+    d.statut === 'validee' ? { txt: 'VALIDE',      col: [22, 163, 74]  as [number, number, number], bg: [220, 252, 231] as [number, number, number] }
+  : d.statut === 'rejetee' ? { txt: 'REJETE',      col: [185, 28, 28]  as [number, number, number], bg: [254, 226, 226] as [number, number, number] }
+                           : { txt: 'EN ATTENTE', col: [180, 83, 9]   as [number, number, number], bg: [254, 243, 199] as [number, number, number] }
+  doc.setFillColor(...statutCfg.bg); doc.setDrawColor(...statutCfg.col)
+  doc.roundedRect(14, y, 48, 8, 2, 2, 'FD')
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...statutCfg.col)
+  doc.text(statutCfg.txt, 38, y + 5.5, { align: 'center' })
+  if (d.statut === 'validee' && d.validated_at) {
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(100)
+    doc.text(`Validé le ${fmtDateStr(d.validated_at)}`, 64, y + 5.5)
+  }
+  if (d.statut === 'rejetee' && d.motif_rejet) {
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(100)
+    doc.text(`Motif : ${d.motif_rejet}`, 64, y + 5.5)
+  }
+  y += 16
 
-  // Signatures
-  const sigY = Math.max(y + 10, 210)
+  // ── Zone signatures ────────────────────────────────────────────────────────
+  const sigY = Math.max(y + 4, 215)
   doc.setDrawColor(180); doc.setLineWidth(0.3)
-  ;['Émetteur / Caissier', 'Bénéficiaire', 'Le Directeur Général'].forEach((lbl, i) => {
+  const sigs = [
+    { lbl: 'Émetteur / Caissier', sub: 'Nom, prénom, signature' },
+    { lbl: 'Bénéficiaire',        sub: 'Reçu la somme ci-dessus' },
+    { lbl: 'Le Directeur Général', sub: 'Validation' },
+  ]
+  sigs.forEach((s, i) => {
     const x = 14 + i * ((W - 28) / 3)
     doc.line(x, sigY + 18, x + 52, sigY + 18)
-    doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(100)
-    doc.text(lbl, x, sigY + 23)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(60)
+    doc.text(s.lbl, x, sigY + 23)
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(130)
+    doc.text(s.sub, x, sigY + 27)
   })
 
   pdfFooter(doc, ref_)
-  doc.save(`Recu_Paiement_${ref_}.pdf`)
+  doc.save(`Recu_Paiement_${safeFilename(ref_)}.pdf`)
 }
 
 // ── État modal mois pour bulletin/reçu prestation ─────────────────────────────
@@ -650,8 +700,68 @@ function confirmMoisModal() {
 }
 
 // ── Utilitaires ──────────────────────────────────────────────────────────────
-function fmt(n: number) { return new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' F' }
+// Intl.NumberFormat('fr-FR') insère un U+202F (narrow NBSP) que jsPDF rend
+// comme « / ». On le remplace par une espace ASCII pour un rendu propre.
+function fmtNumber(n: number) {
+  return new Intl.NumberFormat('fr-FR').format(Math.round(n)).replace(/\s/g, ' ')
+}
+function fmt(n: number) { return fmtNumber(n) + ' F' }
+function fmtFCFA(n: number) { return fmtNumber(n) + ' FCFA' }
 function fmtDate(d: string | null) { return d ? new Date(d).toLocaleDateString('fr-FR') : '—' }
+
+// "YYYYMMDD" à partir d'un ISO — pour références / noms de fichiers
+function shortDate(iso: string | null | undefined) {
+  if (!iso) return ''
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return m ? `${m[1]}${m[2]}${m[3]}` : ''
+}
+
+// Nettoie une chaîne pour usage dans un nom de fichier
+function safeFilename(s: string) {
+  return s.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+}
+
+// Conversion FCFA → lettres (français, entiers positifs jusqu'à ~999 999 999)
+function montantEnLettres(n: number): string {
+  n = Math.round(Math.max(0, n))
+  if (n === 0) return 'zéro'
+  const u = ['', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf',
+    'dix', 'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize']
+  function below100(x: number): string {
+    if (x < 17) return u[x]
+    if (x < 20) return 'dix-' + u[x - 10]
+    if (x < 60) {
+      const t = Math.floor(x / 10), r = x % 10
+      const tens = ['', '', 'vingt', 'trente', 'quarante', 'cinquante'][t]
+      if (r === 0) return tens
+      if (r === 1) return tens + '-et-un'
+      return tens + '-' + u[r]
+    }
+    if (x < 80) {
+      const r = x - 60
+      if (r === 0) return 'soixante'
+      if (r === 11) return 'soixante-et-onze'
+      return 'soixante-' + below100(r)
+    }
+    const r = x - 80
+    if (r === 0) return 'quatre-vingts'
+    return 'quatre-vingt-' + below100(r)
+  }
+  function below1000(x: number): string {
+    if (x < 100) return below100(x)
+    const h = Math.floor(x / 100), r = x % 100
+    const cent = h === 1 ? 'cent' : u[h] + ' cent' + (r === 0 ? 's' : '')
+    return r === 0 ? cent : cent + ' ' + below100(r)
+  }
+  const parts: string[] = []
+  const mios = Math.floor(n / 1_000_000)
+  const mils = Math.floor((n % 1_000_000) / 1000)
+  const res  = n % 1000
+  if (mios) parts.push((mios === 1 ? 'un' : below1000(mios)) + ' million' + (mios > 1 ? 's' : ''))
+  if (mils) parts.push((mils === 1 ? '' : below1000(mils) + ' ') + 'mille')
+  if (res)  parts.push(below1000(res))
+  return parts.join(' ').trim().replace(/\s+/g, ' ')
+}
 
 // Retourne le statut d'expiration d'un contrat : 'expired' | 'danger' | 'warning' | 'ok' | 'none'
 function expiryStatus(dateFin: string | null): 'expired' | 'danger' | 'warning' | 'ok' | 'none' {
