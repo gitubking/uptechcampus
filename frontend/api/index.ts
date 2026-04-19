@@ -1753,7 +1753,7 @@ app.post('/auth/change-password', requireAuth, async (c) => {
 })
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
-app.get('/users', requireAuth, role('dg', 'secretariat'), async (c) => {
+app.get('/users', requireAuth, role('dg', 'secretariat', 'dir_peda', 'resp_fin', 'coordinateur'), async (c) => {
   const roleFilter = c.req.query('role')
   const params: any[] = []
   let where = ''
