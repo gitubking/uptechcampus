@@ -730,7 +730,7 @@ function normalizeDateForInput(d: string | null | undefined): string {
   // année > 4 chiffres (format ISO étendu).
   const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (!m) return ''
-  const year = parseInt(m[1], 10)
+  const year = parseInt(m[1] ?? '', 10)
   if (year < 1900 || year > 2100) return ''
   return `${m[1]}-${m[2]}-${m[3]}`
 }
