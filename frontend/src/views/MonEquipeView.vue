@@ -34,7 +34,7 @@ const searchQ = ref('')
 
 const ROLE_LABEL: Record<string, string> = {
   dg: 'Directeur Général', dir_peda: 'Dir. Pédagogique', resp_fin: 'Resp. Financier',
-  coordinateur: 'Coordinateur', secretariat: 'Secrétariat', enseignant: 'Enseignant',
+  coordinateur: 'Coordinateur', secretariat: 'Secrétariat',
 }
 
 const ROLE_COLOR: Record<string, string> = {
@@ -43,7 +43,6 @@ const ROLE_COLOR: Record<string, string> = {
   resp_fin: 'bg-emerald-100 text-emerald-700',
   coordinateur: 'bg-blue-100 text-blue-700',
   secretariat: 'bg-cyan-100 text-cyan-700',
-  enseignant: 'bg-amber-100 text-amber-700',
 }
 
 async function load() {

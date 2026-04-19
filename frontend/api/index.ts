@@ -12251,7 +12251,7 @@ app.get('/mon-equipe', requireAuth, role('dg'), async (c) => {
     LEFT JOIN vac_stats vs     ON vs.user_id = u.id
     LEFT JOIN seance_stats ss  ON ss.user_id = u.id
     LEFT JOIN activity_stats acs ON acs.user_id = u.id
-    WHERE u.role IN ('dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant')
+    WHERE u.role IN ('dg','dir_peda','resp_fin','coordinateur','secretariat')
     ORDER BY
       CASE u.statut WHEN 'actif' THEN 0 ELSE 1 END,
       u.role, u.nom, u.prenom
