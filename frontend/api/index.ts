@@ -646,6 +646,7 @@ const ROLE_PERMS_DEFAULTS: { path: string; roles: string[] }[] = [
   { path: '/parametres',              roles: ['dg'] },
   // Productivité équipe
   { path: '/taches',                  roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant'] },
+  { path: '/journal-activite',        roles: ['dg'] },
 ]
 
 let rolePermsReady: Promise<void> | null = null
@@ -679,6 +680,24 @@ async function ensureRolePermissionsReady(): Promise<void> {
   })
   return rolePermsReady
 }
+
+// ─── Audit logs — journal d'activité ────────────────────────────────────────
+pool.query(`CREATE TABLE IF NOT EXISTS activity_logs (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  user_role VARCHAR(30),
+  action VARCHAR(10) NOT NULL,
+  entity VARCHAR(80) NOT NULL,
+  entity_id VARCHAR(80),
+  path VARCHAR(255),
+  status_code INTEGER,
+  ip VARCHAR(64),
+  user_agent TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+)`).catch(() => {})
+pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_logs(user_id, created_at DESC)`).catch(() => {})
+pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_entity ON activity_logs(entity, created_at DESC)`).catch(() => {})
+pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_date ON activity_logs(created_at DESC)`).catch(() => {})
 
 // ─── Table Tâches (productivité équipe admin) ────────────────────────────────
 pool.query(`CREATE TABLE IF NOT EXISTS taches (
@@ -781,6 +800,38 @@ app.use('*', async (c, next) => {
   c.header('Access-Control-Allow-Credentials', 'true')
   if (c.req.method === 'OPTIONS') return c.body(null, 204)
   await next()
+})
+
+// ─── Audit middleware — log automatique des mutations ────────────────────────
+// Log POST/PUT/PATCH/DELETE sur tous les endpoints /api/* — après execution,
+// si auth réussie (user attaché par requireAuth) et statut 2xx/4xx.
+// On exclut /auth/* (login/logout gérés séparément) pour éviter de logger les mots de passe.
+const SKIP_AUDIT_PREFIXES = ['/auth/login', '/auth/check-email', '/auth/forgot-password', '/auth/verify-otp', '/auth/reset-password']
+app.use('*', async (c, next) => {
+  await next()
+  const method = c.req.method
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return
+  // basePath '/api' déjà retiré par Hono — c.req.path donne le chemin relatif ex "/users/3"
+  const path = c.req.path.replace(/^\/api/, '') || '/'
+  if (SKIP_AUDIT_PREFIXES.some(p => path.startsWith(p))) return
+  const user = c.get('user') as any
+  if (!user) return // non authentifié : pas de log (ou auth échouée)
+  const status = c.res.status
+  if (status >= 500) return // erreurs serveur non loggées ici (onError s'en charge)
+  // Parse entity & entity_id depuis /segment/:id ou /segment
+  const segs = path.split('/').filter(Boolean)
+  const entity = segs[0] || 'unknown'
+  const entity_id = segs[1] && /^[\w-]+$/.test(segs[1]) ? segs[1] : null
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    || c.req.header('x-real-ip')
+    || null
+  const ua = c.req.header('user-agent')?.slice(0, 500) || null
+  // Fire-and-forget — ne jamais bloquer la réponse sur une erreur de log
+  pool.query(
+    `INSERT INTO activity_logs (user_id, user_role, action, entity, entity_id, path, status_code, ip, user_agent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [user.id, user.role, method, entity, entity_id, path.slice(0, 255), status, ip, ua]
+  ).catch(() => {})
 })
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -10511,6 +10562,51 @@ app.post('/user-notifications/:id/read', requireAuth, async (c) => {
     [c.req.param('id'), userId]
   )
   return c.json({ ok: true })
+})
+
+// ─── ACTIVITY LOGS — journal d'activité (DG uniquement) ─────────────────────
+app.get('/activity-logs', requireAuth, role('dg'), async (c) => {
+  const limit = Math.min(Number(c.req.query('limit') || 200), 1000)
+  const offset = Math.max(Number(c.req.query('offset') || 0), 0)
+  const userId = c.req.query('user_id')
+  const entity = c.req.query('entity')
+  const action = c.req.query('action')
+  const from = c.req.query('from')
+  const to = c.req.query('to')
+
+  const conds: string[] = []
+  const params: any[] = []
+  if (userId) { params.push(Number(userId)); conds.push(`l.user_id = $${params.length}`) }
+  if (entity) { params.push(entity); conds.push(`l.entity = $${params.length}`) }
+  if (action) { params.push(action.toUpperCase()); conds.push(`l.action = $${params.length}`) }
+  if (from)   { params.push(from); conds.push(`l.created_at >= $${params.length}`) }
+  if (to)     { params.push(to);   conds.push(`l.created_at <= ($${params.length}::date + INTERVAL '1 day')`) }
+
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  params.push(limit, offset)
+  const { rows } = await pool.query(
+    `SELECT l.*, u.nom AS user_nom, u.prenom AS user_prenom
+     FROM activity_logs l
+     LEFT JOIN users u ON u.id = l.user_id
+     ${where}
+     ORDER BY l.created_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  )
+  const countParams = params.slice(0, params.length - 2)
+  const { rows: totalRows } = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM activity_logs l ${where}`,
+    countParams
+  )
+  return c.json({ logs: rows, total: totalRows[0].total })
+})
+
+// Liste des entités distinctes (pour le filtre UI)
+app.get('/activity-logs/entities', requireAuth, role('dg'), async (c) => {
+  const { rows } = await pool.query(
+    `SELECT entity, COUNT(*)::int AS cnt FROM activity_logs GROUP BY entity ORDER BY cnt DESC`
+  )
+  return c.json(rows)
 })
 
 // ─── TACHES (productivité équipe) ────────────────────────────────────────────

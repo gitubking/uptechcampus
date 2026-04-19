@@ -189,6 +189,11 @@ const router = createRouter({
           component: () => import('@/views/TachesView.vue'),
         },
         {
+          path: 'journal-activite',
+          name: 'journal-activite',
+          component: () => import('@/views/JournalActiviteView.vue'),
+        },
+        {
           path: 'espace-etudiant',
           name: 'espace-etudiant',
           component: () => import('@/views/EspaceEtudiantView.vue'),
