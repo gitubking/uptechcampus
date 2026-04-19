@@ -136,10 +136,20 @@ async function loadAll() {
       isManager.value ? api.get('/users').catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
     ])
     taches.value = tachesRes.data
-    users.value = (usersRes.data as User[]).filter(u =>
-      ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant'].includes(u.role)
-      && u.statut === 'actif'
-    )
+    // Accepte tous les rôles administratifs/pédagogiques et exclut seulement les
+    // statuts explicitement désactivés — un statut null/undefined reste éligible.
+    const ASSIGNABLE_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant']
+    const BLOCKED_STATUS = ['inactif','suspendu','supprime','bloque']
+    users.value = (usersRes.data as User[]).filter(u => {
+      if (!ASSIGNABLE_ROLES.includes(u.role)) return false
+      if (u.statut && BLOCKED_STATUS.includes(String(u.statut).toLowerCase())) return false
+      return true
+    })
+    if (isManager.value && users.value.length === 0 && Array.isArray(usersRes.data)) {
+      // Diagnostic : liste vide alors que le fetch a réussi → rôles/statuts anormaux en base
+      // eslint-disable-next-line no-console
+      console.warn('[Taches] Aucun utilisateur assignable. Data brute:', usersRes.data)
+    }
     if (isManager.value) {
       const statsRes = await api.get('/taches/stats').catch(() => ({ data: [] }))
       stats.value = statsRes.data
