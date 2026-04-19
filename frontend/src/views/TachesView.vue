@@ -45,7 +45,8 @@ interface ProductivityStat {
 }
 
 const auth = useAuthStore()
-const MANAGER_ROLES = ['dg', 'dir_peda', 'resp_fin', 'coordinateur']
+// Seul le DG peut créer / assigner / éditer les tâches.
+const MANAGER_ROLES = ['dg']
 const isManager = computed(() => MANAGER_ROLES.includes(auth.user?.role ?? ''))
 
 const taches = ref<Tache[]>([])
@@ -203,8 +204,16 @@ async function save() {
   }
 }
 
+function canChangeStatut(t: Tache, statut: Tache['statut']): boolean {
+  if (isManager.value) return true
+  // Un assigné non-manager ne peut que passer à "terminé".
+  if (t.assignee_id === auth.user?.id && statut === 'termine') return true
+  return false
+}
+
 async function changeStatut(t: Tache, statut: Tache['statut']) {
   if (t.statut === statut) return
+  if (!canChangeStatut(t, statut)) return
   const prev = t.statut
   t.statut = statut
   try {
@@ -220,6 +229,10 @@ async function changeStatut(t: Tache, statut: Tache['statut']) {
   }
 }
 
+async function markDone(t: Tache) {
+  await changeStatut(t, 'termine')
+}
+
 async function removeTache(t: Tache) {
   if (!confirm(`Supprimer la tâche "${t.titre}" ?`)) return
   try {
@@ -230,7 +243,8 @@ async function removeTache(t: Tache) {
   }
 }
 
-// Drag & drop Kanban
+// Drag & drop Kanban — seul le DG peut déplacer librement ; un assigné ne peut
+// que "drop" dans la colonne Terminé.
 const dragId = ref<number | null>(null)
 function onDragStart(t: Tache) {
   dragId.value = t.id
@@ -238,7 +252,7 @@ function onDragStart(t: Tache) {
 function onDrop(statut: Tache['statut']) {
   if (dragId.value == null) return
   const t = taches.value.find(x => x.id === dragId.value)
-  if (t) changeStatut(t, statut)
+  if (t && canChangeStatut(t, statut)) changeStatut(t, statut)
   dragId.value = null
 }
 
@@ -322,9 +336,18 @@ onMounted(loadAll)
                 {{ PRIORITE_CONF[t.priorite].label }}
               </span>
               <div class="flex items-center gap-1">
-                <button @click="openEdit(t)" class="p-1 text-gray-400 hover:text-red-600 transition" title="Modifier">
+                <button v-if="isManager" @click="openEdit(t)" class="p-1 text-gray-400 hover:text-red-600 transition" title="Modifier">
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
+                <button
+                  v-if="!isManager && t.assignee_id === auth.user?.id && t.statut !== 'termine'"
+                  @click="markDone(t)"
+                  class="p-1 text-green-500 hover:text-green-700 transition"
+                  title="Marquer terminé">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                   </svg>
                 </button>
               </div>
@@ -365,7 +388,7 @@ onMounted(loadAll)
             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Assigné à</th>
             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Priorité</th>
             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Statut</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Échéance</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Jour programmé</th>
             <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
           </tr>
         </thead>
@@ -385,13 +408,17 @@ onMounted(loadAll)
               </span>
             </td>
             <td class="px-4 py-3">
-              <select :value="t.statut" @change="changeStatut(t, ($event.target as HTMLSelectElement).value as Tache['statut'])"
+              <select v-if="isManager" :value="t.statut" @change="changeStatut(t, ($event.target as HTMLSelectElement).value as Tache['statut'])"
                 :class="['text-xs font-medium px-2 py-1 rounded border-0 cursor-pointer', STATUT_CONF[t.statut].color]">
                 <option value="a_faire">À faire</option>
                 <option value="en_cours">En cours</option>
                 <option value="en_revue">En revue</option>
                 <option value="termine">Terminé</option>
               </select>
+              <span v-else
+                :class="['text-xs font-medium px-2 py-1 rounded inline-block', STATUT_CONF[t.statut].color]">
+                {{ STATUT_CONF[t.statut].label }}
+              </span>
             </td>
             <td class="px-4 py-3 text-sm">
               <span v-if="t.deadline" :class="isOverdue(t) ? 'text-red-600 font-medium' : 'text-gray-600'">
@@ -401,7 +428,17 @@ onMounted(loadAll)
               <span v-else class="text-gray-400">—</span>
             </td>
             <td class="px-4 py-3 text-right">
-              <button @click="openEdit(t)" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition" title="Modifier">
+              <button
+                v-if="!isManager && t.assignee_id === auth.user?.id && t.statut !== 'termine'"
+                @click="markDone(t)"
+                class="inline-flex items-center gap-1 px-2 py-1 bg-green-600 text-white text-xs font-medium rounded hover:bg-green-700 transition mr-1"
+                title="Marquer terminé">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                Terminer
+              </button>
+              <button v-if="isManager" @click="openEdit(t)" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition" title="Modifier">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
@@ -508,9 +545,12 @@ onMounted(loadAll)
                 </select>
               </div>
               <div>
-                <label class="block text-xs font-medium text-gray-700 mb-1">Échéance</label>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Jour programmé</label>
                 <input v-model="form.deadline" type="date"
                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
+                <p class="mt-1 text-[11px] text-gray-500 leading-snug">
+                  À 08:00 du jour programmé la tâche passe en « En cours ». Si la journée s'écoule sans être terminée, elle bascule automatiquement en « En revue ».
+                </p>
               </div>
             </div>
             <div v-if="editTarget">

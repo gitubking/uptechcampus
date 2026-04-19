@@ -12315,14 +12315,39 @@ app.get('/activity-logs/entities', requireAuth, role('dg'), async (c) => {
 })
 
 // ─── TACHES (productivité équipe) ────────────────────────────────────────────
-// Rôles autorisés à voir et gérer des tâches (personnel admin, pas enseignants ni étudiants)
+// Rôles autorisés à voir des tâches (assignés ou créateur). Pas enseignants ni étudiants.
 const TACHES_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat']
-// Rôles autorisés à CRÉER / ASSIGNER des tâches (managers)
-const TACHES_MANAGER_ROLES = ['dg','dir_peda','resp_fin','coordinateur']
+// Rôles autorisés à CRÉER / ASSIGNER / ÉDITER des tâches : uniquement le DG.
+const TACHES_MANAGER_ROLES = ['dg']
+
+// Auto-transition des statuts basée sur le jour programmé (champ `deadline`) :
+//   • à 08:00 du jour programmé : `a_faire` → `en_cours`
+//   • après le jour programmé : `a_faire` ou `en_cours` → `en_revue`
+//   • `termine` n'est jamais modifié.
+async function autoAdvanceTachesStatuts(): Promise<void> {
+  try {
+    await pool.query(`
+      UPDATE taches
+         SET statut = 'en_cours', updated_at = NOW()
+       WHERE statut = 'a_faire'
+         AND deadline IS NOT NULL
+         AND deadline = CURRENT_DATE
+         AND NOW() >= (deadline::timestamp + TIME '08:00')
+    `)
+    await pool.query(`
+      UPDATE taches
+         SET statut = 'en_revue', updated_at = NOW()
+       WHERE statut IN ('a_faire','en_cours')
+         AND deadline IS NOT NULL
+         AND deadline < CURRENT_DATE
+    `)
+  } catch { /* best-effort */ }
+}
 
 // GET /taches — liste avec filtres (assignee, statut, priorite, mine)
 app.get('/taches', requireAuth, role(...TACHES_ROLES), async (c) => {
   await ensureTachesReady()
+  await autoAdvanceTachesStatuts()
   const user = u(c) as any
   const assigneeFilter = c.req.query('assignee_id')
   const statutFilter = c.req.query('statut')
@@ -12418,7 +12443,17 @@ app.put('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
   const assignee_id = canFullEdit && body.assignee_id !== undefined ? body.assignee_id : tache.assignee_id
   const priorite = canFullEdit && body.priorite ? body.priorite : tache.priorite
   const deadline = canFullEdit && body.deadline !== undefined ? body.deadline : tache.deadline
-  const statut = body.statut || tache.statut
+  // Un assigné non-manager/non-créateur ne peut que passer la tâche à "termine".
+  let statut: string = tache.statut
+  if (body.statut && body.statut !== tache.statut) {
+    if (canFullEdit) {
+      statut = body.statut
+    } else if (isAssignee && body.statut === 'termine') {
+      statut = 'termine'
+    } else {
+      return c.json({ message: 'Vous ne pouvez que marquer la tâche comme terminée.' }, 403)
+    }
+  }
   const completed_at = statut === 'termine' ? (tache.completed_at || new Date()) : null
 
   const { rows } = await pool.query(
@@ -12443,8 +12478,14 @@ app.put('/taches/:id/statut', requireAuth, role(...TACHES_ROLES), async (c) => {
   const { rows: existing } = await pool.query('SELECT assignee_id, created_by FROM taches WHERE id=$1', [id])
   if (!existing[0]) return c.json({ message: 'Tâche introuvable.' }, 404)
   const isManager = TACHES_MANAGER_ROLES.includes(user.role)
-  if (!isManager && existing[0].assignee_id !== user.id && existing[0].created_by !== user.id) {
+  const isAssignee = existing[0].assignee_id === user.id
+  const isOwner = existing[0].created_by === user.id
+  if (!isManager && !isAssignee && !isOwner) {
     return c.json({ message: 'Accès refusé.' }, 403)
+  }
+  // Un assigné non-manager ne peut que marquer la tâche comme terminée.
+  if (!isManager && !isOwner && statut !== 'termine') {
+    return c.json({ message: 'Vous ne pouvez que marquer la tâche comme terminée.' }, 403)
   }
   const completedSql = statut === 'termine' ? 'COALESCE(completed_at, NOW())' : 'NULL'
   const { rows } = await pool.query(
