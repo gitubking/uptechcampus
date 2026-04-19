@@ -28,6 +28,7 @@
     "jsonwebtoken": "^9.0.2",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
+    "jsqr": "^1.4.0",
     "pg": "^8.13.3",
     "pinia": "^3.0.4",
     "qrcode": "^1.5.4",
