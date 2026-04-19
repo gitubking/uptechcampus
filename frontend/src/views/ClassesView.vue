@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader, UcTable } from '@/components/ui'
 
 const auth = useAuthStore()
-const canWrite = ['dg', 'coordinateur'].includes(auth.user?.role ?? '')
+const canWrite = ['dg', 'dir_peda', 'coordinateur'].includes(auth.user?.role ?? '')
 
 // ── Interfaces ───────────────────────────────────────────────────────
 interface TypeFormation { id: number; nom: string; code: string; has_niveau?: boolean }

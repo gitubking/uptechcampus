@@ -3103,7 +3103,7 @@ app.get('/classes', requireAuth, async (c) => {
   return c.json(rows)
 })
 
-app.post('/classes', requireAuth, role('dg', 'coordinateur'), async (c) => {
+app.post('/classes', requireAuth, role('dg', 'dir_peda', 'coordinateur'), async (c) => {
   const b = await c.req.json()
   const estTronc = b.est_tronc_commun ?? false
   await ensureExemptTenueColumn()
@@ -3144,7 +3144,7 @@ app.post('/classes', requireAuth, role('dg', 'coordinateur'), async (c) => {
   return c.json(fullRows[0] || classe, 201)
 })
 
-app.put('/classes/:id', requireAuth, role('dg', 'coordinateur'), async (c) => {
+app.put('/classes/:id', requireAuth, role('dg', 'dir_peda', 'coordinateur'), async (c) => {
   const b = await c.req.json()
   const estTronc = b.est_tronc_commun ?? false
   const classeId = parseInt(c.req.param('id'))
@@ -3185,7 +3185,7 @@ app.put('/classes/:id', requireAuth, role('dg', 'coordinateur'), async (c) => {
   return c.json(rows[0])
 })
 
-app.delete('/classes/:id', requireAuth, role('dg', 'coordinateur'), async (c) => {
+app.delete('/classes/:id', requireAuth, role('dg', 'dir_peda', 'coordinateur'), async (c) => {
   await pool.query('DELETE FROM classes WHERE id=$1', [c.req.param('id')])
   return c.body(null, 204)
 })
@@ -4555,7 +4555,7 @@ app.get('/enseignants/:id/formations-individuelles', requireAuth, async (c) => {
   return c.json(rows)
 })
 
-app.post('/enseignants', requireAuth, role('dg', 'secretariat'), async (c) => {
+app.post('/enseignants', requireAuth, role('dg', 'dir_peda', 'secretariat'), async (c) => {
   const b = await c.req.json()
   if (!b.annee_academique_id) return c.json({ message: 'annee_academique_id requis.' }, 422)
   // Auto-create user account if user_id not provided
@@ -4599,7 +4599,7 @@ app.post('/enseignants', requireAuth, role('dg', 'secretariat'), async (c) => {
   return c.json(enseignant, 201)
 })
 
-app.put('/enseignants/:id', requireAuth, role('dg', 'secretariat'), async (c) => {
+app.put('/enseignants/:id', requireAuth, role('dg', 'dir_peda', 'secretariat'), async (c) => {
   const b = await c.req.json()
   const id = c.req.param('id')
   const { rows } = await pool.query(
@@ -4622,7 +4622,7 @@ app.put('/enseignants/:id', requireAuth, role('dg', 'secretariat'), async (c) =>
   return c.json(rows[0])
 })
 
-app.post('/enseignants/:id/cv', requireAuth, role('dg', 'secretariat'), async (c) => {
+app.post('/enseignants/:id/cv', requireAuth, role('dg', 'dir_peda', 'secretariat'), async (c) => {
   return c.json({ message: 'Upload CV: utilisez un service de stockage externe.' })
 })
 

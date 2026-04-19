@@ -10,7 +10,7 @@ import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
-const canWrite = computed(() => ['dg', 'secretariat'].includes(auth.user?.role ?? ''))
+const canWrite = computed(() => ['dg', 'dir_peda', 'secretariat'].includes(auth.user?.role ?? ''))
 
 interface AnneeAcademique { id: number; libelle: string; actif: boolean }
 interface Enseignant {

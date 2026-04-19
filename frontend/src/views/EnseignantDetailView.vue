@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-const canWrite = computed(() => ['dg', 'secretariat'].includes(auth.user?.role ?? ''))
+const canWrite = computed(() => ['dg', 'dir_peda', 'secretariat'].includes(auth.user?.role ?? ''))
 
 const activeTab = ref<'infos'|'classes'|'seances'|'vacations'|'fi'>('infos')
 
