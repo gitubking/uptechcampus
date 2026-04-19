@@ -867,7 +867,7 @@ const ROLE_PERMS_DEFAULTS: { path: string; roles: string[] }[] = [
   { path: '/filieres',                roles: ['dg','dir_peda'] },
   { path: '/parametres',              roles: ['dg'] },
   // Productivité équipe
-  { path: '/taches',                  roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant'] },
+  { path: '/taches',                  roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat'] },
   { path: '/journal-activite',        roles: ['dg'] },
   { path: '/mon-equipe',              roles: ['dg'] },
 ]
@@ -896,6 +896,12 @@ async function ensureRolePermissionsReady(): Promise<void> {
         )
       }
     }
+    // 3. Migration one-shot : révoquer accès /taches pour les enseignants
+    //    (le module est désormais réservé à l'administration)
+    await pool.query(
+      `UPDATE role_permissions SET has_access=false
+       WHERE role='enseignant' AND page_path='/taches' AND has_access=true`
+    )
   })().catch((err) => {
     // Reset so a later request can retry
     rolePermsReady = null
@@ -12307,8 +12313,8 @@ app.get('/activity-logs/entities', requireAuth, role('dg'), async (c) => {
 })
 
 // ─── TACHES (productivité équipe) ────────────────────────────────────────────
-// Rôles autorisés à voir et gérer des tâches (personnel interne, pas les étudiants)
-const TACHES_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant']
+// Rôles autorisés à voir et gérer des tâches (personnel admin, pas enseignants ni étudiants)
+const TACHES_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat']
 // Rôles autorisés à CRÉER / ASSIGNER des tâches (managers)
 const TACHES_MANAGER_ROLES = ['dg','dir_peda','resp_fin','coordinateur']
 
@@ -12476,7 +12482,7 @@ app.get('/taches/stats', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) =
       COUNT(t.id) FILTER (WHERE t.statut = 'termine' AND t.completed_at >= NOW() - INTERVAL '30 days')::int AS termines_30j
     FROM users u
     LEFT JOIN taches t ON t.assignee_id = u.id
-    WHERE u.role IN ('dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant')
+    WHERE u.role IN ('dg','dir_peda','resp_fin','coordinateur','secretariat')
       AND u.statut = 'actif'
     GROUP BY u.id, u.nom, u.prenom, u.role
     ORDER BY termines_30j DESC, u.nom

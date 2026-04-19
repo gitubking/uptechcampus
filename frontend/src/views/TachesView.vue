@@ -138,7 +138,7 @@ async function loadAll() {
     taches.value = tachesRes.data
     // Accepte tous les rôles administratifs/pédagogiques et exclut seulement les
     // statuts explicitement désactivés — un statut null/undefined reste éligible.
-    const ASSIGNABLE_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant']
+    const ASSIGNABLE_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat']
     const BLOCKED_STATUS = ['inactif','suspendu','supprime','bloque']
     users.value = (usersRes.data as User[]).filter(u => {
       if (!ASSIGNABLE_ROLES.includes(u.role)) return false
