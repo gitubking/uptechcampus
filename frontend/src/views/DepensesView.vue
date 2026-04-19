@@ -779,14 +779,14 @@ function montantEnLettres(n: number): string {
   const u = ['', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf',
     'dix', 'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize']
   function below100(x: number): string {
-    if (x < 17) return u[x]
-    if (x < 20) return 'dix-' + u[x - 10]
+    if (x < 17) return u[x] ?? ''
+    if (x < 20) return 'dix-' + (u[x - 10] ?? '')
     if (x < 60) {
       const t = Math.floor(x / 10), r = x % 10
-      const tens = ['', '', 'vingt', 'trente', 'quarante', 'cinquante'][t]
+      const tens = ['', '', 'vingt', 'trente', 'quarante', 'cinquante'][t] ?? ''
       if (r === 0) return tens
       if (r === 1) return tens + '-et-un'
-      return tens + '-' + u[r]
+      return tens + '-' + (u[r] ?? '')
     }
     if (x < 80) {
       const r = x - 60

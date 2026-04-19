@@ -184,6 +184,21 @@ const router = createRouter({
           component: () => import('@/views/NotificationsView.vue'),
         },
         {
+          path: 'taches',
+          name: 'taches',
+          component: () => import('@/views/TachesView.vue'),
+        },
+        {
+          path: 'mon-equipe',
+          name: 'mon-equipe',
+          component: () => import('@/views/MonEquipeView.vue'),
+        },
+        {
+          path: 'journal-activite',
+          name: 'journal-activite',
+          component: () => import('@/views/JournalActiviteView.vue'),
+        },
+        {
           path: 'espace-etudiant',
           name: 'espace-etudiant',
           component: () => import('@/views/EspaceEtudiantView.vue'),
