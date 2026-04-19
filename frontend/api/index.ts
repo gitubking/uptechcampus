@@ -866,6 +866,8 @@ const ROLE_PERMS_DEFAULTS: { path: string; roles: string[] }[] = [
   { path: '/users',                   roles: ['dg'] },
   { path: '/filieres',                roles: ['dg','dir_peda'] },
   { path: '/parametres',              roles: ['dg'] },
+  { path: '/audit-logs',              roles: ['dg'] },
+  { path: '/backups',                 roles: ['dg'] },
   // Productivité équipe
   { path: '/taches',                  roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat'] },
   { path: '/journal-activite',        roles: ['dg'] },

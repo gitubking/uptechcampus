@@ -227,11 +227,21 @@ const PAGE_SECTIONS = [
     ],
   },
   {
+    label: '👥 Équipe',
+    pages: [
+      { path: '/mon-equipe',       label: 'Mon équipe' },
+      { path: '/taches',           label: 'Tâches & productivité' },
+      { path: '/journal-activite', label: 'Journal d\'activité' },
+    ],
+  },
+  {
     label: '⚙️ Administration',
     pages: [
       { path: '/users',       label: 'Utilisateurs' },
       { path: '/filieres',    label: 'Filières & Maquettes' },
       { path: '/parametres',  label: 'Paramètres' },
+      { path: '/audit-logs',  label: 'Journal d\'audit' },
+      { path: '/backups',     label: 'Sauvegardes' },
     ],
   },
 ]
@@ -264,10 +274,16 @@ const DEFAULT_PERMS: Record<string, string[]> = {
   '/formations-individuelles':['dg','resp_fin','coordinateur'],
   // Communication
   '/communication':           ['dg','dir_peda','coordinateur','secretariat'],
+  // Équipe
+  '/mon-equipe':              ['dg'],
+  '/taches':                  ['dg','dir_peda','resp_fin','coordinateur','secretariat'],
+  '/journal-activite':        ['dg'],
   // Administration
   '/users':                   ['dg'],
   '/filieres':                ['dg','dir_peda'],
   '/parametres':              ['dg'],
+  '/audit-logs':              ['dg'],
+  '/backups':                 ['dg'],
 }
 
 /** Construit la map permissions depuis les défauts codés en dur */

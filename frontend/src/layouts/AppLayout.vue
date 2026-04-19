@@ -306,13 +306,17 @@ const visibleSections = computed(() =>
       items: s.items.filter(i => {
         const userRole = auth.user?.role
         if (!userRole) return false
-        if (!i.roles.includes(userRole)) return false
-        // If DB permissions loaded and has entry for this page, use it
         const basePath = i.path.split('#')[0] ?? i.path
-        if (Object.keys(dbNavPerms.value).length > 0 && basePath in dbNavPerms.value) {
+        // La DB fait autorité quand elle a une entrée pour ce chemin : elle peut
+        // à la fois AUTORISER un rôle absent du tableau codé en dur, ou en
+        // INTERDIRE un qui y figurait. C'est ce que l'admin configure via
+        // /users → onglet Permissions.
+        if (basePath in dbNavPerms.value) {
           return dbNavPerms.value[basePath] === true
         }
-        return true
+        // Fallback : la DB n'a pas encore été chargée (ou pas d'entrée pour ce
+        // path, typiquement avant le 1er seed) → on utilise les défauts codés.
+        return i.roles.includes(userRole)
       }),
     }))
     .filter(s => s.items.length > 0),
