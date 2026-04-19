@@ -904,40 +904,60 @@ async function ensureRolePermissionsReady(): Promise<void> {
   return rolePermsReady
 }
 
-// ─── Audit logs — journal d'activité ────────────────────────────────────────
-pool.query(`CREATE TABLE IF NOT EXISTS activity_logs (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  user_role VARCHAR(30),
-  action VARCHAR(10) NOT NULL,
-  entity VARCHAR(80) NOT NULL,
-  entity_id VARCHAR(80),
-  path VARCHAR(255),
-  status_code INTEGER,
-  ip VARCHAR(64),
-  user_agent TEXT,
-  created_at TIMESTAMP DEFAULT NOW()
-)`).catch(() => {})
-pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_logs(user_id, created_at DESC)`).catch(() => {})
-pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_entity ON activity_logs(entity, created_at DESC)`).catch(() => {})
-pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_date ON activity_logs(created_at DESC)`).catch(() => {})
+// ─── Audit logs — journal d'activité (lazy init) ────────────────────────────
+let activityLogsReady: Promise<void> | null = null
+async function ensureActivityLogsReady(): Promise<void> {
+  if (activityLogsReady) return activityLogsReady
+  activityLogsReady = (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS activity_logs (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      user_role VARCHAR(30),
+      action VARCHAR(10) NOT NULL,
+      entity VARCHAR(80) NOT NULL,
+      entity_id VARCHAR(80),
+      path VARCHAR(255),
+      status_code INTEGER,
+      ip VARCHAR(64),
+      user_agent TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_logs(user_id, created_at DESC)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_entity ON activity_logs(entity, created_at DESC)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_date ON activity_logs(created_at DESC)`)
+  })().catch((err) => {
+    activityLogsReady = null
+    throw err
+  })
+  return activityLogsReady
+}
 
-// ─── Table Tâches (productivité équipe admin) ────────────────────────────────
-pool.query(`CREATE TABLE IF NOT EXISTS taches (
-  id SERIAL PRIMARY KEY,
-  titre VARCHAR(255) NOT NULL,
-  description TEXT,
-  assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  priorite VARCHAR(20) DEFAULT 'normale' CHECK (priorite IN ('basse','normale','haute','urgente')),
-  statut VARCHAR(20) DEFAULT 'a_faire' CHECK (statut IN ('a_faire','en_cours','en_revue','termine')),
-  deadline DATE,
-  completed_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-)`).catch(() => {})
-pool.query(`CREATE INDEX IF NOT EXISTS idx_taches_assignee ON taches(assignee_id)`).catch(() => {})
-pool.query(`CREATE INDEX IF NOT EXISTS idx_taches_statut ON taches(statut)`).catch(() => {})
+// ─── Table Tâches (productivité équipe admin) — lazy init ───────────────────
+let tachesReady: Promise<void> | null = null
+async function ensureTachesReady(): Promise<void> {
+  if (tachesReady) return tachesReady
+  tachesReady = (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS taches (
+      id SERIAL PRIMARY KEY,
+      titre VARCHAR(255) NOT NULL,
+      description TEXT,
+      assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      priorite VARCHAR(20) DEFAULT 'normale' CHECK (priorite IN ('basse','normale','haute','urgente')),
+      statut VARCHAR(20) DEFAULT 'a_faire' CHECK (statut IN ('a_faire','en_cours','en_revue','termine')),
+      deadline DATE,
+      completed_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_taches_assignee ON taches(assignee_id)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_taches_statut ON taches(statut)`)
+  })().catch((err) => {
+    tachesReady = null
+    throw err
+  })
+  return tachesReady
+}
 
 // ─── Tables Jury ─────────────────────────────────────────────────────────────
 pool.query(`CREATE TABLE IF NOT EXISTS jurys (
@@ -1136,11 +1156,13 @@ app.use('*', async (c, next) => {
     || null
   const ua = c.req.header('user-agent')?.slice(0, 500) || null
   // Fire-and-forget — ne jamais bloquer la réponse sur une erreur de log
-  pool.query(
-    `INSERT INTO activity_logs (user_id, user_role, action, entity, entity_id, path, status_code, ip, user_agent)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [user.id, user.role, method, entity, entity_id, path.slice(0, 255), status, ip, ua]
-  ).catch(() => {})
+  ensureActivityLogsReady()
+    .then(() => pool.query(
+      `INSERT INTO activity_logs (user_id, user_role, action, entity, entity_id, path, status_code, ip, user_agent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [user.id, user.role, method, entity, entity_id, path.slice(0, 255), status, ip, ua]
+    ))
+    .catch(() => {})
 })
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -12170,6 +12192,8 @@ app.post('/user-notifications/:id/read', requireAuth, async (c) => {
 
 // ─── MON EQUIPE — dashboard productivité consolidé (DG) ─────────────────────
 app.get('/mon-equipe', requireAuth, role('dg'), async (c) => {
+  await ensureTachesReady()
+  await ensureActivityLogsReady()
   const monthStr = new Date().toISOString().slice(0, 7) // 'YYYY-MM'
   // Agrégation en une requête : users non-étudiants + joint tâches, vacations, seances, activity
   const { rows } = await pool.query(`
@@ -12237,6 +12261,7 @@ app.get('/mon-equipe', requireAuth, role('dg'), async (c) => {
 
 // ─── ACTIVITY LOGS — journal d'activité (DG uniquement) ─────────────────────
 app.get('/activity-logs', requireAuth, role('dg'), async (c) => {
+  await ensureActivityLogsReady()
   const limit = Math.min(Number(c.req.query('limit') || 200), 1000)
   const offset = Math.max(Number(c.req.query('offset') || 0), 0)
   const userId = c.req.query('user_id')
@@ -12274,6 +12299,7 @@ app.get('/activity-logs', requireAuth, role('dg'), async (c) => {
 
 // Liste des entités distinctes (pour le filtre UI)
 app.get('/activity-logs/entities', requireAuth, role('dg'), async (c) => {
+  await ensureActivityLogsReady()
   const { rows } = await pool.query(
     `SELECT entity, COUNT(*)::int AS cnt FROM activity_logs GROUP BY entity ORDER BY cnt DESC`
   )
@@ -12288,6 +12314,7 @@ const TACHES_MANAGER_ROLES = ['dg','dir_peda','resp_fin','coordinateur']
 
 // GET /taches — liste avec filtres (assignee, statut, priorite, mine)
 app.get('/taches', requireAuth, role(...TACHES_ROLES), async (c) => {
+  await ensureTachesReady()
   const user = u(c) as any
   const assigneeFilter = c.req.query('assignee_id')
   const statutFilter = c.req.query('statut')
@@ -12338,6 +12365,7 @@ app.get('/taches', requireAuth, role(...TACHES_ROLES), async (c) => {
 
 // POST /taches — créer (managers uniquement)
 app.post('/taches', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) => {
+  await ensureTachesReady()
   const body = await c.req.json()
   if (!body.titre || !String(body.titre).trim()) {
     return c.json({ message: 'Le titre est requis.' }, 422)
@@ -12360,6 +12388,7 @@ app.post('/taches', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) => {
 
 // PUT /taches/:id — édition complète (manager, ou créateur, ou assigné pour certains champs)
 app.put('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
+  await ensureTachesReady()
   const user = u(c) as any
   const id = c.req.param('id')
   const body = await c.req.json()
@@ -12395,6 +12424,7 @@ app.put('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
 
 // PATCH /taches/:id/statut — changement rapide de statut (Kanban drag)
 app.put('/taches/:id/statut', requireAuth, role(...TACHES_ROLES), async (c) => {
+  await ensureTachesReady()
   const user = u(c) as any
   const id = c.req.param('id')
   const body = await c.req.json()
@@ -12418,6 +12448,7 @@ app.put('/taches/:id/statut', requireAuth, role(...TACHES_ROLES), async (c) => {
 
 // DELETE /taches/:id — manager ou créateur
 app.delete('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
+  await ensureTachesReady()
   const user = u(c) as any
   const id = c.req.param('id')
   const { rows } = await pool.query('SELECT created_by FROM taches WHERE id=$1', [id])
@@ -12432,6 +12463,7 @@ app.delete('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
 
 // GET /taches/stats — KPIs productivité par agent (managers uniquement)
 app.get('/taches/stats', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) => {
+  await ensureTachesReady()
   const { rows } = await pool.query(`
     SELECT
       u.id, u.nom, u.prenom, u.role,
