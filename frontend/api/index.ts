@@ -5,6 +5,12 @@ import { Pool } from 'pg'
 import jwt from 'jsonwebtoken'
 // @ts-ignore — CJS default export works at runtime
 import bcrypt from 'bcryptjs'
+// @ts-ignore — CJS default export works at runtime
+// otplib est CJS → Node ESM ne résout pas l'export nommé, on passe par createRequire
+import { createRequire } from 'module'
+const otplibRequire = createRequire(import.meta.url)
+const { authenticator } = otplibRequire('otplib') as { authenticator: any }
+import { randomBytes, createHash } from 'crypto'
 import type { IncomingMessage, ServerResponse } from 'http'
 // @ts-ignore
 import { createReport } from 'docx-templates'
@@ -129,6 +135,12 @@ pool.query(`DO $$ BEGIN
   ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant','etudiant','parent'));
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$`).catch(() => {})
+
+// ─── 2FA (TOTP) ───────────────────────────────────────────────────────────────
+pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64)`).catch(() => {})
+pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE`).catch(() => {})
+pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_backup_codes TEXT`).catch(() => {}) // JSON array of hashed codes
+pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled_at TIMESTAMP`).catch(() => {})
 
 // ─── Migration: avis qualité séances (anonymes) ───────────────────────────────
 pool.query(`CREATE TABLE IF NOT EXISTS avis_seance (
@@ -534,6 +546,216 @@ pool.query(`CREATE TABLE IF NOT EXISTS relances_creances (
   created_at TIMESTAMP DEFAULT NOW()
 )`).catch(() => {})
 
+// Table autres recettes (revenus hors paiements étudiants : prestations, subventions, locations…)
+// Sur Vercel serverless, le fire-and-forget au module-load ne termine pas avant la première requête,
+// donc on initialise à la demande dans chaque endpoint via ensureAutresRecettesReady().
+let autresRecettesReady: Promise<void> | null = null
+async function ensureAutresRecettesReady(): Promise<void> {
+  if (autresRecettesReady) return autresRecettesReady
+  autresRecettesReady = (async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS autres_recettes (
+        id SERIAL PRIMARY KEY,
+        date_recette DATE NOT NULL,
+        libelle VARCHAR(200) NOT NULL,
+        client VARCHAR(200),
+        nature VARCHAR(100),
+        montant NUMERIC(12,2) NOT NULL,
+        mode_encaissement VARCHAR(30) NOT NULL DEFAULT 'especes',
+        reference_piece VARCHAR(100),
+        notes TEXT,
+        statut VARCHAR(20) NOT NULL DEFAULT 'en_attente',
+        validated_at TIMESTAMP,
+        validated_by INT REFERENCES users(id) ON DELETE SET NULL,
+        motif_rejet TEXT,
+        created_by INT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `)
+  })().catch((err) => {
+    autresRecettesReady = null
+    throw err
+  })
+  return autresRecettesReady
+}
+
+// Table exonérations (bourses / remises / décisions DG)
+// Initialisée à la demande (Vercel serverless cold-start)
+let exonerationsReady: Promise<void> | null = null
+async function ensureExonerationsReady(): Promise<void> {
+  if (exonerationsReady) return exonerationsReady
+  exonerationsReady = (async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS exonerations (
+        id SERIAL PRIMARY KEY,
+        inscription_id INT NOT NULL REFERENCES inscriptions(id) ON DELETE CASCADE,
+        motif VARCHAR(40) NOT NULL DEFAULT 'autre',
+        portee VARCHAR(40) NOT NULL DEFAULT 'mensualites_toutes',
+        mois_concerne DATE,
+        mode_calcul VARCHAR(20) NOT NULL DEFAULT 'pourcentage',
+        valeur NUMERIC(12,2) NOT NULL DEFAULT 0,
+        montant_applique NUMERIC(12,2) NOT NULL DEFAULT 0,
+        libelle VARCHAR(250),
+        piece_justificative_url VARCHAR(500),
+        statut VARCHAR(20) NOT NULL DEFAULT 'en_attente',
+        date_effet DATE DEFAULT CURRENT_DATE,
+        date_fin DATE,
+        demande_par INT REFERENCES users(id) ON DELETE SET NULL,
+        validee_par INT REFERENCES users(id) ON DELETE SET NULL,
+        validee_at TIMESTAMP,
+        motif_rejet TEXT,
+        notes TEXT,
+        annulee_at TIMESTAMP,
+        annulee_par INT REFERENCES users(id) ON DELETE SET NULL,
+        motif_annulation TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS exoneration_echeances (
+        id SERIAL PRIMARY KEY,
+        exoneration_id INT NOT NULL REFERENCES exonerations(id) ON DELETE CASCADE,
+        echeance_id INT NOT NULL REFERENCES echeances(id) ON DELETE CASCADE,
+        montant NUMERIC(12,2) NOT NULL DEFAULT 0,
+        UNIQUE(exoneration_id, echeance_id)
+      )
+    `)
+    await pool.query(`ALTER TABLE echeances ADD COLUMN IF NOT EXISTS montant_exonere NUMERIC(12,2) DEFAULT 0`).catch(() => {})
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_exonerations_inscription ON exonerations(inscription_id)`).catch(() => {})
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_exonerations_statut ON exonerations(statut)`).catch(() => {})
+  })().catch((err) => {
+    exonerationsReady = null
+    throw err
+  })
+  return exonerationsReady
+}
+
+// ─── AUDIT LOG ─────────────────────────────────────────────────────────────
+// Journal d'audit : trace toutes les actions sensibles (finance, sécurité, RGPD).
+// Initialisé à la demande (Vercel serverless cold-start).
+let auditLogsReady: Promise<void> | null = null
+async function ensureAuditLogsReady(): Promise<void> {
+  if (auditLogsReady) return auditLogsReady
+  auditLogsReady = (async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        user_email VARCHAR(200),
+        user_role VARCHAR(40),
+        action VARCHAR(80) NOT NULL,
+        entity_type VARCHAR(60),
+        entity_id BIGINT,
+        description TEXT,
+        metadata JSONB,
+        ip_address VARCHAR(60),
+        user_agent TEXT,
+        severity VARCHAR(15) NOT NULL DEFAULT 'info',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at DESC)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs (user_id)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity_type, entity_id)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_severity ON audit_logs (severity)`)
+  })().catch((err) => {
+    auditLogsReady = null
+    throw err
+  })
+  return auditLogsReady
+}
+
+// Severity level for audit entries
+type AuditSeverity = 'info' | 'warning' | 'critical'
+
+interface AuditEntry {
+  action: string
+  entity_type?: string | null
+  entity_id?: number | string | null
+  description?: string | null
+  metadata?: Record<string, unknown> | null
+  severity?: AuditSeverity
+  // Optionnels : quand l'appelant veut forcer un acteur (login échec par ex.)
+  user_id?: number | null
+  user_email?: string | null
+  user_role?: string | null
+}
+
+/**
+ * Écrit une entrée d'audit. Ne lève JAMAIS — en cas d'échec on log en console
+ * pour ne pas bloquer la requête métier.
+ * L'acteur est extrait automatiquement du contexte (c.get('user')) si non fourni.
+ */
+async function logAudit(c: any, entry: AuditEntry): Promise<void> {
+  try {
+    await ensureAuditLogsReady()
+    const user = (c?.get?.('user') ?? null) as Record<string, any> | null
+    const userId    = entry.user_id    ?? user?.id    ?? null
+    const userEmail = entry.user_email ?? user?.email ?? null
+    const userRole  = entry.user_role  ?? user?.role  ?? null
+    // Capture IP + user-agent depuis les headers Hono
+    const ip = c?.req?.header?.('x-forwarded-for')?.split(',')[0]?.trim()
+            ?? c?.req?.header?.('x-real-ip')
+            ?? null
+    const ua = c?.req?.header?.('user-agent') ?? null
+    const entityId = entry.entity_id == null ? null : Number(entry.entity_id)
+    await pool.query(
+      `INSERT INTO audit_logs
+         (user_id, user_email, user_role, action, entity_type, entity_id,
+          description, metadata, ip_address, user_agent, severity)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        userId, userEmail, userRole,
+        entry.action,
+        entry.entity_type ?? null,
+        Number.isFinite(entityId) ? entityId : null,
+        entry.description ?? null,
+        entry.metadata ? JSON.stringify(entry.metadata) : null,
+        ip, ua,
+        entry.severity ?? 'info',
+      ]
+    )
+  } catch (err) {
+    // ne pas bloquer la requête métier si l'audit fail
+    console.error('[audit] insert failed:', err)
+  }
+}
+
+// ─── BACKUPS ───────────────────────────────────────────────────────────────
+// Journal des "snapshots" logiques : stats de la BD à un instant T.
+// Ne remplace PAS le Point-In-Time Recovery natif de Neon (7j tier gratuit) —
+// sert de journal de vérification + visibilité côté DG.
+let backupsReady: Promise<void> | null = null
+async function ensureBackupsReady(): Promise<void> {
+  if (backupsReady) return backupsReady
+  backupsReady = (async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS backup_runs (
+        id SERIAL PRIMARY KEY,
+        source VARCHAR(40) NOT NULL DEFAULT 'manual-snapshot',
+        status VARCHAR(20) NOT NULL DEFAULT 'success',
+        triggered_by_user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        triggered_by_email VARCHAR(200),
+        db_size_bytes BIGINT,
+        table_count INT,
+        total_rows BIGINT,
+        tables_stats JSONB,
+        error_message TEXT,
+        started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMP,
+        duration_ms INT
+      )
+    `)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_backup_runs_started_at ON backup_runs (started_at DESC)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_backup_runs_source ON backup_runs (source)`)
+  })().catch((err) => {
+    backupsReady = null
+    throw err
+  })
+  return backupsReady
+}
+
 // Table clôtures mensuelles
 pool.query(`CREATE TABLE IF NOT EXISTS clotures_mensuelles (
   id SERIAL PRIMARY KEY,
@@ -764,12 +986,100 @@ app.use('*', async (c, next) => {
   await next()
 })
 
+// ─── Security headers (défense en profondeur) ─────────────────────────────────
+// Note : les headers CSP stricts sont posés au niveau vercel.json pour les pages HTML.
+// Ici on protège les réponses API.
+app.use('*', async (c, next) => {
+  await next()
+  // Empêche les navigateurs d'interpréter ces réponses comme HTML
+  c.header('X-Content-Type-Options', 'nosniff')
+  // Empêche l'intégration en iframe (clickjacking)
+  c.header('X-Frame-Options', 'DENY')
+  // Force HTTPS côté navigateur (1 an + sous-domaines)
+  c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  // Limite les informations de Referrer
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
+  // Désactive les fonctionnalités navigateur non utilisées
+  c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()')
+})
+
+// ─── Rate limiter (protection brute-force sur auth) ──────────────────────────
+// Implémentation token-bucket en mémoire : par instance serverless, mais
+// suffisant car Vercel réutilise les instances chaudes et un attaquant unique
+// tombera quasi toujours sur la même instance pendant ses rafales.
+interface RateBucket { tokens: number; lastRefill: number }
+const rateBuckets = new Map<string, RateBucket>()
+const RATE_CLEANUP_THRESHOLD = 5000 // purge quand > 5000 entrées
+
+function rateLimit(opts: { capacity: number; refillPerMin: number; key: (c: any) => string }): MiddlewareHandler<Env> {
+  const refillPerMs = opts.refillPerMin / 60_000
+  return async (c, next) => {
+    const key = opts.key(c)
+    const now = Date.now()
+    let bucket = rateBuckets.get(key)
+    if (!bucket) {
+      bucket = { tokens: opts.capacity, lastRefill: now }
+      rateBuckets.set(key, bucket)
+    } else {
+      // refill linéaire
+      const elapsed = now - bucket.lastRefill
+      bucket.tokens = Math.min(opts.capacity, bucket.tokens + elapsed * refillPerMs)
+      bucket.lastRefill = now
+    }
+    if (bucket.tokens < 1) {
+      const retryAfterSec = Math.ceil((1 - bucket.tokens) / refillPerMs / 1000)
+      c.header('Retry-After', String(retryAfterSec))
+      c.header('X-RateLimit-Limit', String(opts.capacity))
+      c.header('X-RateLimit-Remaining', '0')
+      return c.json({ message: `Trop de requêtes. Réessayez dans ${retryAfterSec}s.` }, 429)
+    }
+    bucket.tokens -= 1
+    c.header('X-RateLimit-Limit', String(opts.capacity))
+    c.header('X-RateLimit-Remaining', String(Math.floor(bucket.tokens)))
+
+    // GC léger : purge si trop d'entrées
+    if (rateBuckets.size > RATE_CLEANUP_THRESHOLD) {
+      const cutoff = now - 15 * 60_000 // 15 min
+      for (const [k, v] of rateBuckets) {
+        if (v.lastRefill < cutoff && v.tokens >= opts.capacity) rateBuckets.delete(k)
+      }
+    }
+    await next()
+  }
+}
+
+// Key function : IP (+ email si présent dans body pour login, pour éviter qu'un
+// attaquant partageant l'IP d'une victime bloque son login).
+function ipKey(c: any): string {
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+         ?? c.req.header('x-real-ip')
+         ?? 'unknown'
+  return ip
+}
+
+// Limites :
+//  - /auth/login : 15 tentatives/min par IP (couvre les essais légitimes + erreurs de frappe, bloque brute-force)
+//  - /auth/2fa/verify : 10/min (code à 6 chiffres → 10 essais/min = pas brute-forçable avant expiration)
+//  - /auth/forgot-password + /auth/verify-otp : 5/min (évite spam de mails/SMS)
+//  - /auth/reset-password : 5/min
+//  - /auth/change-password : 10/min (déjà protégé par JWT mais redondance utile)
+app.use('/auth/login',           rateLimit({ capacity: 15, refillPerMin: 15, key: ipKey }))
+app.use('/auth/2fa/verify',      rateLimit({ capacity: 10, refillPerMin: 10, key: ipKey }))
+app.use('/auth/forgot-password', rateLimit({ capacity: 5,  refillPerMin: 5,  key: ipKey }))
+app.use('/auth/verify-otp',      rateLimit({ capacity: 5,  refillPerMin: 5,  key: ipKey }))
+app.use('/auth/reset-password',  rateLimit({ capacity: 5,  refillPerMin: 5,  key: ipKey }))
+app.use('/auth/check-email',     rateLimit({ capacity: 20, refillPerMin: 20, key: ipKey }))
+app.use('/auth/change-password', rateLimit({ capacity: 10, refillPerMin: 10, key: ipKey }))
+app.use('/auth/2fa/disable',     rateLimit({ capacity: 10, refillPerMin: 10, key: ipKey }))
+
 // ─── Middleware ───────────────────────────────────────────────────────────────
 const requireAuth: MiddlewareHandler<Env> = async (c, next) => {
   const header = c.req.header('Authorization')
   if (!header?.startsWith('Bearer ')) return c.json({ message: 'Non authentifié.' }, 401)
   try {
-    const payload = jwt.verify(header.slice(7), JWT_SECRET) as { userId: number }
+    const payload = jwt.verify(header.slice(7), JWT_SECRET) as { userId: number; pending_2fa?: boolean }
+    // Un token temporaire "pending_2fa" ne doit jamais donner accès aux endpoints normaux
+    if (payload.pending_2fa) return c.json({ message: 'Vérification 2FA requise.' }, 401)
     const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [payload.userId])
     if (!rows[0]) return c.json({ message: 'Utilisateur introuvable.' }, 401)
     if (['bloque', 'inactif', 'suspendu'].includes(rows[0].statut as string))
@@ -813,11 +1123,25 @@ app.post('/auth/login', async (c) => {
 
   const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email])
   const user = rows[0]
-  if (!user) return c.json({ message: 'Identifiants incorrects.' }, 401)
+  if (!user) {
+    logAudit(c, {
+      action: 'login_failed',
+      user_email: String(email).toLowerCase(),
+      description: `Tentative de connexion avec email inconnu : ${email}`,
+      severity: 'warning',
+    })
+    return c.json({ message: 'Identifiants incorrects.' }, 401)
+  }
 
   // Blocage temporaire : vérifier si le temps est écoulé → auto-débloquer
   if (user.bloque_jusqu_a && new Date(user.bloque_jusqu_a as string) > new Date()) {
     const reste = Math.ceil((new Date(user.bloque_jusqu_a as string).getTime() - Date.now()) / 60000)
+    logAudit(c, {
+      action: 'login_blocked',
+      user_id: user.id, user_email: user.email, user_role: user.role,
+      description: `Connexion refusée : compte bloqué temporairement (${reste}min restantes)`,
+      severity: 'warning',
+    })
     return c.json({ message: `Trop de tentatives. Réessayez dans ${reste} minute(s).`, bloque: true }, 403)
   }
   // Si le blocage est expiré, remettre à zéro automatiquement
@@ -828,11 +1152,25 @@ app.post('/auth/login', async (c) => {
     user.statut = 'actif'
   }
 
-  if (user.statut === 'bloque')
+  if (user.statut === 'bloque') {
+    logAudit(c, {
+      action: 'login_blocked',
+      user_id: user.id, user_email: user.email, user_role: user.role,
+      description: 'Connexion refusée : compte bloqué définitivement',
+      severity: 'critical',
+    })
     return c.json({ message: 'Compte bloqué. Contactez un administrateur.', bloque: true }, 403)
+  }
 
-  if (['inactif', 'suspendu'].includes(user.statut as string))
+  if (['inactif', 'suspendu'].includes(user.statut as string)) {
+    logAudit(c, {
+      action: 'login_blocked',
+      user_id: user.id, user_email: user.email, user_role: user.role,
+      description: `Connexion refusée : compte ${user.statut}`,
+      severity: 'warning',
+    })
     return c.json({ message: 'Votre compte est inactif ou suspendu.' }, 403)
+  }
 
   if (!await bcrypt.compare(password as string, user.password as string)) {
     const MAX_ATTEMPTS = 10
@@ -846,11 +1184,37 @@ app.post('/auth/login', async (c) => {
     } else {
       await pool.query('UPDATE users SET tentatives_echec=$1 WHERE id=$2', [attempts, user.id])
     }
+    logAudit(c, {
+      action: 'login_failed',
+      user_id: user.id, user_email: user.email, user_role: user.role,
+      description: `Mot de passe incorrect (tentative ${attempts}/${MAX_ATTEMPTS})`,
+      metadata: { tentatives: attempts, bloque: attempts >= MAX_ATTEMPTS },
+      severity: attempts >= MAX_ATTEMPTS ? 'critical' : 'warning',
+    })
     return c.json({ message: 'Identifiants incorrects.', tentatives_restantes: Math.max(0, MAX_ATTEMPTS - attempts) }, 401)
   }
 
-  await pool.query('UPDATE users SET tentatives_echec=0, bloque_jusqu_a=NULL, last_login_at=NOW() WHERE id=$1', [user.id])
+  await pool.query('UPDATE users SET tentatives_echec=0, bloque_jusqu_a=NULL WHERE id=$1', [user.id])
+
+  // ── 2FA (TOTP) : si activé, renvoyer un token temporaire (5 min) et demander le code ──
+  if (user.totp_enabled) {
+    const pendingToken = jwt.sign(
+      { userId: user.id, email: user.email, role: user.role, pending_2fa: true },
+      JWT_SECRET,
+      { expiresIn: '5m' }
+    )
+    return c.json({ requires_2fa: true, pending_token: pendingToken })
+  }
+
+  // ── Pas de 2FA : token complet ──
+  await pool.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id])
   const token = jwt.sign({ userId: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' })
+  logAudit(c, {
+    action: 'login_success',
+    user_id: user.id, user_email: user.email, user_role: user.role,
+    description: `Connexion réussie (${user.role})`,
+    severity: 'info',
+  })
 
   return c.json({
     token,
@@ -859,6 +1223,214 @@ app.post('/auth/login', async (c) => {
       role: user.role, photo_path: user.photo_path,
       premier_connexion: user.premier_connexion, cgu_acceptees: user.cgu_acceptees,
     },
+  })
+})
+
+// ── 2FA endpoints ────────────────────────────────────────────────────────────
+// Configure otplib: tolérance d'1 fenêtre (±30s) pour couvrir les désynchronisations d'horloge
+authenticator.options = { window: 1 }
+
+function generateBackupCodes(count = 10): string[] {
+  const codes: string[] = []
+  for (let i = 0; i < count; i++) {
+    // Format: XXXX-XXXX (8 caractères hex en 2 blocs)
+    const raw = randomBytes(4).toString('hex').toUpperCase()
+    codes.push(raw.slice(0, 4) + '-' + raw.slice(4))
+  }
+  return codes
+}
+
+function hashBackupCode(code: string): string {
+  return createHash('sha256').update(code.trim().toUpperCase()).digest('hex')
+}
+
+// Vérifie un code TOTP ou un code de secours (consomme le code de secours si utilisé)
+async function verify2FACode(userId: number, secret: string, code: string, backupCodesJson: string | null): Promise<{ ok: boolean; usedBackup: boolean }> {
+  const clean = String(code || '').replace(/\s/g, '').toUpperCase()
+  // Essaie TOTP d'abord (6 chiffres)
+  if (/^\d{6}$/.test(clean)) {
+    try {
+      if (authenticator.verify({ token: clean, secret })) {
+        return { ok: true, usedBackup: false }
+      }
+    } catch { /* fallthrough */ }
+  }
+  // Essaie backup code (format XXXX-XXXX)
+  if (backupCodesJson) {
+    try {
+      const hashes: string[] = JSON.parse(backupCodesJson)
+      const h = hashBackupCode(clean)
+      const idx = hashes.indexOf(h)
+      if (idx !== -1) {
+        // consomme le code (retire de la liste)
+        hashes.splice(idx, 1)
+        await pool.query('UPDATE users SET totp_backup_codes=$1 WHERE id=$2', [JSON.stringify(hashes), userId])
+        return { ok: true, usedBackup: true }
+      }
+    } catch { /* ignore */ }
+  }
+  return { ok: false, usedBackup: false }
+}
+
+// Étape finale du login après saisie du code 2FA
+app.post('/auth/2fa/verify', async (c) => {
+  const { pending_token, code } = await c.req.json()
+  if (!pending_token || !code) return c.json({ message: 'Champs requis.' }, 422)
+  let payload: any
+  try {
+    payload = jwt.verify(pending_token, JWT_SECRET)
+  } catch {
+    return c.json({ message: 'Session expirée. Reconnectez-vous.' }, 401)
+  }
+  if (!payload.pending_2fa) return c.json({ message: 'Token invalide.' }, 401)
+
+  const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [payload.userId])
+  const user = rows[0]
+  if (!user || !user.totp_enabled || !user.totp_secret) {
+    return c.json({ message: 'Configuration 2FA introuvable.' }, 400)
+  }
+
+  const result = await verify2FACode(user.id, user.totp_secret, code, user.totp_backup_codes)
+  if (!result.ok) {
+    logAudit(c, {
+      action: '2fa_verify_failed',
+      user_id: user.id, user_email: user.email, user_role: user.role,
+      description: 'Code 2FA invalide à la connexion',
+      severity: 'warning',
+    })
+    return c.json({ message: 'Code invalide.' }, 401)
+  }
+
+  await pool.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id])
+  const token = jwt.sign({ userId: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' })
+  logAudit(c, {
+    action: 'login_success',
+    user_id: user.id, user_email: user.email, user_role: user.role,
+    description: `Connexion 2FA réussie (${user.role})${result.usedBackup ? ' [code de secours]' : ''}`,
+    metadata: { used_backup: result.usedBackup },
+    severity: result.usedBackup ? 'warning' : 'info',
+  })
+
+  return c.json({
+    token,
+    user: {
+      id: user.id, nom: user.nom, prenom: user.prenom, email: user.email,
+      role: user.role, photo_path: user.photo_path,
+      premier_connexion: user.premier_connexion, cgu_acceptees: user.cgu_acceptees,
+    },
+    used_backup: result.usedBackup,
+  })
+})
+
+// Génère un nouveau secret TOTP (utilisateur connecté)
+app.post('/auth/2fa/setup', requireAuth, async (c) => {
+  const u = c.get('user')
+  const secret = authenticator.generateSecret()
+  const issuer = 'UPTECH Campus'
+  const label = encodeURIComponent(`${issuer}:${u.email}`)
+  const otpauthUrl = `otpauth://totp/${label}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`
+  // ⚠ on NE stocke PAS encore le secret — il sera persisté à /verify-setup
+  return c.json({ secret, otpauth_url: otpauthUrl })
+})
+
+// Vérifie le premier code et active définitivement le 2FA
+app.post('/auth/2fa/verify-setup', requireAuth, async (c) => {
+  const u = c.get('user')
+  const { secret, code } = await c.req.json()
+  if (!secret || !code) return c.json({ message: 'Champs requis.' }, 422)
+  let ok = false
+  try {
+    ok = authenticator.verify({ token: String(code).replace(/\s/g, ''), secret: String(secret) })
+  } catch { ok = false }
+  if (!ok) return c.json({ message: 'Code invalide.' }, 401)
+
+  // Génère 10 codes de secours, stocke les hashes, retourne les codes EN CLAIR au client (une fois)
+  const backupCodes = generateBackupCodes(10)
+  const hashes = backupCodes.map(hashBackupCode)
+
+  await pool.query(
+    'UPDATE users SET totp_secret=$1, totp_enabled=TRUE, totp_enabled_at=NOW(), totp_backup_codes=$2 WHERE id=$3',
+    [secret, JSON.stringify(hashes), u.id]
+  )
+  logAudit(c, {
+    action: '2fa_enable',
+    entity_type: 'users', entity_id: u.id,
+    description: `2FA activée pour ${u.email}`,
+    severity: 'critical',
+  })
+  return c.json({ success: true, backup_codes: backupCodes })
+})
+
+// Désactive le 2FA (exige le mot de passe)
+app.post('/auth/2fa/disable', requireAuth, async (c) => {
+  const u = c.get('user')
+  const { password } = await c.req.json()
+  if (!password) return c.json({ message: 'Mot de passe requis.' }, 422)
+  const { rows } = await pool.query('SELECT password FROM users WHERE id=$1', [u.id])
+  if (!rows[0]) return c.json({ message: 'Utilisateur introuvable.' }, 404)
+  const valid = await bcrypt.compare(String(password), rows[0].password as string)
+  if (!valid) {
+    logAudit(c, {
+      action: '2fa_disable_failed',
+      entity_type: 'users', entity_id: u.id,
+      description: `Tentative de désactivation 2FA avec mot de passe invalide`,
+      severity: 'warning',
+    })
+    return c.json({ message: 'Mot de passe incorrect.' }, 401)
+  }
+  await pool.query(
+    'UPDATE users SET totp_secret=NULL, totp_enabled=FALSE, totp_enabled_at=NULL, totp_backup_codes=NULL WHERE id=$1',
+    [u.id]
+  )
+  logAudit(c, {
+    action: '2fa_disable',
+    entity_type: 'users', entity_id: u.id,
+    description: `2FA désactivée pour ${u.email}`,
+    severity: 'critical',
+  })
+  return c.json({ success: true })
+})
+
+// Régénère les codes de secours (exige un code TOTP valide)
+app.post('/auth/2fa/regenerate-backup-codes', requireAuth, async (c) => {
+  const u = c.get('user')
+  const { code } = await c.req.json()
+  if (!code) return c.json({ message: 'Code requis.' }, 422)
+  const { rows } = await pool.query('SELECT totp_secret, totp_enabled, totp_backup_codes FROM users WHERE id=$1', [u.id])
+  const row = rows[0]
+  if (!row?.totp_enabled || !row?.totp_secret) return c.json({ message: '2FA non activée.' }, 400)
+  const result = await verify2FACode(u.id, row.totp_secret, code, row.totp_backup_codes)
+  if (!result.ok) return c.json({ message: 'Code invalide.' }, 401)
+  const newCodes = generateBackupCodes(10)
+  const hashes = newCodes.map(hashBackupCode)
+  await pool.query('UPDATE users SET totp_backup_codes=$1 WHERE id=$2', [JSON.stringify(hashes), u.id])
+  logAudit(c, {
+    action: '2fa_regenerate_backup_codes',
+    entity_type: 'users', entity_id: u.id,
+    description: 'Régénération des codes de secours 2FA',
+    severity: 'warning',
+  })
+  return c.json({ success: true, backup_codes: newCodes })
+})
+
+// Statut 2FA de l'utilisateur courant
+app.get('/auth/2fa/status', requireAuth, async (c) => {
+  const u = c.get('user')
+  const { rows } = await pool.query(
+    'SELECT totp_enabled, totp_enabled_at, totp_backup_codes FROM users WHERE id=$1',
+    [u.id]
+  )
+  const row = rows[0] ?? {}
+  let backupCodesRemaining = 0
+  if (row.totp_backup_codes) {
+    try {
+      backupCodesRemaining = (JSON.parse(row.totp_backup_codes) as string[]).length
+    } catch {}
+  }
+  return c.json({
+    enabled: !!row.totp_enabled,
+    enabled_at: row.totp_enabled_at ?? null,
+    backup_codes_remaining: backupCodesRemaining,
   })
 })
 
@@ -1050,18 +1622,25 @@ app.post('/auth/reset-password', async (c) => {
   }
 
   const hashed = await bcrypt.hash(nouveau, 10)
-  await pool.query(
-    'UPDATE users SET password=$1, premier_connexion=false, tentatives_echec=0, bloque_jusqu_a=NULL WHERE email=$2',
+  const { rows: updated } = await pool.query(
+    'UPDATE users SET password=$1, premier_connexion=false, tentatives_echec=0, bloque_jusqu_a=NULL WHERE email=$2 RETURNING id, role',
     [hashed, email]
   )
   // Supprimer le token utilisé
   await pool.query('DELETE FROM password_reset_tokens WHERE email=$1', [email]).catch(() => {})
+  logAudit(c, {
+    action: 'password_reset',
+    user_id: updated[0]?.id, user_email: email, user_role: updated[0]?.role,
+    description: 'Mot de passe réinitialisé via code OTP',
+    severity: 'warning',
+  })
 
   return c.json({ message: 'Mot de passe réinitialisé avec succès.' })
 })
 
 // ─── AUTH PROTECTED ───────────────────────────────────────────────────────────
 app.post('/auth/logout', requireAuth, async (c) => {
+  logAudit(c, { action: 'logout', description: 'Déconnexion utilisateur' })
   return c.json({ message: 'Déconnecté avec succès.' })
 })
 
@@ -1071,6 +1650,7 @@ app.get('/auth/me', requireAuth, async (c) => {
     id: user.id, nom: user.nom, prenom: user.prenom, email: user.email,
     role: user.role, statut: user.statut, telephone: user.telephone,
     photo_path: user.photo_path, premier_connexion: user.premier_connexion, cgu_acceptees: user.cgu_acceptees,
+    totp_enabled: !!user.totp_enabled,
   })
 })
 
@@ -1083,10 +1663,21 @@ app.post('/auth/change-password', requireAuth, async (c) => {
   const body = await c.req.json()
   const { ancien_mot_de_passe, nouveau_mot_de_passe } = body
   const { rows } = await pool.query('SELECT password FROM users WHERE id=$1', [u(c).id])
-  if (!await bcrypt.compare(ancien_mot_de_passe as string, rows[0].password as string))
+  if (!await bcrypt.compare(ancien_mot_de_passe as string, rows[0].password as string)) {
+    logAudit(c, {
+      action: 'password_change_failed',
+      description: 'Changement de mot de passe refusé : ancien MDP incorrect',
+      severity: 'warning',
+    })
     return c.json({ message: 'Ancien mot de passe incorrect.' }, 422)
+  }
   const hashed = await bcrypt.hash(nouveau_mot_de_passe as string, 10)
   await pool.query('UPDATE users SET password=$1, premier_connexion=false WHERE id=$2', [hashed, u(c).id])
+  logAudit(c, {
+    action: 'password_change',
+    description: 'Mot de passe modifié par l\'utilisateur',
+    severity: 'warning',
+  })
   return c.json({ message: 'Mot de passe modifié avec succès.' })
 })
 
@@ -1111,12 +1702,24 @@ app.post('/users', requireAuth, role('dg'), async (c) => {
     'INSERT INTO users (nom,prenom,email,password,role,telephone,statut,premier_connexion,cgu_acceptees,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,true,false,$8) RETURNING id,nom,prenom,email,role,statut,telephone',
     [body.nom, body.prenom, body.email, hashed, body.role, body.telephone || null, body.statut || 'actif', u(c).id]
   )
+  logAudit(c, {
+    action: 'user_create',
+    entity_type: 'user', entity_id: rows[0].id,
+    description: `Création utilisateur ${rows[0].prenom} ${rows[0].nom} (${rows[0].email}) rôle=${rows[0].role}`,
+    metadata: { target: rows[0] },
+    severity: 'warning',
+  })
   return c.json(rows[0], 201)
 })
 
 app.put('/users/:id', requireAuth, role('dg'), async (c) => {
   const body = await c.req.json()
   const newStatut = body.statut || 'actif'
+  // Récupérer l'état avant pour diff
+  const { rows: before } = await pool.query(
+    'SELECT id,nom,prenom,email,role,telephone,statut FROM users WHERE id=$1',
+    [c.req.param('id')]
+  )
   // Si on débloque (statut != bloque), effacer aussi bloque_jusqu_a et tentatives_echec
   // Quand l'admin met à jour un user, on efface toujours le verrou temporaire
   const { rows } = await pool.query(
@@ -1126,11 +1729,38 @@ app.put('/users/:id', requireAuth, role('dg'), async (c) => {
     [body.nom, body.prenom, body.email, body.role, body.telephone || null, newStatut, c.req.param('id')]
   )
   if (!rows[0]) return c.json({ message: 'Utilisateur introuvable.' }, 404)
+  const prev = before[0] || {}
+  const roleChanged   = prev.role !== rows[0].role
+  const statusChanged = prev.statut !== rows[0].statut
+  logAudit(c, {
+    action: roleChanged ? 'user_role_change' : (statusChanged ? 'user_status_change' : 'user_update'),
+    entity_type: 'user', entity_id: rows[0].id,
+    description: roleChanged
+      ? `Changement rôle de ${prev.role} → ${rows[0].role} pour ${rows[0].email}`
+      : (statusChanged
+          ? `Changement statut de ${prev.statut} → ${rows[0].statut} pour ${rows[0].email}`
+          : `Mise à jour utilisateur ${rows[0].email}`),
+    metadata: { before: prev, after: rows[0] },
+    severity: (roleChanged || statusChanged) ? 'critical' : 'info',
+  })
   return c.json(rows[0])
 })
 
 app.delete('/users/:id', requireAuth, role('dg'), async (c) => {
+  const { rows: before } = await pool.query(
+    'SELECT id,nom,prenom,email,role FROM users WHERE id=$1',
+    [c.req.param('id')]
+  )
   await pool.query('DELETE FROM users WHERE id=$1', [c.req.param('id')])
+  if (before[0]) {
+    logAudit(c, {
+      action: 'user_delete',
+      entity_type: 'user', entity_id: before[0].id,
+      description: `Suppression utilisateur ${before[0].prenom} ${before[0].nom} (${before[0].email})`,
+      metadata: { deleted: before[0] },
+      severity: 'critical',
+    })
+  }
   return c.body(null, 204)
 })
 
@@ -1163,7 +1793,18 @@ app.post('/users/:id/reset-password', requireAuth, role('dg'), async (c) => {
   const body = await c.req.json().catch(() => ({}))
   const mdp = body.nouveau_mot_de_passe || 'Uptech@2026'
   const hashed = await bcrypt.hash(mdp, 10)
-  await pool.query('UPDATE users SET password=$1, premier_connexion=true WHERE id=$2', [hashed, c.req.param('id')])
+  const { rows: t } = await pool.query(
+    'UPDATE users SET password=$1, premier_connexion=true WHERE id=$2 RETURNING id, email, role',
+    [hashed, c.req.param('id')]
+  )
+  if (t[0]) {
+    logAudit(c, {
+      action: 'user_reset_password',
+      entity_type: 'user', entity_id: t[0].id,
+      description: `Réinitialisation du mot de passe par admin pour ${t[0].email}`,
+      severity: 'critical',
+    })
+  }
   return c.json({ message: 'Mot de passe réinitialisé.', nouveau_mot_de_passe: mdp })
 })
 
@@ -1201,9 +1842,203 @@ app.get('/parametres', requireAuth, role('dg'), async (c) => {
 
 app.put('/parametres/:cle', requireAuth, role('dg'), async (c) => {
   const body = await c.req.json()
+  const { rows: before } = await pool.query('SELECT valeur FROM parametres_systeme WHERE cle=$1', [c.req.param('cle')])
   await pool.query('UPDATE parametres_systeme SET valeur=$1 WHERE cle=$2', [body.valeur, c.req.param('cle')])
   const { rows } = await pool.query('SELECT * FROM parametres_systeme WHERE cle=$1', [c.req.param('cle')])
+  logAudit(c, {
+    action: 'parametre_update',
+    entity_type: 'parametre',
+    description: `Paramètre système « ${c.req.param('cle')} » modifié`,
+    metadata: { cle: c.req.param('cle'), before: before[0]?.valeur, after: body.valeur },
+    severity: 'warning',
+  })
   return c.json(rows[0])
+})
+
+// ─── AUDIT LOGS ───────────────────────────────────────────────────────────────
+// Journal d'audit — accès DG uniquement
+app.get('/audit-logs', requireAuth, role('dg'), async (c) => {
+  await ensureAuditLogsReady()
+  const q = c.req.query()
+  const conditions: string[] = []
+  const params: any[] = []
+  let i = 1
+  if (q.user_id)     { conditions.push(`user_id = $${i++}`);     params.push(Number(q.user_id)) }
+  if (q.action)      { conditions.push(`action = $${i++}`);      params.push(q.action) }
+  if (q.entity_type) { conditions.push(`entity_type = $${i++}`); params.push(q.entity_type) }
+  if (q.entity_id)   { conditions.push(`entity_id = $${i++}`);   params.push(Number(q.entity_id)) }
+  if (q.severity)    { conditions.push(`severity = $${i++}`);    params.push(q.severity) }
+  if (q.date_from)   { conditions.push(`created_at >= $${i++}`); params.push(q.date_from) }
+  if (q.date_to)     { conditions.push(`created_at <= $${i++}`); params.push(q.date_to) }
+  if (q.search) {
+    conditions.push(`(description ILIKE $${i} OR user_email ILIKE $${i})`)
+    params.push(`%${q.search}%`); i++
+  }
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+  const limit  = Math.min(Number(q.limit)  || 100, 500)
+  const offset = Math.max(Number(q.offset) || 0, 0)
+  const [{ rows }, { rows: totalRows }] = await Promise.all([
+    pool.query(
+      `SELECT id, user_id, user_email, user_role, action, entity_type, entity_id,
+              description, metadata, ip_address, user_agent, severity, created_at
+         FROM audit_logs
+         ${where}
+         ORDER BY created_at DESC, id DESC
+         LIMIT ${limit} OFFSET ${offset}`,
+      params
+    ),
+    pool.query(`SELECT COUNT(*)::int AS n FROM audit_logs ${where}`, params),
+  ])
+  return c.json({ data: rows, total: totalRows[0].n, limit, offset })
+})
+
+// Valeurs distinctes pour les filtres (actions, entity_types) — DG
+app.get('/audit-logs/facets', requireAuth, role('dg'), async (c) => {
+  await ensureAuditLogsReady()
+  const [actions, entities, users] = await Promise.all([
+    pool.query(`SELECT action, COUNT(*)::int AS n FROM audit_logs GROUP BY action ORDER BY action`),
+    pool.query(`SELECT entity_type, COUNT(*)::int AS n FROM audit_logs WHERE entity_type IS NOT NULL GROUP BY entity_type ORDER BY entity_type`),
+    pool.query(`
+      SELECT DISTINCT l.user_id, l.user_email, COALESCE(u.prenom || ' ' || u.nom, l.user_email) AS name
+      FROM audit_logs l
+      LEFT JOIN users u ON u.id = l.user_id
+      WHERE l.user_id IS NOT NULL
+      ORDER BY name
+      LIMIT 200
+    `),
+  ])
+  return c.json({
+    actions:      actions.rows,
+    entity_types: entities.rows,
+    users:        users.rows,
+  })
+})
+
+// ─── BACKUPS (snapshots + visibilité) ─────────────────────────────────────────
+// Collecte des stats actuelles de la BD (taille, nb de lignes par table).
+async function collectDbStats(): Promise<{
+  db_size_bytes: number
+  table_count: number
+  total_rows: number
+  tables_stats: Array<{ table: string; rows: number; size_bytes: number }>
+}> {
+  // Taille totale de la BD
+  const sizeRes = await pool.query(`SELECT pg_database_size(current_database())::bigint AS size`)
+  const dbSize = Number(sizeRes.rows[0]?.size ?? 0)
+
+  // Stats par table user (public schema)
+  const statsRes = await pool.query(`
+    SELECT
+      c.relname AS table_name,
+      c.reltuples::bigint AS row_estimate,
+      pg_total_relation_size(c.oid)::bigint AS total_bytes
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind = 'r'
+    ORDER BY total_bytes DESC
+  `)
+
+  const tables: Array<{ table: string; rows: number; size_bytes: number }> = []
+  let totalRows = 0
+  for (const r of statsRes.rows) {
+    const rows = Number(r.row_estimate ?? 0)
+    const bytes = Number(r.total_bytes ?? 0)
+    tables.push({ table: r.table_name as string, rows, size_bytes: bytes })
+    totalRows += rows
+  }
+  return {
+    db_size_bytes: dbSize,
+    table_count: tables.length,
+    total_rows: totalRows,
+    tables_stats: tables,
+  }
+}
+
+// GET /backups — historique des snapshots
+app.get('/backups', requireAuth, role('dg'), async (c) => {
+  await ensureBackupsReady()
+  const limit = Math.min(Number(c.req.query('limit')) || 50, 200)
+  const offset = Math.max(Number(c.req.query('offset')) || 0, 0)
+  const [{ rows }, { rows: totalRows }] = await Promise.all([
+    pool.query(
+      `SELECT id, source, status, triggered_by_user_id, triggered_by_email,
+              db_size_bytes, table_count, total_rows, error_message,
+              started_at, completed_at, duration_ms
+       FROM backup_runs
+       ORDER BY started_at DESC
+       LIMIT ${limit} OFFSET ${offset}`
+    ),
+    pool.query(`SELECT COUNT(*)::int AS n FROM backup_runs`),
+  ])
+  return c.json({ data: rows, total: totalRows[0].n, limit, offset })
+})
+
+// GET /backups/:id — détails d'un snapshot (avec tables_stats)
+app.get('/backups/:id', requireAuth, role('dg'), async (c) => {
+  await ensureBackupsReady()
+  const id = Number(c.req.param('id'))
+  const { rows } = await pool.query(`SELECT * FROM backup_runs WHERE id=$1`, [id])
+  if (!rows[0]) return c.json({ message: 'Snapshot introuvable.' }, 404)
+  return c.json(rows[0])
+})
+
+// GET /backups/stats/current — stats actuelles de la BD (live, pas stockées)
+app.get('/backups/stats/current', requireAuth, role('dg'), async (c) => {
+  const stats = await collectDbStats()
+  return c.json(stats)
+})
+
+// POST /backups/snapshot — déclenche un snapshot logique (stats uniquement)
+app.post('/backups/snapshot', requireAuth, role('dg'), async (c) => {
+  await ensureBackupsReady()
+  const user = u(c) as any
+  const start = Date.now()
+
+  // Créer l'entrée en "running"
+  const { rows: inserted } = await pool.query(
+    `INSERT INTO backup_runs (source, status, triggered_by_user_id, triggered_by_email, started_at)
+     VALUES ('manual-snapshot', 'running', $1, $2, NOW())
+     RETURNING id`,
+    [user.id, user.email]
+  )
+  const runId = inserted[0].id
+
+  try {
+    const stats = await collectDbStats()
+    const duration = Date.now() - start
+    await pool.query(
+      `UPDATE backup_runs
+         SET status='success',
+             db_size_bytes=$1,
+             table_count=$2,
+             total_rows=$3,
+             tables_stats=$4,
+             completed_at=NOW(),
+             duration_ms=$5
+       WHERE id=$6`,
+      [stats.db_size_bytes, stats.table_count, stats.total_rows, JSON.stringify(stats.tables_stats), duration, runId]
+    )
+    logAudit(c, {
+      action: 'backup_snapshot',
+      entity_type: 'backup_runs', entity_id: runId,
+      description: `Snapshot de vérification BD (${stats.table_count} tables, ${stats.total_rows.toLocaleString('fr-FR')} lignes, ${(stats.db_size_bytes / 1024 / 1024).toFixed(1)} MB)`,
+      metadata: { db_size_bytes: stats.db_size_bytes, table_count: stats.table_count, total_rows: stats.total_rows },
+      severity: 'info',
+    })
+    return c.json({ id: runId, ...stats, duration_ms: duration })
+  } catch (err: any) {
+    await pool.query(
+      `UPDATE backup_runs SET status='failed', error_message=$1, completed_at=NOW(), duration_ms=$2 WHERE id=$3`,
+      [String(err?.message ?? err), Date.now() - start, runId]
+    )
+    logAudit(c, {
+      action: 'backup_snapshot_failed',
+      entity_type: 'backup_runs', entity_id: runId,
+      description: `Échec snapshot : ${err?.message ?? err}`,
+      severity: 'warning',
+    })
+    return c.json({ message: 'Échec du snapshot.', error: String(err?.message ?? err) }, 500)
+  }
 })
 
 // ─── FILIERES ─────────────────────────────────────────────────────────────────
@@ -2591,6 +3426,135 @@ app.post('/etudiants', requireAuth, role('secretariat', 'dg'), async (c) => {
   return c.json(rows[0], 201)
 })
 
+// POST /etudiants/import — import en masse depuis CSV/XLSX (parsé côté client)
+// Accepte un tableau, valide + insère ligne par ligne, retourne un rapport détaillé.
+// Pas de transaction globale : les lignes valides sont conservées, les invalides sont rapportées.
+app.post('/etudiants/import', requireAuth, role('secretariat', 'dg'), async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const rows = Array.isArray(body?.rows) ? body.rows : null
+  if (!rows) return c.json({ message: 'Payload invalide : "rows" doit être un tableau.' }, 400)
+  if (rows.length === 0) return c.json({ message: 'Aucune ligne à importer.' }, 400)
+  if (rows.length > 500) return c.json({ message: 'Maximum 500 lignes par lot. Découpez votre fichier.' }, 400)
+
+  await ensureEtudiantDemographicsColumns()
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  const inserted: Array<{ row: number; id: number; numero_etudiant: string; nom: string; prenom: string }> = []
+  const errors: Array<{ row: number; error: string; data?: any }> = []
+
+  // Pré-charger les emails existants pour éviter des collisions évidentes
+  const providedEmails = rows
+    .map((r: any, i: number) => ({ i, email: r?.email ? String(r.email).trim().toLowerCase() : '' }))
+    .filter((x: any) => x.email && emailRegex.test(x.email))
+  const existingEmailsSet = new Set<string>()
+  if (providedEmails.length > 0) {
+    const emailsArr = providedEmails.map((x: any) => x.email)
+    const { rows: exist } = await pool.query(
+      `SELECT LOWER(email) AS email FROM etudiants WHERE email IS NOT NULL AND LOWER(email) = ANY($1::text[])`,
+      [emailsArr]
+    )
+    for (const r of exist) existingEmailsSet.add(r.email)
+  }
+
+  // Détecter doublons intra-fichier
+  const fileEmails = new Map<string, number>() // email -> row index (1-based in report)
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNum = i + 1
+    const r = rows[i] || {}
+    const nom = r.nom ? String(r.nom).trim() : ''
+    const prenom = r.prenom ? String(r.prenom).trim() : ''
+    if (!nom || !prenom) {
+      errors.push({ row: rowNum, error: 'Nom et prénom obligatoires.', data: { nom, prenom } })
+      continue
+    }
+    if (nom.length > 100 || prenom.length > 100) {
+      errors.push({ row: rowNum, error: 'Nom/prénom trop long (max 100 caractères).' })
+      continue
+    }
+
+    const emailRaw = r.email ? String(r.email).trim() : ''
+    const email = emailRaw || null
+    if (email) {
+      if (!emailRegex.test(email)) {
+        errors.push({ row: rowNum, error: `Email invalide : ${email}` })
+        continue
+      }
+      const emailLower = email.toLowerCase()
+      if (existingEmailsSet.has(emailLower)) {
+        errors.push({ row: rowNum, error: `Email déjà utilisé en base : ${email}` })
+        continue
+      }
+      if (fileEmails.has(emailLower)) {
+        errors.push({ row: rowNum, error: `Email déjà présent ligne ${fileEmails.get(emailLower)} du fichier.` })
+        continue
+      }
+      fileEmails.set(emailLower, rowNum)
+    }
+
+    const telephone = r.telephone ? String(r.telephone).trim().slice(0, 30) : null
+    const dateNaiss = r.date_naissance ? String(r.date_naissance).trim() : null
+    if (dateNaiss && !/^\d{4}-\d{2}-\d{2}$/.test(dateNaiss)) {
+      errors.push({ row: rowNum, error: `Date de naissance invalide (format attendu YYYY-MM-DD) : ${dateNaiss}` })
+      continue
+    }
+    const lieuNaiss = r.lieu_naissance ? String(r.lieu_naissance).trim().slice(0, 100) : null
+    const adresse = r.adresse ? String(r.adresse).trim().slice(0, 255) : null
+    const cniNumero = r.cni_numero ? String(r.cni_numero).trim().slice(0, 50) : null
+    const nomParent = r.nom_parent ? String(r.nom_parent).trim().slice(0, 100) : null
+    const telParent = r.telephone_parent ? String(r.telephone_parent).trim().slice(0, 30) : null
+
+    const sexeRaw = r.sexe ? String(r.sexe).trim().toLowerCase() : ''
+    const sexe = ['masculin', 'feminin'].includes(sexeRaw) ? sexeRaw : null
+    if (sexeRaw && !sexe) {
+      errors.push({ row: rowNum, error: `Sexe invalide (attendu "masculin" ou "feminin") : ${sexeRaw}` })
+      continue
+    }
+
+    const handicape = r.handicape === true || r.handicape === 'true' || r.handicape === 'oui' || r.handicape === 1 || r.handicape === '1'
+    const typeHandicap = handicape && r.type_handicap ? String(r.type_handicap).trim().slice(0, 100) : null
+
+    const statutProRaw = r.statut_professionnel ? String(r.statut_professionnel).trim().toLowerCase() : ''
+    const statutPro = (STATUTS_PRO_VALIDES as readonly string[]).includes(statutProRaw) ? statutProRaw : null
+    if (statutProRaw && !statutPro) {
+      errors.push({ row: rowNum, error: `Statut professionnel invalide : ${statutProRaw}` })
+      continue
+    }
+    const employeur = (statutPro === 'salarie' || statutPro === 'independant') && r.employeur
+      ? String(r.employeur).trim().slice(0, 150)
+      : null
+
+    try {
+      const seq = await nextSeq('etudiants')
+      const numero = `UPTECH-${year()}-${pad(seq)}`
+      const { rows: ins } = await pool.query(
+        `INSERT INTO etudiants (numero_etudiant,nom,prenom,email,telephone,date_naissance,lieu_naissance,adresse,cni_numero,nom_parent,telephone_parent,sexe,handicape,type_handicap,statut_professionnel,employeur)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id, numero_etudiant, nom, prenom`,
+        [numero, nom, prenom, email, telephone, dateNaiss, lieuNaiss, adresse, cniNumero, nomParent, telParent, sexe, handicape, typeHandicap, statutPro, employeur]
+      )
+      inserted.push({ row: rowNum, id: ins[0].id, numero_etudiant: ins[0].numero_etudiant, nom, prenom })
+    } catch (err: any) {
+      errors.push({ row: rowNum, error: `Erreur DB : ${err?.message || 'insertion échouée'}` })
+    }
+  }
+
+  logAudit(c, {
+    action: 'etudiants_import',
+    entity_type: 'etudiants',
+    description: `Import CSV : ${inserted.length} inséré(s), ${errors.length} erreur(s) sur ${rows.length} ligne(s)`,
+    severity: errors.length > 0 ? 'warning' : 'info',
+    metadata: { total: rows.length, inserted: inserted.length, errors: errors.length },
+  })
+
+  return c.json({
+    total: rows.length,
+    inserted: inserted.length,
+    errors_count: errors.length,
+    inserted_rows: inserted,
+    errors,
+  })
+})
+
 app.put('/etudiants/:id', requireAuth, role('secretariat', 'dg'), async (c) => {
   const b = await c.req.json()
   const id = c.req.param('id')
@@ -3781,6 +4745,24 @@ app.get('/finance/overview', requireAuth, role('dg', 'resp_fin'), async (c) => {
   // Détail recettes FI total
   const recFiTotal = recentFiPay.rows.reduce((s: number, r: any) => s + (parseFloat(r.montant) || 0), 0)
 
+  // Exonérations validées — manque à gagner sur la période
+  let exoWhere = "statut='validee'"
+  if (mode === 'mois' && validMois) {
+    exoWhere += ` AND date_trunc('month', COALESCE(date_effet, validee_at)::timestamptz) = '${valeur}-01'::date`
+  } else if (mode === 'annee' && validAnnee) {
+    exoWhere += ` AND EXTRACT(YEAR FROM COALESCE(date_effet, validee_at)::timestamptz) = ${Number(valeur)}`
+  }
+  let exoTotal = 0
+  let exoCount = 0
+  try {
+    await ensureExonerationsReady()
+    const { rows: exoRows } = await pool.query(
+      `SELECT COALESCE(SUM(montant_applique), 0)::float AS total, COUNT(*)::int AS nb FROM exonerations WHERE ${exoWhere}`
+    )
+    exoTotal = Number(exoRows[0]?.total || 0)
+    exoCount = Number(exoRows[0]?.nb || 0)
+  } catch { /* table peut être absente */ }
+
   return c.json({
     kpis: {
       recettes_total: r.recettes_total,
@@ -3790,6 +4772,8 @@ app.get('/finance/overview', requireAuth, role('dg', 'resp_fin'), async (c) => {
       recettes_mois: moisKpi[0]?.recettes_mois || 0,
       depenses_mois: moisKpi[0]?.depenses_mois || 0,
       recettes_fi: recFiTotal,
+      exonerations_total: exoTotal,
+      exonerations_count: exoCount,
     },
     monthly: monthly.rows,
     categories: cats.rows,
@@ -3925,11 +4909,28 @@ app.post('/clotures', requireAuth, role('dg'), async (c) => {
     LEFT JOIN users u ON u.id = c.cloture_par
     WHERE c.id = $1
   `, [rows[0].id])
+  logAudit(c, {
+    action: 'cloture_mensuelle',
+    entity_type: 'cloture', entity_id: rows[0].id,
+    description: `Clôture mensuelle période ${b.periode}`,
+    metadata: { periode: b.periode, notes: b.notes },
+    severity: 'critical',
+  })
   return c.json(withUser[0], 201)
 })
 
 app.delete('/clotures/:id', requireAuth, role('dg'), async (c) => {
+  const { rows: before } = await pool.query('SELECT periode FROM clotures_mensuelles WHERE id=$1', [c.req.param('id')])
   await pool.query('DELETE FROM clotures_mensuelles WHERE id=$1', [c.req.param('id')])
+  if (before[0]) {
+    logAudit(c, {
+      action: 'cloture_reopen',
+      entity_type: 'cloture', entity_id: Number(c.req.param('id')),
+      description: `Réouverture de la période clôturée ${before[0].periode}`,
+      metadata: { periode: before[0].periode },
+      severity: 'critical',
+    })
+  }
   return c.json({ ok: true })
 })
 
@@ -4653,9 +5654,9 @@ app.get('/paiements/:id', requireAuth, async (c) => {
 // mensualité N surplus → mensualité N+1 → ...
 async function recalculerEcheances(inscriptionId: number) {
   try {
-    // 1. Frais d'inscription
+    // 1. Frais d'inscription (net = montant - montant_exonere)
     const { rows: fiEch } = await pool.query(
-      `SELECT id, montant FROM echeances WHERE inscription_id=$1 AND type_echeance='frais_inscription' LIMIT 1`,
+      `SELECT id, montant, COALESCE(montant_exonere, 0) as montant_exonere FROM echeances WHERE inscription_id=$1 AND type_echeance='frais_inscription' LIMIT 1`,
       [inscriptionId]
     )
     const { rows: fiPaid } = await pool.query(
@@ -4666,15 +5667,15 @@ async function recalculerEcheances(inscriptionId: number) {
     let surplus = 0
     if (fiEch[0]) {
       const totalFI = Number(fiPaid[0].total)
-      const montantFI = Number(fiEch[0].montant)
-      const statutFI = totalFI >= montantFI ? 'paye' : totalFI > 0 ? 'partiellement_paye' : 'non_paye'
+      const montantFI = Math.max(0, Number(fiEch[0].montant) - Number(fiEch[0].montant_exonere || 0))
+      const statutFI = montantFI <= 0 ? 'paye' : totalFI >= montantFI ? 'paye' : totalFI > 0 ? 'partiellement_paye' : 'non_paye'
       await pool.query(`UPDATE echeances SET statut=$1 WHERE id=$2`, [statutFI, fiEch[0].id])
       surplus = Math.max(0, totalFI - montantFI)
     }
 
-    // 2. Tenue
+    // 2. Tenue (net = montant - montant_exonere)
     const { rows: tenueEchs } = await pool.query(
-      `SELECT id, montant FROM echeances WHERE inscription_id=$1 AND type_echeance='tenue'`,
+      `SELECT id, montant, COALESCE(montant_exonere, 0) as montant_exonere FROM echeances WHERE inscription_id=$1 AND type_echeance='tenue'`,
       [inscriptionId]
     )
     for (const ech of tenueEchs) {
@@ -4684,15 +5685,15 @@ async function recalculerEcheances(inscriptionId: number) {
         [inscriptionId]
       )
       const totalTenue = Number(tenuePaid[0].total)
-      const montantTenue = Number(ech.montant)
-      const statutTenue = totalTenue >= montantTenue ? 'paye' : totalTenue > 0 ? 'partiellement_paye' : 'non_paye'
+      const montantTenue = Math.max(0, Number(ech.montant) - Number(ech.montant_exonere || 0))
+      const statutTenue = montantTenue <= 0 ? 'paye' : totalTenue >= montantTenue ? 'paye' : totalTenue > 0 ? 'partiellement_paye' : 'non_paye'
       await pool.query(`UPDATE echeances SET statut=$1 WHERE id=$2`, [statutTenue, ech.id])
     }
 
     // 3. Mensualités : cumul positionnel — total des paiements distribué de M1 vers M_n
-    //    (M1 = première mensualité couverte, peu importe la date ou mois_concerne)
+    //    Le montant exonéré par échéance réduit le montant net à couvrir.
     const { rows: mensEchs } = await pool.query(
-      `SELECT id, montant, mois FROM echeances
+      `SELECT id, montant, mois, COALESCE(montant_exonere, 0) as montant_exonere FROM echeances
        WHERE inscription_id=$1 AND type_echeance='mensualite'
        ORDER BY mois ASC`,
       [inscriptionId]
@@ -4705,8 +5706,8 @@ async function recalculerEcheances(inscriptionId: number) {
     )
     let remaining = Number(mensSum[0].total) + surplus
     for (const ech of mensEchs) {
-      const montant = Number(ech.montant)
-      const statut = remaining >= montant ? 'paye' : remaining > 0 ? 'partiellement_paye' : 'non_paye'
+      const montant = Math.max(0, Number(ech.montant) - Number(ech.montant_exonere || 0))
+      const statut = montant <= 0 ? 'paye' : remaining >= montant ? 'paye' : remaining > 0 ? 'partiellement_paye' : 'non_paye'
       await pool.query(`UPDATE echeances SET statut=$1 WHERE id=$2`, [statut, ech.id])
       remaining = Math.max(0, remaining - montant)
     }
@@ -4765,6 +5766,13 @@ app.post('/paiements', requireAuth, role('secretariat', 'dg', 'resp_fin'), async
       }
     } catch { /* silencieux */ }
   }
+  logAudit(c, {
+    action: 'paiement_create',
+    entity_type: 'paiement', entity_id: rows[0].id,
+    description: `Paiement ${numero} — ${Math.round(rows[0].montant)} FCFA (${rows[0].type_paiement}, ${rows[0].mode_paiement}) ${isConfirmed ? 'confirmé' : 'en attente'}`,
+    metadata: { paiement: rows[0] },
+    severity: 'info',
+  })
   return c.json(rows[0], 201)
 })
 
@@ -4774,6 +5782,7 @@ app.put('/paiements/:id', requireAuth, role('dg', 'resp_fin'), async (c) => {
     ? (String(b.mois_concerne).length === 7 ? b.mois_concerne + '-01' : b.mois_concerne)
     : null
   const confirmedAt = b.confirmed_at ? new Date(b.confirmed_at).toISOString() : null
+  const { rows: before } = await pool.query('SELECT * FROM paiements WHERE id=$1', [c.req.param('id')])
   const { rows } = await pool.query(
     `UPDATE paiements
      SET montant=$1, type_paiement=$2, mois_concerne=$3, mode_paiement=$4, reference=$5, observation=$6,
@@ -4783,6 +5792,15 @@ app.put('/paiements/:id', requireAuth, role('dg', 'resp_fin'), async (c) => {
     [b.montant, b.type_paiement, moisConcerne, b.mode_paiement, b.reference || null, b.observation || null, c.req.param('id'), confirmedAt]
   )
   if (rows[0]?.inscription_id) await recalculerEcheances(rows[0].inscription_id)
+  if (rows[0]) {
+    logAudit(c, {
+      action: 'paiement_update',
+      entity_type: 'paiement', entity_id: rows[0].id,
+      description: `Paiement ${rows[0].numero_recu} modifié — ${Math.round(rows[0].montant)} FCFA`,
+      metadata: { before: before[0], after: rows[0] },
+      severity: 'warning',
+    })
+  }
   return c.json(rows[0])
 })
 
@@ -4793,6 +5811,15 @@ app.post('/paiements/:id/confirmer', requireAuth, role('dg', 'resp_fin'), async 
   )
   if (rows[0] && rows[0].inscription_id) {
     await recalculerEcheances(rows[0].inscription_id)
+  }
+  if (rows[0]) {
+    logAudit(c, {
+      action: 'paiement_confirm',
+      entity_type: 'paiement', entity_id: rows[0].id,
+      description: `Paiement ${rows[0].numero_recu} confirmé — ${Math.round(rows[0].montant)} FCFA`,
+      metadata: { paiement: rows[0] },
+      severity: 'info',
+    })
   }
   return c.json(rows[0])
 })
@@ -4888,18 +5915,34 @@ app.post('/paiements/:id/rejeter', requireAuth, role('dg', 'resp_fin'), async (c
     "UPDATE paiements SET statut='rejete',observation=$1 WHERE id=$2 RETURNING *",
     [b.motif || null, c.req.param('id')]
   )
+  if (rows[0]) {
+    logAudit(c, {
+      action: 'paiement_reject',
+      entity_type: 'paiement', entity_id: rows[0].id,
+      description: `Paiement ${rows[0].numero_recu} rejeté — motif: ${b.motif || '—'}`,
+      metadata: { paiement: rows[0], motif: b.motif },
+      severity: 'warning',
+    })
+  }
   return c.json(rows[0])
 })
 
 app.delete('/paiements/:id', requireAuth, role('dg'), async (c) => {
   const id = c.req.param('id')
-  // Récupérer l'inscription_id avant suppression pour recalculer les échéances
-  const { rows: pRows } = await pool.query('SELECT inscription_id FROM paiements WHERE id=$1', [id])
+  // Récupérer le paiement complet avant suppression (audit + recalcul)
+  const { rows: pRows } = await pool.query('SELECT * FROM paiements WHERE id=$1', [id])
   if (!pRows[0]) return c.json({ message: 'Paiement introuvable.' }, 404)
   const inscriptionId = pRows[0].inscription_id
   await pool.query('DELETE FROM paiements WHERE id=$1', [id])
   // Recalculer les statuts d'échéances
   if (inscriptionId) await recalculerEcheances(inscriptionId)
+  logAudit(c, {
+    action: 'paiement_delete',
+    entity_type: 'paiement', entity_id: Number(id),
+    description: `Paiement ${pRows[0].numero_recu} supprimé — ${Math.round(pRows[0].montant)} FCFA`,
+    metadata: { deleted: pRows[0] },
+    severity: 'critical',
+  })
   return c.json({ message: 'Paiement supprimé.' })
 })
 
@@ -4944,6 +5987,13 @@ app.post('/depenses', requireAuth, role('secretariat', 'dg'), async (c) => {
      VALUES ($1,$2,$3,$4,'en_attente',$5,$6,$7,$8,$9) RETURNING *`,
     [b.libelle, b.montant, b.categorie || null, b.date_depense, b.mode_paiement || 'especes', b.beneficiaire || null, b.reference_facture || null, b.notes || null, u(c).id]
   )
+  logAudit(c, {
+    action: 'depense_create',
+    entity_type: 'depense', entity_id: rows[0].id,
+    description: `Dépense créée : ${rows[0].libelle} — ${Math.round(rows[0].montant)} FCFA (${rows[0].categorie || '—'})`,
+    metadata: { depense: rows[0] },
+    severity: 'info',
+  })
   return c.json(rows[0], 201)
 })
 
@@ -4953,12 +6003,30 @@ app.post('/depenses/:id/justificatif', requireAuth, role('secretariat', 'dg'), a
 
 app.post('/depenses/:id/valider', requireAuth, role('dg'), async (c) => {
   const { rows } = await pool.query("UPDATE depenses SET statut='validee' WHERE id=$1 RETURNING *", [c.req.param('id')])
+  if (rows[0]) {
+    logAudit(c, {
+      action: 'depense_validate',
+      entity_type: 'depense', entity_id: rows[0].id,
+      description: `Dépense validée : ${rows[0].libelle} — ${Math.round(rows[0].montant)} FCFA`,
+      metadata: { depense: rows[0] },
+      severity: 'critical',
+    })
+  }
   return c.json(rows[0])
 })
 
 app.post('/depenses/:id/rejeter', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json().catch(() => ({})) as Record<string, unknown>
   const { rows } = await pool.query("UPDATE depenses SET statut='rejetee',motif_rejet=$1 WHERE id=$2 RETURNING *", [b.motif || null, c.req.param('id')])
+  if (rows[0]) {
+    logAudit(c, {
+      action: 'depense_reject',
+      entity_type: 'depense', entity_id: rows[0].id,
+      description: `Dépense rejetée : ${rows[0].libelle} — motif: ${b.motif || '—'}`,
+      metadata: { depense: rows[0], motif: b.motif },
+      severity: 'warning',
+    })
+  }
   return c.json(rows[0])
 })
 
@@ -4978,6 +6046,12 @@ app.post('/depenses/valider-masse', requireAuth, role('dg'), async (c) => {
     )
   }
   const n = result.rowCount ?? 0
+  logAudit(c, {
+    action: 'depense_validate_bulk',
+    description: `Validation en masse : ${n} dépense(s)`,
+    metadata: { nb: n, ids: ids ?? 'all_pending' },
+    severity: 'critical',
+  })
   return c.json({ validated: n, message: `${n} dépense${n !== 1 ? 's' : ''} validée${n !== 1 ? 's' : ''}.` })
 })
 
@@ -4994,6 +6068,7 @@ app.put('/depenses/:id', requireAuth, role('dg', 'resp_fin'), async (c) => {
   // Nettoyer montant (accepte espaces/virgules comme séparateurs de milliers)
   const montant = Number(String(b.montant ?? '0').replace(/[\s\u00a0]/g, '').replace(',', '.'))
   if (isNaN(montant) || montant <= 0) return c.json({ message: 'Montant invalide.' }, 422)
+  const { rows: before } = await pool.query('SELECT * FROM depenses WHERE id=$1', [id])
   await pool.query(
     `UPDATE depenses SET
       libelle=$1, montant=$2, date_depense=$3, categorie=$4,
@@ -5010,11 +6085,18 @@ app.put('/depenses/:id', requireAuth, role('dg', 'resp_fin'), async (c) => {
       id
     ]
   )
+  logAudit(c, {
+    action: 'depense_update',
+    entity_type: 'depense', entity_id: Number(id),
+    description: `Dépense modifiée : ${b.libelle} — ${Math.round(montant)} FCFA`,
+    metadata: { before: before[0], after: { ...b, montant } },
+    severity: 'warning',
+  })
   return c.json({ ok: true })
 })
 
 app.delete('/depenses/:id', requireAuth, role('dg'), async (c) => {
-  const { rows } = await pool.query("SELECT statut, date_depense FROM depenses WHERE id=$1", [c.req.param('id')])
+  const { rows } = await pool.query("SELECT * FROM depenses WHERE id=$1", [c.req.param('id')])
   if (!rows[0]) return c.json({ message: 'Introuvable.' }, 404)
   if (await isPeriodeLocked(rows[0].date_depense)) {
     const periode = String(rows[0].date_depense).slice(0, 7)
@@ -5022,7 +6104,528 @@ app.delete('/depenses/:id', requireAuth, role('dg'), async (c) => {
   }
   // Le DG peut supprimer toute dépense, même validée (avec confirmation côté frontend)
   await pool.query('DELETE FROM depenses WHERE id=$1', [c.req.param('id')])
+  logAudit(c, {
+    action: 'depense_delete',
+    entity_type: 'depense', entity_id: Number(c.req.param('id')),
+    description: `Dépense supprimée : ${rows[0].libelle} — ${Math.round(rows[0].montant)} FCFA (statut=${rows[0].statut})`,
+    metadata: { deleted: rows[0] },
+    severity: 'critical',
+  })
   return c.json({ ok: true })
+})
+
+// ─── AUTRES RECETTES ──────────────────────────────────────────────────────────
+// Revenus hors paiements étudiants : prestations, subventions, locations, ventes, etc.
+
+app.get('/autres-recettes', requireAuth, async (c) => {
+  await ensureAutresRecettesReady()
+  const q = c.req.query()
+  const conditions: string[] = []
+  const params: any[] = []
+  let idx = 1
+  if (q.statut)            { conditions.push(`r.statut=$${idx++}`);            params.push(q.statut) }
+  if (q.mode_encaissement) { conditions.push(`r.mode_encaissement=$${idx++}`); params.push(q.mode_encaissement) }
+  if (q.nature)            { conditions.push(`r.nature=$${idx++}`);             params.push(q.nature) }
+  if (q.date_from)         { conditions.push(`r.date_recette::date >= $${idx++}`); params.push(q.date_from) }
+  if (q.date_to)           { conditions.push(`r.date_recette::date <= $${idx++}`); params.push(q.date_to) }
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+  const { rows } = await pool.query(`
+    SELECT r.*,
+      jsonb_build_object('id',cu.id,'name',COALESCE(cu.prenom||' '||cu.nom, cu.email)) as created_by_user,
+      jsonb_build_object('id',vu.id,'name',COALESCE(vu.prenom||' '||vu.nom, vu.email)) as validated_by_user
+    FROM autres_recettes r
+    LEFT JOIN users cu ON r.created_by = cu.id
+    LEFT JOIN users vu ON r.validated_by = vu.id
+    ${where}
+    ORDER BY r.date_recette DESC, r.created_at DESC
+  `, params)
+  return c.json({ data: rows, total: rows.length })
+})
+
+app.get('/autres-recettes/:id', requireAuth, async (c) => {
+  await ensureAutresRecettesReady()
+  const { rows } = await pool.query('SELECT * FROM autres_recettes WHERE id=$1', [c.req.param('id')])
+  if (!rows[0]) return c.json({ message: 'Recette introuvable.' }, 404)
+  return c.json(rows[0])
+})
+
+app.post('/autres-recettes', requireAuth, role('secretariat', 'dg', 'resp_fin'), async (c) => {
+  await ensureAutresRecettesReady()
+  const b = await c.req.json()
+  if (await isPeriodeLocked(b.date_recette)) {
+    const periode = String(b.date_recette).slice(0, 7)
+    return c.json({ message: `Période ${periode} clôturée. Modification impossible.` }, 423)
+  }
+  const montant = Number(String(b.montant ?? '0').replace(/[\s\u00a0]/g, '').replace(',', '.'))
+  if (isNaN(montant) || montant <= 0) return c.json({ message: 'Montant invalide.' }, 422)
+  if (!b.libelle || !String(b.libelle).trim()) return c.json({ message: 'Libellé requis.' }, 422)
+  if (!b.date_recette) return c.json({ message: 'Date requise.' }, 422)
+  const { rows } = await pool.query(
+    `INSERT INTO autres_recettes (date_recette, libelle, client, nature, montant, mode_encaissement, reference_piece, notes, statut, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'en_attente',$9) RETURNING *`,
+    [
+      b.date_recette,
+      String(b.libelle).trim(),
+      b.client?.trim() || null,
+      b.nature?.trim() || null,
+      montant,
+      b.mode_encaissement || 'especes',
+      b.reference_piece?.trim() || null,
+      b.notes?.trim() || null,
+      u(c).id,
+    ]
+  )
+  return c.json(rows[0], 201)
+})
+
+app.put('/autres-recettes/:id', requireAuth, role('dg', 'resp_fin'), async (c) => {
+  await ensureAutresRecettesReady()
+  const id = c.req.param('id')
+  const { rows } = await pool.query('SELECT id, date_recette FROM autres_recettes WHERE id=$1', [id])
+  if (!rows[0]) return c.json({ message: 'Introuvable.' }, 404)
+  if (await isPeriodeLocked(rows[0].date_recette)) {
+    const periode = String(rows[0].date_recette).slice(0, 7)
+    return c.json({ message: `Période ${periode} clôturée. Modification impossible.` }, 423)
+  }
+  const b = await c.req.json()
+  const montant = Number(String(b.montant ?? '0').replace(/[\s\u00a0]/g, '').replace(',', '.'))
+  if (isNaN(montant) || montant <= 0) return c.json({ message: 'Montant invalide.' }, 422)
+  await pool.query(
+    `UPDATE autres_recettes SET
+      date_recette=$1, libelle=$2, client=$3, nature=$4, montant=$5,
+      mode_encaissement=$6, reference_piece=$7, notes=$8
+     WHERE id=$9`,
+    [
+      b.date_recette,
+      String(b.libelle || '').trim(),
+      b.client?.trim() || null,
+      b.nature?.trim() || null,
+      montant,
+      b.mode_encaissement || 'especes',
+      b.reference_piece?.trim() || null,
+      b.notes?.trim() || null,
+      id,
+    ]
+  )
+  return c.json({ ok: true })
+})
+
+app.post('/autres-recettes/:id/valider', requireAuth, role('dg', 'resp_fin'), async (c) => {
+  await ensureAutresRecettesReady()
+  const { rows } = await pool.query(
+    "UPDATE autres_recettes SET statut='validee', validated_at=NOW(), validated_by=$1 WHERE id=$2 RETURNING *",
+    [u(c).id, c.req.param('id')]
+  )
+  if (!rows[0]) return c.json({ message: 'Introuvable.' }, 404)
+  return c.json(rows[0])
+})
+
+app.post('/autres-recettes/:id/rejeter', requireAuth, role('dg', 'resp_fin'), async (c) => {
+  await ensureAutresRecettesReady()
+  const b = await c.req.json().catch(() => ({})) as Record<string, unknown>
+  const { rows } = await pool.query(
+    "UPDATE autres_recettes SET statut='rejetee', motif_rejet=$1 WHERE id=$2 RETURNING *",
+    [b.motif || null, c.req.param('id')]
+  )
+  if (!rows[0]) return c.json({ message: 'Introuvable.' }, 404)
+  return c.json(rows[0])
+})
+
+app.delete('/autres-recettes/:id', requireAuth, role('dg'), async (c) => {
+  await ensureAutresRecettesReady()
+  const { rows } = await pool.query('SELECT statut, date_recette FROM autres_recettes WHERE id=$1', [c.req.param('id')])
+  if (!rows[0]) return c.json({ message: 'Introuvable.' }, 404)
+  if (await isPeriodeLocked(rows[0].date_recette)) {
+    const periode = String(rows[0].date_recette).slice(0, 7)
+    return c.json({ message: `Période ${periode} clôturée. Modification impossible.` }, 423)
+  }
+  await pool.query('DELETE FROM autres_recettes WHERE id=$1', [c.req.param('id')])
+  return c.json({ ok: true })
+})
+
+// ─── EXONÉRATIONS ─────────────────────────────────────────────────────────────
+// Bourses, remises, décisions DG — permet de réduire les frais d'un étudiant
+
+// Helper: calcule le montant à exonérer et l'applique aux échéances cibles
+async function appliquerExoneration(exonerationId: number): Promise<number> {
+  const { rows: ex } = await pool.query('SELECT * FROM exonerations WHERE id=$1', [exonerationId])
+  if (!ex[0]) return 0
+  const exo = ex[0]
+  if (exo.statut !== 'validee') return 0
+
+  // Déterminer les échéances cibles selon la portée
+  const inscriptionId = exo.inscription_id
+  let whereClause = 'inscription_id=$1'
+  const params: any[] = [inscriptionId]
+  switch (exo.portee) {
+    case 'inscription':
+      whereClause += " AND type_echeance='frais_inscription'"
+      break
+    case 'tenue':
+      whereClause += " AND type_echeance='tenue'"
+      break
+    case 'mensualites_toutes':
+      whereClause += " AND type_echeance='mensualite'"
+      break
+    case 'mensualite_specifique':
+      whereClause += " AND type_echeance='mensualite' AND mois=$2"
+      params.push(exo.mois_concerne)
+      break
+    case 'totale':
+      // toutes les échéances
+      break
+    default:
+      whereClause += " AND type_echeance='mensualite'"
+  }
+  const { rows: echs } = await pool.query(
+    `SELECT id, montant, COALESCE(montant_exonere, 0) as montant_exonere FROM echeances WHERE ${whereClause} ORDER BY mois ASC, id ASC`,
+    params
+  )
+  if (!echs.length) return 0
+
+  // Purge l'ancienne application éventuelle (en cas de re-validation)
+  await pool.query('DELETE FROM exoneration_echeances WHERE exoneration_id=$1', [exonerationId])
+  // Retire l'ancien montant des échéances (on réappliquera)
+  // Note: on recalcule proprement via le champ montant_exonere global par échéance
+  // qui est la SOMME de toutes les exonérations actives sur cette échéance.
+
+  // Calcul du montant pour chaque échéance
+  let totalApplique = 0
+  for (const ech of echs) {
+    const montantBrut = Number(ech.montant)
+    const dejaExoneree = Number(ech.montant_exonere || 0)
+    const restantExonerable = Math.max(0, montantBrut - dejaExoneree)
+    if (restantExonerable <= 0) continue
+
+    let part = 0
+    if (exo.mode_calcul === 'pourcentage') {
+      part = Math.min(restantExonerable, Math.round((montantBrut * Number(exo.valeur)) / 100))
+    } else {
+      // montant_fixe : on répartit de façon globale (le montant total s'applique au premier échéancier puis déborde)
+      const remaining = Number(exo.valeur) - totalApplique
+      if (remaining <= 0) break
+      part = Math.min(restantExonerable, remaining)
+    }
+    if (part > 0) {
+      await pool.query(
+        'INSERT INTO exoneration_echeances (exoneration_id, echeance_id, montant) VALUES ($1,$2,$3)',
+        [exonerationId, ech.id, part]
+      )
+      await pool.query(
+        'UPDATE echeances SET montant_exonere = COALESCE(montant_exonere, 0) + $1 WHERE id=$2',
+        [part, ech.id]
+      )
+      totalApplique += part
+    }
+  }
+
+  await pool.query('UPDATE exonerations SET montant_applique=$1 WHERE id=$2', [totalApplique, exonerationId])
+  await recalculerEcheances(inscriptionId)
+  return totalApplique
+}
+
+// Helper: retire l'application d'une exonération (sans supprimer la ligne)
+async function retirerExoneration(exonerationId: number): Promise<void> {
+  const { rows: applied } = await pool.query(
+    'SELECT echeance_id, montant FROM exoneration_echeances WHERE exoneration_id=$1',
+    [exonerationId]
+  )
+  for (const a of applied) {
+    await pool.query(
+      'UPDATE echeances SET montant_exonere = GREATEST(0, COALESCE(montant_exonere, 0) - $1) WHERE id=$2',
+      [Number(a.montant), a.echeance_id]
+    )
+  }
+  await pool.query('DELETE FROM exoneration_echeances WHERE exoneration_id=$1', [exonerationId])
+  const { rows: ex } = await pool.query('SELECT inscription_id FROM exonerations WHERE id=$1', [exonerationId])
+  if (ex[0]?.inscription_id) await recalculerEcheances(ex[0].inscription_id)
+}
+
+app.get('/exonerations', requireAuth, async (c) => {
+  await ensureExonerationsReady()
+  const q = c.req.query()
+  const conditions: string[] = []
+  const params: any[] = []
+  let idx = 1
+  if (q.inscription_id) { conditions.push(`e.inscription_id=$${idx++}`); params.push(q.inscription_id) }
+  if (q.etudiant_id)    { conditions.push(`i.etudiant_id=$${idx++}`);    params.push(q.etudiant_id) }
+  if (q.statut)         { conditions.push(`e.statut=$${idx++}`);          params.push(q.statut) }
+  if (q.motif)          { conditions.push(`e.motif=$${idx++}`);           params.push(q.motif) }
+  if (q.annee_academique_id) { conditions.push(`i.annee_academique_id=$${idx++}`); params.push(q.annee_academique_id) }
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+  const { rows } = await pool.query(`
+    SELECT e.*,
+      et.id as etudiant_id,
+      et.matricule,
+      et.prenom || ' ' || et.nom as etudiant_nom,
+      f.nom as filiere_nom,
+      aa.libelle as annee_libelle,
+      jsonb_build_object('id', du.id, 'name', COALESCE(du.prenom||' '||du.nom, du.email)) as demande_par_user,
+      jsonb_build_object('id', vu.id, 'name', COALESCE(vu.prenom||' '||vu.nom, vu.email)) as validee_par_user
+    FROM exonerations e
+    JOIN inscriptions i ON i.id = e.inscription_id
+    JOIN etudiants et ON et.id = i.etudiant_id
+    LEFT JOIN filieres f ON f.id = i.filiere_id
+    LEFT JOIN annees_academiques aa ON aa.id = i.annee_academique_id
+    LEFT JOIN users du ON du.id = e.demande_par
+    LEFT JOIN users vu ON vu.id = e.validee_par
+    ${where}
+    ORDER BY e.created_at DESC
+  `, params)
+  return c.json({ data: rows, total: rows.length })
+})
+
+app.get('/exonerations/:id', requireAuth, async (c) => {
+  await ensureExonerationsReady()
+  const { rows } = await pool.query(`
+    SELECT e.*,
+      et.id as etudiant_id,
+      et.matricule,
+      et.prenom || ' ' || et.nom as etudiant_nom,
+      f.nom as filiere_nom,
+      aa.libelle as annee_libelle
+    FROM exonerations e
+    JOIN inscriptions i ON i.id = e.inscription_id
+    JOIN etudiants et ON et.id = i.etudiant_id
+    LEFT JOIN filieres f ON f.id = i.filiere_id
+    LEFT JOIN annees_academiques aa ON aa.id = i.annee_academique_id
+    WHERE e.id=$1
+  `, [c.req.param('id')])
+  if (!rows[0]) return c.json({ message: 'Exonération introuvable.' }, 404)
+  const { rows: lignes } = await pool.query(`
+    SELECT ee.*, ec.mois, ec.type_echeance, ec.montant as montant_echeance
+    FROM exoneration_echeances ee
+    JOIN echeances ec ON ec.id = ee.echeance_id
+    WHERE ee.exoneration_id=$1
+    ORDER BY ec.mois ASC
+  `, [c.req.param('id')])
+  return c.json({ ...rows[0], lignes })
+})
+
+app.post('/exonerations', requireAuth, role('secretariat', 'dg', 'resp_fin'), async (c) => {
+  await ensureExonerationsReady()
+  const b = await c.req.json()
+  if (!b.inscription_id) return c.json({ message: 'Inscription requise.' }, 422)
+  const valeur = Number(String(b.valeur ?? '0').replace(/[\s\u00a0]/g, '').replace(',', '.'))
+  if (isNaN(valeur) || valeur <= 0) return c.json({ message: 'Valeur invalide.' }, 422)
+  const modeCalcul = b.mode_calcul === 'montant_fixe' ? 'montant_fixe' : 'pourcentage'
+  if (modeCalcul === 'pourcentage' && (valeur > 100)) {
+    return c.json({ message: 'Un pourcentage ne peut pas dépasser 100%.' }, 422)
+  }
+  const moisConcerne = b.mois_concerne
+    ? (String(b.mois_concerne).length === 7 ? b.mois_concerne + '-01' : b.mois_concerne)
+    : null
+  const { rows } = await pool.query(
+    `INSERT INTO exonerations (
+      inscription_id, motif, portee, mois_concerne, mode_calcul, valeur,
+      libelle, piece_justificative_url, statut, date_effet, date_fin, demande_par, notes
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'en_attente',$9,$10,$11,$12) RETURNING *`,
+    [
+      b.inscription_id,
+      b.motif || 'autre',
+      b.portee || 'mensualites_toutes',
+      moisConcerne,
+      modeCalcul,
+      valeur,
+      b.libelle?.trim() || null,
+      b.piece_justificative_url?.trim() || null,
+      b.date_effet || new Date().toISOString().slice(0, 10),
+      b.date_fin || null,
+      u(c).id,
+      b.notes?.trim() || null,
+    ]
+  )
+  return c.json(rows[0], 201)
+})
+
+app.put('/exonerations/:id', requireAuth, role('dg', 'resp_fin'), async (c) => {
+  await ensureExonerationsReady()
+  const id = c.req.param('id')
+  const { rows: existing } = await pool.query('SELECT statut FROM exonerations WHERE id=$1', [id])
+  if (!existing[0]) return c.json({ message: 'Introuvable.' }, 404)
+  if (existing[0].statut === 'validee') {
+    return c.json({ message: 'Exonération déjà validée. Annulez-la d\'abord pour la modifier.' }, 422)
+  }
+  const b = await c.req.json()
+  const valeur = Number(String(b.valeur ?? '0').replace(/[\s\u00a0]/g, '').replace(',', '.'))
+  if (isNaN(valeur) || valeur <= 0) return c.json({ message: 'Valeur invalide.' }, 422)
+  const modeCalcul = b.mode_calcul === 'montant_fixe' ? 'montant_fixe' : 'pourcentage'
+  const moisConcerne = b.mois_concerne
+    ? (String(b.mois_concerne).length === 7 ? b.mois_concerne + '-01' : b.mois_concerne)
+    : null
+  await pool.query(
+    `UPDATE exonerations SET
+      motif=$1, portee=$2, mois_concerne=$3, mode_calcul=$4, valeur=$5,
+      libelle=$6, piece_justificative_url=$7, date_effet=$8, date_fin=$9, notes=$10
+     WHERE id=$11`,
+    [
+      b.motif || 'autre',
+      b.portee || 'mensualites_toutes',
+      moisConcerne,
+      modeCalcul,
+      valeur,
+      b.libelle?.trim() || null,
+      b.piece_justificative_url?.trim() || null,
+      b.date_effet || null,
+      b.date_fin || null,
+      b.notes?.trim() || null,
+      id,
+    ]
+  )
+  return c.json({ ok: true })
+})
+
+app.post('/exonerations/:id/valider', requireAuth, role('dg', 'resp_fin'), async (c) => {
+  await ensureExonerationsReady()
+  const id = c.req.param('id')
+  const { rows } = await pool.query(
+    "UPDATE exonerations SET statut='validee', validee_at=NOW(), validee_par=$1, motif_rejet=NULL WHERE id=$2 AND statut IN ('en_attente','rejetee') RETURNING *",
+    [u(c).id, id]
+  )
+  if (!rows[0]) return c.json({ message: 'Exonération introuvable ou déjà validée.' }, 404)
+  const applique = await appliquerExoneration(Number(id))
+  logAudit(c, {
+    action: 'exoneration_validate',
+    entity_type: 'exoneration', entity_id: Number(id),
+    description: `Exonération #${id} validée — ${Math.round(applique)} FCFA appliqués (motif=${rows[0].motif}, portée=${rows[0].portee})`,
+    metadata: { exoneration: rows[0], montant_applique: applique },
+    severity: 'critical',
+  })
+  return c.json({ ...rows[0], montant_applique: applique })
+})
+
+app.post('/exonerations/:id/rejeter', requireAuth, role('dg', 'resp_fin'), async (c) => {
+  await ensureExonerationsReady()
+  const b = await c.req.json().catch(() => ({})) as Record<string, unknown>
+  const { rows } = await pool.query(
+    "UPDATE exonerations SET statut='rejetee', motif_rejet=$1 WHERE id=$2 AND statut='en_attente' RETURNING *",
+    [b.motif || null, c.req.param('id')]
+  )
+  if (!rows[0]) return c.json({ message: 'Exonération introuvable ou non annulable.' }, 404)
+  logAudit(c, {
+    action: 'exoneration_reject',
+    entity_type: 'exoneration', entity_id: rows[0].id,
+    description: `Exonération #${rows[0].id} rejetée — motif: ${b.motif || '—'}`,
+    metadata: { motif_rejet: b.motif },
+    severity: 'warning',
+  })
+  return c.json(rows[0])
+})
+
+app.post('/exonerations/:id/annuler', requireAuth, role('dg'), async (c) => {
+  await ensureExonerationsReady()
+  const id = c.req.param('id')
+  const b = await c.req.json().catch(() => ({})) as Record<string, unknown>
+  const { rows: ex } = await pool.query('SELECT statut, montant_applique, motif, portee FROM exonerations WHERE id=$1', [id])
+  if (!ex[0]) return c.json({ message: 'Introuvable.' }, 404)
+  if (ex[0].statut !== 'validee') {
+    return c.json({ message: 'Seule une exonération validée peut être annulée.' }, 422)
+  }
+  await retirerExoneration(Number(id))
+  await pool.query(
+    "UPDATE exonerations SET statut='annulee', annulee_at=NOW(), annulee_par=$1, motif_annulation=$2 WHERE id=$3",
+    [u(c).id, b.motif || null, id]
+  )
+  logAudit(c, {
+    action: 'exoneration_cancel',
+    entity_type: 'exoneration', entity_id: Number(id),
+    description: `Exonération #${id} annulée — ${Math.round(ex[0].montant_applique || 0)} FCFA retirés des échéances`,
+    metadata: { motif_annulation: b.motif, before: ex[0] },
+    severity: 'critical',
+  })
+  return c.json({ ok: true })
+})
+
+app.delete('/exonerations/:id', requireAuth, role('dg'), async (c) => {
+  await ensureExonerationsReady()
+  const id = c.req.param('id')
+  const { rows } = await pool.query('SELECT * FROM exonerations WHERE id=$1', [id])
+  if (!rows[0]) return c.json({ message: 'Introuvable.' }, 404)
+  if (rows[0].statut === 'validee') {
+    await retirerExoneration(Number(id))
+  }
+  await pool.query('DELETE FROM exonerations WHERE id=$1', [id])
+  logAudit(c, {
+    action: 'exoneration_delete',
+    entity_type: 'exoneration', entity_id: Number(id),
+    description: `Exonération #${id} supprimée (statut=${rows[0].statut})`,
+    metadata: { deleted: rows[0] },
+    severity: 'critical',
+  })
+  return c.json({ ok: true })
+})
+
+// Stats agrégées exonérations — accessible DG/resp_fin pour le reporting
+app.get('/exonerations/stats/overview', requireAuth, role('dg', 'resp_fin'), async (c) => {
+  await ensureExonerationsReady()
+  const annee = c.req.query('annee')
+  const where: string[] = ["statut='validee'"]
+  const params: any[] = []
+  if (/^\d{4}$/.test(annee ?? '')) {
+    params.push(Number(annee))
+    where.push(`EXTRACT(YEAR FROM COALESCE(date_effet, validee_at)::timestamptz) = $${params.length}`)
+  }
+  const whereSql = where.join(' AND ')
+
+  const [totalQ, byMotif, byPortee, byMonth, topEtu, byFiliere] = await Promise.all([
+    pool.query(`
+      SELECT COALESCE(SUM(montant_applique), 0)::float AS total,
+             COUNT(*)::int AS nb,
+             COUNT(DISTINCT inscription_id)::int AS etudiants
+      FROM exonerations WHERE ${whereSql}
+    `, params),
+    pool.query(`
+      SELECT motif, COALESCE(SUM(montant_applique), 0)::float AS total, COUNT(*)::int AS nb
+      FROM exonerations WHERE ${whereSql}
+      GROUP BY motif ORDER BY total DESC
+    `, params),
+    pool.query(`
+      SELECT portee, COALESCE(SUM(montant_applique), 0)::float AS total, COUNT(*)::int AS nb
+      FROM exonerations WHERE ${whereSql}
+      GROUP BY portee ORDER BY total DESC
+    `, params),
+    pool.query(`
+      SELECT to_char(date_trunc('month', COALESCE(date_effet, validee_at)::timestamptz), 'YYYY-MM') AS mois,
+             COALESCE(SUM(montant_applique), 0)::float AS total,
+             COUNT(*)::int AS nb
+      FROM exonerations WHERE ${whereSql}
+      GROUP BY 1 ORDER BY 1
+    `, params),
+    pool.query(`
+      SELECT et.id,
+             et.prenom || ' ' || et.nom AS etudiant,
+             et.numero_etudiant,
+             f.nom AS filiere,
+             COALESCE(SUM(e.montant_applique), 0)::float AS total,
+             COUNT(*)::int AS nb
+      FROM exonerations e
+      JOIN inscriptions i ON i.id = e.inscription_id
+      JOIN etudiants et ON et.id = i.etudiant_id
+      LEFT JOIN filieres f ON f.id = i.filiere_id
+      WHERE ${whereSql}
+      GROUP BY et.id, et.prenom, et.nom, et.numero_etudiant, f.nom
+      ORDER BY total DESC LIMIT 10
+    `, params),
+    pool.query(`
+      SELECT f.nom AS filiere, COALESCE(SUM(e.montant_applique), 0)::float AS total, COUNT(*)::int AS nb
+      FROM exonerations e
+      JOIN inscriptions i ON i.id = e.inscription_id
+      LEFT JOIN filieres f ON f.id = i.filiere_id
+      WHERE ${whereSql}
+      GROUP BY f.nom ORDER BY total DESC
+    `, params),
+  ])
+
+  return c.json({
+    total:       totalQ.rows[0]?.total || 0,
+    nb:          totalQ.rows[0]?.nb || 0,
+    etudiants:   totalQ.rows[0]?.etudiants || 0,
+    by_motif:    byMotif.rows,
+    by_portee:   byPortee.rows,
+    by_month:    byMonth.rows,
+    top_etudiants: topEtu.rows,
+    by_filiere:  byFiliere.rows,
+  })
 })
 
 // ─── IMPORT DÉPENSES ──────────────────────────────────────────────────────────

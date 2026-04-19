@@ -40,6 +40,7 @@ interface Filiere {
   frais_inscription: number
   mensualite: number
   montant_tenue: number
+  tarif_horaire: number
   duree_mois: number | null
   matieres: FiliereMatiere[]
 }
@@ -65,6 +66,7 @@ const form = ref({
   frais_inscription: 0,
   mensualite: 0,
   montant_tenue: 0,
+  tarif_horaire: 0,
   duree_mois: null as number | null,
 })
 
@@ -83,7 +85,7 @@ function openCreate() {
   editTarget.value = null
   form.value = {
     nom: '', code: '', description: '', actif: true, type_formation_id: null,
-    frais_inscription: 0, mensualite: 0, montant_tenue: 0, duree_mois: null,
+    frais_inscription: 0, mensualite: 0, montant_tenue: 0, tarif_horaire: 0, duree_mois: null,
   }
   error.value = ''
   showForm.value = true
@@ -97,6 +99,7 @@ function openEdit(f: Filiere) {
     frais_inscription: f.frais_inscription ?? 0,
     mensualite: f.mensualite ?? 0,
     montant_tenue: f.montant_tenue ?? 0,
+    tarif_horaire: f.tarif_horaire ?? 0,
     duree_mois: f.duree_mois ?? null,
   }
   error.value = ''
@@ -131,6 +134,7 @@ async function save() {
       frais_inscription: Number(form.value.frais_inscription),
       mensualite: Number(form.value.mensualite),
       montant_tenue: Number(form.value.montant_tenue),
+      tarif_horaire: Number(form.value.tarif_horaire) || 0,
       duree_mois: form.value.duree_mois ? Number(form.value.duree_mois) : null,
     }
     if (editTarget.value) {
@@ -471,6 +475,7 @@ onMounted(load)
         { key: 'frais',   label: 'Frais inscr.' },
         { key: 'mens',    label: 'Mensualité' },
         { key: 'tenue',   label: 'Tenue' },
+        { key: 'tarif',   label: 'Tarif/h vacation' },
         { key: 'duree',   label: 'Durée' },
         { key: 'mat',     label: 'Matières' },
         { key: 'statut',  label: 'Statut' },
@@ -489,6 +494,10 @@ onMounted(load)
         <td style="font-size:12.5px;font-weight:600;color:#111;font-family:'Poppins',sans-serif;">{{ formatMontant((f as any).frais_inscription) }}</td>
         <td style="font-size:12.5px;font-weight:600;color:#111;font-family:'Poppins',sans-serif;">{{ formatMontant((f as any).mensualite) }}</td>
         <td style="font-size:12px;color:#555;font-family:'Poppins',sans-serif;">{{ (f as any).montant_tenue > 0 ? formatMontant((f as any).montant_tenue) : '—' }}</td>
+        <td style="font-size:12px;font-family:'Poppins',sans-serif;">
+          <span v-if="(f as any).tarif_horaire > 0" style="font-weight:700;color:#1d4ed8;">{{ formatMontant((f as any).tarif_horaire) }}/h</span>
+          <span v-else style="color:#94a3b8;">type global</span>
+        </td>
         <td style="font-size:12px;color:#555;font-family:'Poppins',sans-serif;">{{ (f as any).duree_mois ? (f as any).duree_mois + ' mois' : '—' }}</td>
         <td>
           <button @click="openMatieres(f as any)" class="fl-btn-matieres" title="Gérer les matières">
@@ -546,6 +555,9 @@ onMounted(load)
           </UcFormGroup>
           <UcFormGroup label="Tenue (F)">
             <input v-model.number="form.montant_tenue" type="number" min="0" step="500" placeholder="0 = pas de tenue" />
+          </UcFormGroup>
+          <UcFormGroup label="Tarif vacation (F/h)" title="Tarif horaire spécifique à cette filière. Laissez 0 pour utiliser le tarif global du type de formation.">
+            <input v-model.number="form.tarif_horaire" type="number" min="0" step="500" placeholder="0 = tarif du type de formation" />
           </UcFormGroup>
         </UcFormGrid>
         <UcFormGrid :cols="1">

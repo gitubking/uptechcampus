@@ -49,6 +49,7 @@ interface Paiement {
 interface Echeance {
   id: number; inscription_id: number; mois: string
   montant: number; type_echeance: string; statut: string
+  montant_exonere?: number | null
   mois_paye?: string | null
   date_paiement?: string | null
   etudiant: { id: number; nom: string; prenom: string; numero_etudiant: string }
@@ -585,6 +586,22 @@ async function printRecu(p: { numero_recu: string; inscription_id: number; type_
   const modeStr = ({ especes: 'Espèces', wave: 'Wave', orange_money: 'Orange Money', virement: 'Virement', cheque: 'Chèque' } as Record<string, string>)[p.mode_paiement] ?? p.mode_paiement
   const montantStr = Number(p.montant).toLocaleString('fr-FR')
 
+  // Exonération appliquée sur l'échéance concernée (si type mensualite / inscription / tenue)
+  let exoInfo: { montant: number; brut: number; net: number } | null = null
+  try {
+    const moisKey = p.mois_concerne?.substring(0, 7) ?? ''
+    const ech = echeances.value.find(e =>
+      Number(e.inscription_id) === Number(p.inscription_id) &&
+      e.type_echeance === p.type_paiement &&
+      (p.type_paiement === 'mensualite' ? e.mois.substring(0, 7) === moisKey : true)
+    )
+    if (ech && Number(ech.montant_exonere || 0) > 0) {
+      const brut = Number(ech.montant)
+      const exo = Number(ech.montant_exonere)
+      exoInfo = { montant: exo, brut, net: Math.max(0, brut - exo) }
+    }
+  } catch { /* noop */ }
+
   // QR code de vérification
   const qrData = JSON.stringify({ r: p.numero_recu, m: p.montant, d: p.confirmed_at ?? p.created_at, e: `${prenom} ${nom}` })
   let qrDataUrl = ''
@@ -614,6 +631,15 @@ async function printRecu(p: { numero_recu: string; inscription_id: number; type_
           ${moisLabel ? `<div class="info-box"><label>Période</label><span>${moisLabel}</span></div>` : ''}
           ${p.reference ? `<div class="info-box full"><label>Référence</label><span style="font-family:monospace">${p.reference}</span></div>` : ''}
         </div>
+        ${exoInfo ? `
+        <div class="exo-box">
+          <div class="exo-title">🎖️ Exonération appliquée sur cette échéance</div>
+          <div class="exo-grid">
+            <div><span>Montant brut</span><strong>${exoInfo.brut.toLocaleString('fr-FR')} FCFA</strong></div>
+            <div><span>Exonération</span><strong style="color:#047857">− ${exoInfo.montant.toLocaleString('fr-FR')} FCFA</strong></div>
+            <div><span>Net à payer</span><strong>${exoInfo.net.toLocaleString('fr-FR')} FCFA</strong></div>
+          </div>
+        </div>` : ''}
         <div class="montant-qr">
           <div class="montant-box">
             <div class="lbl">Montant payé</div>
@@ -661,6 +687,11 @@ async function printRecu(p: { numero_recu: string; inscription_id: number; type_
     .sign-box{text-align:center}
     .sign-line{border-bottom:1px solid #ccc;height:30px;margin-bottom:4px}
     .sign-box label{font-size:7px;color:#aaa;text-transform:uppercase}
+    .exo-box{background:#ecfdf5;border:1px dashed #10b981;border-radius:4px;padding:6px 10px;margin:8px 0}
+    .exo-title{font-size:8px;color:#047857;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+    .exo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:10px}
+    .exo-grid span{color:#6b7280;font-size:8px;display:block}
+    .exo-grid strong{color:#111;font-weight:700}
     .footer-bar{border-top:1px solid #ccc;color:#777;font-size:7px;text-align:center;padding:4px 16px;margin-top:10px}
     .cut-line{display:flex;align-items:center;gap:8px;margin:8px 0;color:#aaa;font-size:8px}
     .cut-line::before,.cut-line::after{content:'';flex:1;border-top:1px dashed #aaa}
@@ -679,7 +710,8 @@ async function printRecu(p: { numero_recu: string; inscription_id: number; type_
 const showCellDetail = ref(false)
 const cellDetail = ref<{
   mois: string; insc: Inscription
-  montant_prevu: number; versements_directs: number
+  montant_prevu: number; montant_exonere: number; montant_net: number
+  versements_directs: number
   surplus_applique: number; total_effectif: number; reste: number; statut: string
 } | null>(null)
 
@@ -726,8 +758,10 @@ function openCellDetail(insc: Inscription, mois: string) {
   if (!ech) { openModalForMois(insc, mois); return }
   const amounts = effectiveAmountsMap.value[Number(insc.id)]?.[mois]
   const montant_prevu = amounts?.montant ?? Number(ech.montant)
+  const montant_exonere = Number(ech.montant_exonere || 0)
+  const montant_net = Math.max(0, montant_prevu - montant_exonere)
   const total_effectif = amounts?.effectif ?? 0
-  const reste = Math.max(0, montant_prevu - total_effectif)
+  const reste = Math.max(0, montant_net - total_effectif)
 
   // Calcul du surplus entrant pour ce mois (distribution cumulative positionnelle)
   const mensEchs = echeances.value
@@ -748,7 +782,7 @@ function openCellDetail(insc: Inscription, mois: string) {
   const versements_directs = Math.max(0, total_effectif - surplus_applique)
 
   cellDetail.value = {
-    mois, insc, montant_prevu,
+    mois, insc, montant_prevu, montant_exonere, montant_net,
     versements_directs,
     surplus_applique,
     total_effectif,
@@ -2458,7 +2492,15 @@ function exportRetardsPDF() {
         <div class="bg-gray-50 rounded-xl border border-gray-100 overflow-hidden">
           <div class="px-4 py-3 flex justify-between items-center border-b border-gray-100">
             <span class="text-xs text-gray-500 font-medium">Mensualité prévue</span>
-            <span class="font-bold text-gray-800">{{ fmt(cellDetail.montant_prevu) }} FCFA</span>
+            <span class="font-bold text-gray-800" :class="cellDetail.montant_exonere > 0 ? 'line-through text-gray-400' : ''">{{ fmt(cellDetail.montant_prevu) }} FCFA</span>
+          </div>
+          <div v-if="cellDetail.montant_exonere > 0" class="px-4 py-3 flex justify-between items-center border-b border-gray-100 bg-emerald-50">
+            <span class="text-xs text-emerald-700 font-medium">🎖️ Exonération</span>
+            <span class="font-semibold text-emerald-700">− {{ fmt(cellDetail.montant_exonere) }} FCFA</span>
+          </div>
+          <div v-if="cellDetail.montant_exonere > 0" class="px-4 py-3 flex justify-between items-center border-b border-gray-100 bg-white">
+            <span class="text-xs text-gray-700 font-bold">Mensualité nette à payer</span>
+            <span class="font-bold text-gray-900">{{ fmt(cellDetail.montant_net) }} FCFA</span>
           </div>
           <div class="px-4 py-3 flex justify-between items-center border-b border-gray-100">
             <span class="text-xs text-gray-500 font-medium">Payé pour ce mois</span>
@@ -2470,7 +2512,7 @@ function exportRetardsPDF() {
           </div>
           <div class="px-4 py-3 flex justify-between items-center border-b border-gray-100 bg-white">
             <span class="text-xs font-bold text-gray-700">Total couvert</span>
-            <span class="font-bold text-gray-900">{{ fmt(cellDetail.total_effectif) }} / {{ fmt(cellDetail.montant_prevu) }} FCFA</span>
+            <span class="font-bold text-gray-900">{{ fmt(cellDetail.total_effectif) }} / {{ fmt(cellDetail.montant_net) }} FCFA</span>
           </div>
           <div class="px-4 py-3 flex justify-between items-center" :class="cellDetail.reste > 0 ? 'bg-red-50' : 'bg-green-50'">
             <span class="text-xs font-bold" :class="cellDetail.reste > 0 ? 'text-red-600' : 'text-green-600'">
@@ -2486,11 +2528,11 @@ function exportRetardsPDF() {
         <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
           <div class="h-full rounded-full transition-all"
             :class="cellDetail.statut === 'paye' ? 'bg-green-500' : cellDetail.statut === 'partiellement_paye' ? 'bg-orange-400' : 'bg-red-300'"
-            :style="{ width: cellDetail.montant_prevu > 0 ? `${Math.min(100, Math.round(cellDetail.total_effectif / cellDetail.montant_prevu * 100))}%` : '0%' }">
+            :style="{ width: cellDetail.montant_net > 0 ? `${Math.min(100, Math.round(cellDetail.total_effectif / cellDetail.montant_net * 100))}%` : '100%' }">
           </div>
         </div>
         <p class="text-xs text-center text-gray-400">
-          {{ cellDetail.montant_prevu > 0 ? Math.min(100, Math.round(cellDetail.total_effectif / cellDetail.montant_prevu * 100)) : 0 }}% couvert
+          {{ cellDetail.montant_net > 0 ? Math.min(100, Math.round(cellDetail.total_effectif / cellDetail.montant_net * 100)) : 100 }}% couvert
         </p>
 
       </div>

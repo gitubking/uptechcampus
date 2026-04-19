@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Guide Suivi Comptabilité — Uptech Campus</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:'Inter',Arial,sans-serif;background:#f8fafc;color:#1e293b;font-size:13px;line-height:1.6;}
+
+  /* ── COUVERTURE ── */
+  .cover{
+    width:100%;min-height:100vh;background:linear-gradient(145deg,#0f172a 0%,#1e3a5f 60%,#0f172a 100%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:60px 40px;text-align:center;page-break-after:always;
+  }
+  .cover-logo{width:90px;height:90px;background:#E30613;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:42px;font-weight:900;color:#fff;margin:0 auto 30px;box-shadow:0 16px 48px rgba(227,6,19,.4);}
+  .cover-school{font-size:13px;letter-spacing:.2em;color:rgba(255,255,255,.5);text-transform:uppercase;margin-bottom:8px;}
+  .cover-title{font-size:42px;font-weight:900;color:#fff;line-height:1.15;margin-bottom:14px;}
+  .cover-sub{font-size:18px;color:rgba(255,255,255,.6);margin-bottom:40px;}
+  .cover-badge{display:inline-flex;align-items:center;gap:8px;padding:10px 24px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:40px;color:rgba(255,255,255,.8);font-size:12px;}
+  .cover-date{margin-top:60px;font-size:11px;color:rgba(255,255,255,.3);}
+  .cover-chips{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:20px;}
+  .cover-chip{padding:6px 16px;background:rgba(227,6,19,.2);border:1px solid rgba(227,6,19,.4);border-radius:20px;font-size:11px;color:rgba(255,255,255,.7);}
+
+  /* ── LAYOUT ── */
+  .page{max-width:900px;margin:0 auto;padding:40px 40px;}
+  .page-break{page-break-before:always;}
+
+  /* ── TOC ── */
+  .toc{background:#fff;border-radius:16px;border:1px solid #e2e8f0;padding:36px;margin-bottom:40px;}
+  .toc-title{font-size:22px;font-weight:800;color:#0f172a;margin-bottom:24px;padding-bottom:14px;border-bottom:2px solid #E30613;}
+  .toc-item{display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px dashed #f1f5f9;}
+  .toc-num{width:32px;height:32px;background:#E30613;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0;}
+  .toc-label{font-size:14px;font-weight:600;color:#1e293b;}
+  .toc-desc{font-size:11px;color:#94a3b8;margin-top:1px;}
+  .toc-page{margin-left:auto;font-size:11px;color:#cbd5e1;font-weight:600;}
+
+  /* ── SECTION HEADERS ── */
+  .section-header{background:linear-gradient(135deg,#0f172a,#1e3a5f);border-radius:14px;padding:28px 32px;margin-bottom:28px;color:#fff;}
+  .section-num{font-size:11px;letter-spacing:.15em;color:rgba(255,255,255,.4);text-transform:uppercase;margin-bottom:6px;}
+  .section-title{font-size:26px;font-weight:800;color:#fff;line-height:1.2;}
+  .section-sub{font-size:13px;color:rgba(255,255,255,.55);margin-top:6px;}
+  .section-strip{height:4px;background:linear-gradient(90deg,#E30613,#ff6b6b,#E30613);border-radius:2px;margin-top:16px;}
+
+  /* ── STEP BOXES ── */
+  .step{display:flex;gap:20px;margin-bottom:28px;align-items:flex-start;}
+  .step-num{width:38px;height:38px;background:#E30613;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff;flex-shrink:0;box-shadow:0 4px 12px rgba(227,6,19,.3);}
+  .step-body{flex:1;}
+  .step-title{font-size:15px;font-weight:700;color:#0f172a;margin-bottom:6px;}
+  .step-desc{font-size:13px;color:#475569;line-height:1.65;}
+  .step-tip{margin-top:10px;padding:10px 14px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:0 8px 8px 0;font-size:12px;color:#92400e;}
+  .step-warning{margin-top:10px;padding:10px 14px;background:#fee2e2;border-left:3px solid #E30613;border-radius:0 8px 8px 0;font-size:12px;color:#991b1b;}
+  .step-ok{margin-top:10px;padding:10px 14px;background:#dcfce7;border-left:3px solid #16a34a;border-radius:0 8px 8px 0;font-size:12px;color:#14532d;}
+
+  /* ── MOCKUP SCREENS ── */
+  .mockup{background:#fff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;margin:20px 0;box-shadow:0 4px 24px rgba(0,0,0,.08);}
+  .mockup-bar{background:#1e293b;height:32px;display:flex;align-items:center;padding:0 14px;gap:8px;}
+  .mockup-dot{width:10px;height:10px;border-radius:50%;}
+  .mockup-url{flex:1;background:rgba(255,255,255,.08);border-radius:6px;height:18px;margin:0 20px;display:flex;align-items:center;padding:0 10px;}
+  .mockup-url-text{font-size:10px;color:rgba(255,255,255,.5);font-family:monospace;}
+  .mockup-body{padding:0;}
+
+  /* ── UI COMPONENTS ── */
+  .ui-nav{background:#0f172a;padding:14px 20px;display:flex;align-items:center;gap:16px;}
+  .ui-nav-logo{width:30px;height:30px;background:#E30613;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;color:#fff;}
+  .ui-nav-title{font-size:13px;font-weight:700;color:#fff;}
+  .ui-nav-links{display:flex;gap:20px;margin-left:30px;}
+  .ui-nav-link{font-size:11px;color:rgba(255,255,255,.5);}
+  .ui-nav-link.active{color:#fff;border-bottom:2px solid #E30613;padding-bottom:2px;}
+
+  .ui-tabs{display:flex;gap:0;border-bottom:2px solid #f1f5f9;padding:0 20px;background:#fafafa;}
+  .ui-tab{padding:12px 20px;font-size:12px;font-weight:600;color:#94a3b8;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;}
+  .ui-tab.active{color:#E30613;border-bottom-color:#E30613;}
+
+  .ui-section{padding:20px;}
+  .ui-title{font-size:15px;font-weight:700;color:#0f172a;margin-bottom:16px;}
+
+  .ui-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+  .ui-kpi{background:#f8fafc;border-radius:10px;padding:14px;text-align:center;border:1px solid #e2e8f0;}
+  .ui-kpi.green{background:#f0fdf4;border-color:#bbf7d0;}
+  .ui-kpi.red{background:#fef2f2;border-color:#fecaca;}
+  .ui-kpi.amber{background:#fffbeb;border-color:#fde68a;}
+  .ui-kpi-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;font-weight:600;margin-bottom:6px;}
+  .ui-kpi-val{font-size:20px;font-weight:800;color:#1e293b;}
+  .ui-kpi.green .ui-kpi-val{color:#15803d;}
+  .ui-kpi.red .ui-kpi-val{color:#dc2626;}
+  .ui-kpi.amber .ui-kpi-val{color:#b45309;}
+
+  .ui-progress{background:#e2e8f0;border-radius:999px;height:8px;margin-bottom:4px;}
+  .ui-progress-fill{height:100%;border-radius:999px;background:#E30613;}
+  .ui-progress-label{font-size:10px;color:#94a3b8;text-align:right;}
+
+  .ui-table{width:100%;border-collapse:collapse;font-size:11px;}
+  .ui-table th{padding:8px 12px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;font-weight:600;border-bottom:1px solid #f1f5f9;}
+  .ui-table td{padding:9px 12px;border-bottom:1px solid #f8fafc;color:#374151;}
+  .ui-table tr:hover td{background:#fafafa;}
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;}
+  .badge-green{background:#dcfce7;color:#15803d;}
+  .badge-red{background:#fee2e2;color:#dc2626;}
+  .badge-amber{background:#fef3c7;color:#b45309;}
+  .badge-blue{background:#dbeafe;color:#1d4ed8;}
+  .badge-purple{background:#ede9fe;color:#7c3aed;}
+  .badge-gray{background:#f3f4f6;color:#6b7280;}
+
+  .ui-print-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:10px;color:#6b7280;background:#fff;}
+
+  /* ── STUDENT INTERFACE ── */
+  .ui-ee-hero{background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:20px;display:flex;align-items:center;gap:16px;}
+  .ui-ee-avatar{width:52px;height:52px;background:#E30613;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff;flex-shrink:0;}
+  .ui-ee-name{font-size:17px;font-weight:700;color:#fff;}
+  .ui-ee-tags{display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;}
+  .ui-ee-tag{padding:2px 10px;border-radius:20px;font-size:10px;font-weight:600;}
+  .ui-ee-tag-red{background:rgba(227,6,19,.25);color:#fca5a5;}
+  .ui-ee-tag-gray{background:rgba(255,255,255,.1);color:rgba(255,255,255,.65);}
+
+  .ui-qa{display:flex;gap:8px;padding:14px 16px;flex-wrap:wrap;background:#f8fafc;border-bottom:1px solid #e2e8f0;}
+  .ui-qa-btn{padding:10px 16px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;font-size:11px;font-weight:600;color:#374151;display:flex;align-items:center;gap:6px;}
+  .ui-qa-btn.active{background:#E30613;border-color:#E30613;color:#fff;}
+
+  .ui-fin-dates{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 16px;display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px;}
+  .ui-fin-date-item{display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;}
+  .ui-fin-date-lbl{font-weight:600;color:#334155;}
+
+  /* ── CARTE MOCKUP ── */
+  .carte-mockup{background:#0f172a;border-radius:16px;overflow:hidden;max-width:340px;margin:20px auto;box-shadow:0 20px 60px rgba(0,0,0,.4);}
+  .carte-top{height:5px;background:linear-gradient(90deg,#E30613,#ff4444,#E30613);}
+  .carte-head{padding:14px 16px 10px;display:flex;justify-content:space-between;align-items:center;}
+  .carte-head-logo{display:flex;align-items:center;gap:8px;}
+  .carte-head-circle{width:30px;height:30px;background:#E30613;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#fff;}
+  .carte-head-text{font-size:10px;font-weight:800;color:#fff;letter-spacing:.06em;}
+  .carte-head-badge{font-size:8px;color:rgba(255,255,255,.4);border:1px solid rgba(255,255,255,.15);padding:2px 8px;border-radius:10px;}
+  .carte-body-area{padding:6px 16px 12px;display:flex;gap:12px;border-bottom:1px solid rgba(255,255,255,.06);}
+  .carte-photo{width:60px;height:72px;background:rgba(255,255,255,.1);border-radius:8px;border:1.5px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:rgba(255,255,255,.6);}
+  .carte-info{flex:1;}
+  .carte-info-name{font-size:14px;font-weight:800;color:#fff;margin-bottom:4px;}
+  .carte-info-num{font-size:9px;color:rgba(255,255,255,.4);font-family:monospace;margin-bottom:6px;}
+  .carte-info-row{font-size:9px;color:rgba(255,255,255,.55);margin-bottom:2px;}
+  .carte-info-row span{color:rgba(255,255,255,.8);font-weight:600;}
+  .carte-pay{padding:12px 16px 14px;}
+  .carte-pay-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:10px;font-weight:700;margin-bottom:10px;}
+  .carte-pay-badge.ok{background:rgba(74,222,128,.2);color:#4ade80;border:1px solid rgba(74,222,128,.3);}
+  .carte-pay-badge.nok{background:rgba(248,113,113,.2);color:#f87171;border:1px solid rgba(248,113,113,.3);}
+  .carte-pay-label{font-size:10px;color:rgba(255,255,255,.5);margin-bottom:6px;}
+  .carte-dots{display:flex;gap:4px;flex-wrap:wrap;}
+  .carte-dot{width:18px;height:18px;border-radius:4px;}
+  .carte-dot.paid{background:#4ade80;}
+  .carte-dot.late{background:#f87171;}
+  .carte-dot.future{background:rgba(255,255,255,.15);}
+  .carte-chip{width:24px;height:18px;background:rgba(255,215,0,.12);border:1px solid rgba(255,215,0,.2);border-radius:4px;margin-left:auto;margin-top:6px;}
+
+  /* ── ANNOTATION ARROWS ── */
+  .annotation-wrap{position:relative;display:inline-block;}
+  .ann{background:#fef3c7;border:1.5px solid #f59e0b;border-radius:8px;padding:6px 12px;font-size:11px;color:#92400e;font-weight:600;position:absolute;white-space:nowrap;z-index:10;}
+
+  /* ── CALLOUT BOXES ── */
+  .callout{border-radius:12px;padding:16px 20px;margin:16px 0;display:flex;gap:14px;align-items:flex-start;}
+  .callout-info{background:#eff6ff;border:1px solid #bfdbfe;}
+  .callout-warn{background:#fffbeb;border:1px solid #fde68a;}
+  .callout-success{background:#f0fdf4;border:1px solid #bbf7d0;}
+  .callout-danger{background:#fef2f2;border:1px solid #fecaca;}
+  .callout-icon{font-size:20px;flex-shrink:0;margin-top:2px;}
+  .callout-title{font-size:13px;font-weight:700;margin-bottom:4px;}
+  .callout-info .callout-title{color:#1d4ed8;}
+  .callout-warn .callout-title{color:#b45309;}
+  .callout-success .callout-title{color:#15803d;}
+  .callout-danger .callout-title{color:#991b1b;}
+  .callout-text{font-size:12px;line-height:1.65;}
+  .callout-info .callout-text{color:#1e40af;}
+  .callout-warn .callout-text{color:#92400e;}
+  .callout-success .callout-text{color:#14532d;}
+  .callout-danger .callout-text{color:#7f1d1d;}
+
+  /* ── ACCESS PATH ── */
+  .access-path{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:12px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:20px;}
+  .access-crumb{padding:4px 12px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;font-weight:600;color:#374151;}
+  .access-crumb.active{background:#E30613;border-color:#E30613;color:#fff;}
+  .access-sep{color:#94a3b8;font-size:14px;}
+
+  /* ── ROLE BADGES ── */
+  .roles{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;}
+  .role{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600;}
+  .role-admin{background:#dbeafe;color:#1d4ed8;}
+  .role-dir{background:#ede9fe;color:#7c3aed;}
+  .role-student{background:#dcfce7;color:#15803d;}
+  .role-coord{background:#fef3c7;color:#b45309;}
+
+  /* ── NUMBERED LIST ── */
+  .num-list{list-style:none;padding:0;}
+  .num-list li{display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;}
+  .num-bullet{width:24px;height:24px;background:#E30613;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;}
+  .num-text{font-size:13px;color:#374151;padding-top:3px;}
+
+  /* ── LEGEND ── */
+  .legend{display:flex;gap:20px;flex-wrap:wrap;margin:10px 0;}
+  .legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:#475569;}
+  .legend-dot{width:14px;height:14px;border-radius:3px;}
+
+  /* ── DIVIDER ── */
+  .divider{border:none;border-top:1px solid #e2e8f0;margin:32px 0;}
+
+  /* ── GRID ── */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;}
+  .card-title{font-size:13px;font-weight:700;color:#0f172a;margin-bottom:10px;}
+
+  /* ── PRINT ── */
+  @media print {
+    body{background:#fff;}
+    .cover{min-height:auto;padding:80px 60px;}
+    .page-break,.cover{page-break-after:always;}
+    .mockup{box-shadow:none;border:1px solid #ddd;}
+    .no-print{display:none;}
+  }
+  @page{margin:0;size:A4;}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     COUVERTURE
+════════════════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-logo">U</div>
+  <div class="cover-school">Uptech Campus — Dakar, Sénégal</div>
+  <div class="cover-title">Guide d'utilisation<br>Suivi de la Comptabilité</div>
+  <div class="cover-sub">Documentation complète · De A à Z</div>
+  <div class="cover-badge">📘 Manuel utilisateur officiel · Version 2025</div>
+  <div class="cover-chips">
+    <div class="cover-chip">👤 Administrateurs</div>
+    <div class="cover-chip">🎓 Étudiants</div>
+    <div class="cover-chip">💰 Comptabilité</div>
+    <div class="cover-chip">📊 Finance</div>
+  </div>
+  <div class="cover-date">Généré le 12 avril 2025 · Uptech Campus ERP</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TABLE DES MATIÈRES
+════════════════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="toc">
+    <div class="toc-title">📋 Table des matières</div>
+
+    <div class="toc-item">
+      <div class="toc-num">1</div>
+      <div><div class="toc-label">Vue d'ensemble du module comptabilité</div><div class="toc-desc">Rôles, accès et fonctionnalités disponibles</div></div>
+      <div class="toc-page">3</div>
+    </div>
+    <div class="toc-item">
+      <div class="toc-num">2</div>
+      <div><div class="toc-label">Accès et connexion à la plateforme</div><div class="toc-desc">Comment se connecter selon son profil</div></div>
+      <div class="toc-page">4</div>
+    </div>
+    <div class="toc-item">
+      <div class="toc-num">3</div>
+      <div><div class="toc-label">Interface Admin — Onglet Finance</div><div class="toc-desc">Consulter la situation financière d'un étudiant (vue complète)</div></div>
+      <div class="toc-page">5</div>
+    </div>
+    <div class="toc-item">
+      <div class="toc-num">4</div>
+      <div><div class="toc-label">Dates clés : Démarrage & Inscription</div><div class="toc-desc">Date de démarrage de la classe et date d'inscription</div></div>
+      <div class="toc-page">6</div>
+    </div>
+    <div class="toc-item">
+      <div class="toc-num">5</div>
+      <div><div class="toc-label">Les indicateurs financiers (KPIs)</div><div class="toc-desc">Total prévu, payé, reste dû, retards</div></div>
+      <div class="toc-page">7</div>
+    </div>
+    <div class="toc-item">
+      <div class="toc-num">6</div>
+      <div><div class="toc-label">L'échéancier de paiement</div><div class="toc-desc">Tableau mensuel des échéances et statuts</div></div>
+      <div class="toc-page">8</div>
+    </div>
+    <div class="toc-item">
+      <div class="toc-num">7</div>
+      <div><div class="toc-label">L'historique des paiements</div><div class="toc-desc">Tous les paiements enregistrés, reçus, modes</div></div>
+      <div class="toc-page">9</div>
+    </div>
+    <div class="toc-item">
+      <div class="toc-num">8</div>
+      <div><div class="toc-label">Interface Étudiant — Comptabilité</div><div class="toc-desc">Ce que l'étudiant voit dans son espace personnel</div></div>
+      <div class="toc-page">11</div>
+    </div>
+    <div class="toc-item">
+      <div class="toc-num">9</div>
+      <div><div class="toc-label">La Carte Étudiant Numérique</div><div class="toc-desc">Carte d'identité scolaire avec statut financier</div></div>
+      <div class="toc-page">13</div>
+    </div>
+    <div class="toc-item">
+      <div class="toc-num">10</div>
+      <div><div class="toc-label">Codes couleurs & Glossaire</div><div class="toc-desc">Légendes et définitions des termes utilisés</div></div>
+      <div class="toc-page">15</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     1. VUE D'ENSEMBLE
+════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">Chapitre 1</div>
+    <div class="section-title">Vue d'ensemble du module comptabilité</div>
+    <div class="section-sub">Comprendre qui fait quoi et comment le module est structuré</div>
+    <div class="section-strip"></div>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-icon">ℹ️</div>
+    <div>
+      <div class="callout-title">À quoi sert ce module ?</div>
+      <div class="callout-text">Le module de suivi comptable permet de gérer et visualiser en temps réel la situation financière de chaque étudiant : frais d'inscription, mensualités, retards, historique des paiements et projection. Il existe deux interfaces distinctes : une pour l'administration et une pour l'étudiant lui-même.</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">🏛️ Interface Administration</div>
+      <ul class="num-list">
+        <li><div class="num-bullet">1</div><div class="num-text">Consulter la fiche financière complète de tout étudiant</div></li>
+        <li><div class="num-bullet">2</div><div class="num-text">Voir l'échéancier mensuel et les retards</div></li>
+        <li><div class="num-bullet">3</div><div class="num-text">Accéder à l'historique détaillé des paiements</div></li>
+        <li><div class="num-bullet">4</div><div class="num-text">Imprimer les reçus de paiement</div></li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">🎓 Interface Étudiant</div>
+      <ul class="num-list">
+        <li><div class="num-bullet">1</div><div class="num-text">Voir sa propre situation financière en temps réel</div></li>
+        <li><div class="num-bullet">2</div><div class="num-text">Consulter son échéancier et ses mensualités</div></li>
+        <li><div class="num-bullet">3</div><div class="num-text">Accéder à sa carte étudiant numérique</div></li>
+        <li><div class="num-bullet">4</div><div class="num-text">Vérifier ses paiements sans pouvoir les modifier</div></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card-title" style="margin-bottom:10px;">👥 Profils et droits d'accès</div>
+  <table class="ui-table" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+    <thead><tr><th>Profil</th><th>Accès Finance Admin</th><th>Accès Espace Étudiant</th><th>Imprimer reçu</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge badge-blue">DG / Directeur</span></td><td>✅ Complet</td><td>❌</td><td>✅</td></tr>
+      <tr><td><span class="badge badge-purple">Dir. Pédagogique</span></td><td>✅ Complet</td><td>❌</td><td>✅</td></tr>
+      <tr><td><span class="badge badge-amber">Coordinateur</span></td><td>✅ Complet</td><td>❌</td><td>✅</td></tr>
+      <tr><td><span class="badge badge-gray">Secrétariat</span></td><td>✅ Lecture</td><td>❌</td><td>✅</td></tr>
+      <tr><td><span class="badge badge-green">Étudiant</span></td><td>❌</td><td>✅ Son propre compte</td><td>❌</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     2. CONNEXION
+════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">Chapitre 2</div>
+    <div class="section-title">Accès et connexion à la plateforme</div>
+    <div class="section-sub">Comment se connecter selon son profil utilisateur</div>
+    <div class="section-strip"></div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <div class="step-title">Ouvrir l'application</div>
+      <div class="step-desc">Dans votre navigateur (Chrome recommandé), accédez à l'URL de la plateforme Uptech Campus.</div>
+    </div>
+  </div>
+
+  <!-- MOCKUP LOGIN -->
+  <div class="mockup">
+    <div class="mockup-bar">
+      <div class="mockup-dot" style="background:#ff5f57;"></div>
+      <div class="mockup-dot" style="background:#febc2e;"></div>
+      <div class="mockup-dot" style="background:#28c840;"></div>
+      <div class="mockup-url"><span class="mockup-url-text">https://uptechcampus.vercel.app/login</span></div>
+    </div>
+    <div class="mockup-body" style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:50px 20px;display:flex;justify-content:center;">
+      <div style="background:#fff;border-radius:16px;padding:36px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+        <div style="text-align:center;margin-bottom:24px;">
+          <div style="width:52px;height:52px;background:#E30613;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:#fff;margin:0 auto 12px;">U</div>
+          <div style="font-size:18px;font-weight:800;color:#0f172a;">Connexion</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:3px;">Uptech Campus · Plateforme de gestion</div>
+        </div>
+        <div style="margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:5px;">Adresse email</div>
+          <div style="border:1.5px solid #E30613;border-radius:8px;padding:10px 14px;font-size:12px;color:#374151;background:#fff;">admin@uptech.sn</div>
+        </div>
+        <div style="margin-bottom:20px;">
+          <div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:5px;">Mot de passe</div>
+          <div style="border:1.5px solid #e2e8f0;border-radius:8px;padding:10px 14px;font-size:12px;color:#94a3b8;">••••••••</div>
+        </div>
+        <div style="background:#E30613;border-radius:8px;padding:12px;text-align:center;font-size:13px;font-weight:700;color:#fff;">Se connecter</div>
+      </div>
+    </div>
+    <!-- Annotations -->
+    <div style="background:#fffbeb;border-top:1px solid #fde68a;padding:12px 20px;display:flex;gap:20px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#92400e;"><span style="font-weight:700;">①</span> Email selon votre profil (admin, enseignant, étudiant)</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#92400e;"><span style="font-weight:700;">②</span> Mot de passe fourni par l'administration</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#92400e;"><span style="font-weight:700;">③</span> Cliquer "Se connecter" pour accéder au tableau de bord</div>
+    </div>
+  </div>
+
+  <div class="step" style="margin-top:24px;">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <div class="step-title">Profil Administrateur → Tableau de bord général</div>
+      <div class="step-desc">Après connexion, l'admin arrive sur le tableau de bord. Le menu latéral donne accès à toutes les sections. Pour la comptabilité, naviguer via <strong>Étudiants</strong> puis ouvrir la fiche d'un étudiant.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-body">
+      <div class="step-title">Profil Étudiant → Espace personnel direct</div>
+      <div class="step-desc">L'étudiant arrive directement sur son espace personnel. La section <strong>Comptabilité</strong> est accessible via les boutons d'action rapide ou la navigation mobile.</div>
+      <div class="step-ok">✅ L'étudiant ne voit que ses propres données. Aucune modification n'est possible depuis son compte.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     3. INTERFACE ADMIN — ONGLET FINANCE
+════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">Chapitre 3</div>
+    <div class="section-title">Interface Admin — Onglet Finance</div>
+    <div class="section-sub">Accéder à la situation financière complète d'un étudiant depuis l'administration</div>
+    <div class="section-strip"></div>
+  </div>
+
+  <div class="access-path">
+    <div class="access-crumb">📋 Menu principal</div>
+    <div class="access-sep">›</div>
+    <div class="access-crumb">👥 Étudiants</div>
+    <div class="access-sep">›</div>
+    <div class="access-crumb">🔍 Cliquer sur un étudiant</div>
+    <div class="access-sep">›</div>
+    <div class="access-crumb active">💰 Onglet Finance</div>
+  </div>
+
+  <!-- MOCKUP COMPLET ADMIN FINANCE -->
+  <div class="mockup">
+    <div class="mockup-bar">
+      <div class="mockup-dot" style="background:#ff5f57;"></div>
+      <div class="mockup-dot" style="background:#febc2e;"></div>
+      <div class="mockup-dot" style="background:#28c840;"></div>
+      <div class="mockup-url"><span class="mockup-url-text">https://uptechcampus.vercel.app/etudiants/42</span></div>
+    </div>
+
+    <!-- Nav top -->
+    <div class="ui-nav">
+      <div class="ui-nav-logo">U</div>
+      <div class="ui-nav-title">Uptech Campus</div>
+      <div class="ui-nav-links">
+        <div class="ui-nav-link">Tableau de bord</div>
+        <div class="ui-nav-link">Étudiants</div>
+        <div class="ui-nav-link">Classes</div>
+        <div class="ui-nav-link">Finance</div>
+      </div>
+    </div>
+
+    <!-- Étudiant header -->
+    <div style="padding:18px 20px;background:#fafafa;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:16px;">
+      <div style="width:56px;height:56px;background:#E30613;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#fff;">AM</div>
+      <div>
+        <div style="font-size:18px;font-weight:800;color:#0f172a;">Aminata MBAYE</div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px;">UPTECH-2024-0042 · L3 Informatique · 2024/2025</div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;">
+        <div class="badge badge-green">Inscrit(e) actif</div>
+        <button class="ui-print-btn">🖨 Carte</button>
+      </div>
+    </div>
+
+    <!-- Onglets -->
+    <div class="ui-tabs">
+      <div class="ui-tab">Profil</div>
+      <div class="ui-tab">Scolarité</div>
+      <div class="ui-tab">Notes</div>
+      <div class="ui-tab active">💰 Finance</div>
+      <div class="ui-tab">Documents</div>
+      <div class="ui-tab">Timeline</div>
+    </div>
+
+    <div class="ui-section">
+      <!-- Inscription header -->
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:18px;margin-bottom:14px;">
+        <div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:12px;">
+          Licence 3 — Informatique
+          <span style="font-size:11px;font-weight:400;color:#94a3b8;margin-left:8px;">2024/2025</span>
+        </div>
+
+        <!-- DATES CLÉS — ① -->
+        <div style="display:flex;gap:24px;margin-bottom:16px;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;">
+            <span>📅</span>
+            <span style="font-weight:600;color:#334155;">Début des cours :</span>
+            <span>02 octobre 2024</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;">
+            <span>📋</span>
+            <span style="font-weight:600;color:#334155;">Date d'inscription :</span>
+            <span>15 septembre 2024</span>
+          </div>
+        </div>
+
+        <!-- KPIs — ② -->
+        <div class="ui-kpis">
+          <div class="ui-kpi">
+            <div class="ui-kpi-lbl">Total prévu</div>
+            <div class="ui-kpi-val">1 250 000</div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:3px;">FCFA</div>
+          </div>
+          <div class="ui-kpi green">
+            <div class="ui-kpi-lbl">Total payé</div>
+            <div class="ui-kpi-val">750 000</div>
+            <div style="font-size:10px;color:#16a34a;margin-top:3px;">FCFA</div>
+          </div>
+          <div class="ui-kpi red">
+            <div class="ui-kpi-lbl">Reste dû</div>
+            <div class="ui-kpi-val">500 000</div>
+            <div style="font-size:10px;color:#dc2626;margin-top:3px;">FCFA</div>
+          </div>
+          <div class="ui-kpi amber">
+            <div class="ui-kpi-lbl">Retards</div>
+            <div class="ui-kpi-val">2</div>
+            <div style="font-size:10px;color:#b45309;margin-top:3px;">mois</div>
+          </div>
+        </div>
+
+        <!-- Barre progression — ③ -->
+        <div class="ui-progress"><div class="ui-progress-fill" style="width:60%;background:#E30613;"></div></div>
+        <div class="ui-progress-label">60% payé</div>
+      </div>
+    </div>
+    <!-- Annotation bar -->
+    <div style="background:#eff6ff;border-top:1px solid #bfdbfe;padding:10px 20px;font-size:11px;color:#1d4ed8;display:flex;gap:20px;flex-wrap:wrap;">
+      <span><strong>①</strong> Dates clés affichées en haut de chaque inscription</span>
+      <span><strong>②</strong> 4 indicateurs financiers clés</span>
+      <span><strong>③</strong> Barre de progression rouge → soldé = vert</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     4. DATES CLÉS
+════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">Chapitre 4</div>
+    <div class="section-title">Dates clés : Démarrage & Inscription</div>
+    <div class="section-sub">Les deux dates importantes affichées en haut de chaque fiche financière</div>
+    <div class="section-strip"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">📅 Date de démarrage de la classe</div>
+      <p style="font-size:12px;color:#475569;line-height:1.7;">
+        C'est la date à laquelle les cours ont officiellement démarré pour la classe de l'étudiant. Elle est configurée dans la fiche de la classe (Menu → Classes → Modifier → Champ "Début des cours").
+      </p>
+      <div class="callout callout-info" style="margin-top:12px;">
+        <div class="callout-icon" style="font-size:15px;">ℹ️</div>
+        <div class="callout-text" style="font-size:11px;">Si ce champ est vide, "—" est affiché. Vérifier la configuration de la classe.</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">📋 Date d'inscription de l'étudiant</div>
+      <p style="font-size:12px;color:#475569;line-height:1.7;">
+        C'est la date à laquelle le dossier d'inscription de l'étudiant a été créé dans le système. Elle est automatique et correspond au moment de la saisie.
+      </p>
+      <div class="callout callout-success" style="margin-top:12px;">
+        <div class="callout-icon" style="font-size:15px;">✅</div>
+        <div class="callout-text" style="font-size:11px;">Cette date est automatique — elle ne peut pas être modifiée manuellement.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mockup dates -->
+  <div class="mockup">
+    <div style="padding:16px 20px;">
+      <div style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Zone des dates — Zoom</div>
+      <div style="border:2px dashed #E30613;border-radius:10px;padding:14px 18px;background:#fef2f2;display:flex;gap:32px;flex-wrap:wrap;position:relative;">
+        <div style="position:absolute;top:-11px;left:16px;background:#E30613;color:#fff;font-size:10px;font-weight:700;padding:1px 10px;border-radius:10px;">Zone surlignée</div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#334155;">
+          <span style="font-size:18px;">📅</span>
+          <span style="font-weight:600;">Début des cours :</span>
+          <span style="color:#0f172a;font-weight:700;">02 octobre 2024</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#334155;">
+          <span style="font-size:18px;">📋</span>
+          <span style="font-weight:600;">Date d'inscription :</span>
+          <span style="color:#0f172a;font-weight:700;">15 septembre 2024</span>
+        </div>
+      </div>
+    </div>
+    <div style="background:#fffbeb;border-top:1px solid #fde68a;padding:10px 20px;font-size:11px;color:#92400e;">
+      💡 Ces deux dates permettent de vérifier si l'étudiant était inscrit avant le démarrage des cours — important pour les frais d'inscription.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     5. LES KPIs FINANCIERS
+════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">Chapitre 5</div>
+    <div class="section-title">Les indicateurs financiers (KPIs)</div>
+    <div class="section-sub">4 métriques clés pour évaluer la situation financière en un coup d'œil</div>
+    <div class="section-strip"></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;border-left:4px solid #64748b;">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:#94a3b8;font-weight:600;margin-bottom:8px;">① TOTAL PRÉVU</div>
+      <div style="font-size:28px;font-weight:900;color:#1e293b;margin-bottom:8px;">1 250 000 F</div>
+      <div style="font-size:12px;color:#475569;line-height:1.6;">Montant total de toutes les échéances planifiées pour cet étudiant : frais d'inscription + mensualités + tenue scolaire. Calculé automatiquement depuis l'échéancier.</div>
+    </div>
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px;border-left:4px solid #16a34a;">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:#16a34a;font-weight:600;margin-bottom:8px;">② TOTAL PAYÉ</div>
+      <div style="font-size:28px;font-weight:900;color:#15803d;margin-bottom:8px;">750 000 F</div>
+      <div style="font-size:12px;color:#166534;line-height:1.6;">Somme de tous les paiements au statut <strong>Confirmé</strong>. Les paiements en attente ou rejetés ne sont pas comptabilisés ici.</div>
+    </div>
+    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:20px;border-left:4px solid #dc2626;">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:#dc2626;font-weight:600;margin-bottom:8px;">③ RESTE DÛ</div>
+      <div style="font-size:28px;font-weight:900;color:#dc2626;margin-bottom:8px;">500 000 F</div>
+      <div style="font-size:12px;color:#7f1d1d;line-height:1.6;">= Total prévu − Total payé. Devient <strong style="color:#15803d;">✓ Soldé</strong> en vert lorsque tout est réglé.</div>
+    </div>
+    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:20px;border-left:4px solid #f59e0b;">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:#b45309;font-weight:600;margin-bottom:8px;">④ RETARDS</div>
+      <div style="font-size:28px;font-weight:900;color:#b45309;margin-bottom:8px;">2 mois</div>
+      <div style="font-size:12px;color:#78350f;line-height:1.6;">Nombre d'échéances passées dont le statut n'est pas "Payé". Un retard signifie qu'un mois dû n'a pas été réglé à temps.</div>
+    </div>
+  </div>
+
+  <!-- Barre de progression -->
+  <div class="card">
+    <div class="card-title">📊 Barre de progression — Comment la lire</div>
+    <div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#64748b;margin-bottom:6px;"><span>Avancement du paiement</span><strong>60%</strong></div>
+      <div style="background:#e2e8f0;border-radius:999px;height:12px;overflow:hidden;">
+        <div style="width:60%;height:100%;border-radius:999px;background:#E30613;"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px;">
+        <div style="font-size:11px;color:#475569;">0%</div>
+        <div style="font-size:11px;color:#f59e0b;font-weight:600;">50% → Alerte orange</div>
+        <div style="font-size:11px;color:#15803d;font-weight:600;">100% → Soldé vert ✓</div>
+      </div>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#ef4444;"></div>0–49% : Situation critique</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;"></div>50–99% : En cours</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#16a34a;"></div>100% : Soldé</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     6. L'ÉCHÉANCIER
+════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">Chapitre 6</div>
+    <div class="section-title">L'échéancier de paiement</div>
+    <div class="section-sub">Tableau mensuel détaillant chaque échéance prévue et son statut de paiement</div>
+    <div class="section-strip"></div>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-icon">ℹ️</div>
+    <div>
+      <div class="callout-title">Qu'est-ce que l'échéancier ?</div>
+      <div class="callout-text">L'échéancier est le calendrier de paiement prévu pour chaque étudiant. Il liste toutes les mensualités, les frais d'inscription et les frais de tenue, mois par mois, avec leur statut de règlement.</div>
+    </div>
+  </div>
+
+  <!-- Mockup échéancier -->
+  <div class="mockup">
+    <div class="mockup-bar">
+      <div class="mockup-dot" style="background:#ff5f57;"></div>
+      <div class="mockup-dot" style="background:#febc2e;"></div>
+      <div class="mockup-dot" style="background:#28c840;"></div>
+      <div class="mockup-url"><span class="mockup-url-text">Onglet Finance → Section Échéancier</span></div>
+    </div>
+    <div class="ui-section">
+      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Échéancier</div>
+      <div style="overflow-x:auto;">
+        <table class="ui-table" style="background:#fff;border-radius:10px;overflow:hidden;border:1px solid #f1f5f9;">
+          <thead>
+            <tr>
+              <th>Mois</th>
+              <th>Type</th>
+              <th style="text-align:right;">Montant</th>
+              <th style="text-align:center;">Statut</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>septembre 2024</td>
+              <td><span class="badge badge-blue">Inscription</span></td>
+              <td style="text-align:right;font-weight:600;">150 000 F</td>
+              <td style="text-align:center;"><span class="badge badge-green">● Payé</span></td>
+            </tr>
+            <tr>
+              <td>septembre 2024</td>
+              <td><span class="badge badge-purple">Tenue</span></td>
+              <td style="text-align:right;font-weight:600;">50 000 F</td>
+              <td style="text-align:center;"><span class="badge badge-green">● Payé</span></td>
+            </tr>
+            <tr>
+              <td>octobre 2024</td>
+              <td><span class="badge badge-gray">Mensualité 1</span></td>
+              <td style="text-align:right;font-weight:600;">100 000 F</td>
+              <td style="text-align:center;"><span class="badge badge-green">● Payé</span></td>
+            </tr>
+            <tr>
+              <td>novembre 2024</td>
+              <td><span class="badge badge-gray">Mensualité 2</span></td>
+              <td style="text-align:right;font-weight:600;">100 000 F</td>
+              <td style="text-align:center;"><span class="badge badge-green">● Payé</span></td>
+            </tr>
+            <tr>
+              <td>décembre 2024</td>
+              <td><span class="badge badge-gray">Mensualité 3</span></td>
+              <td style="text-align:right;font-weight:600;">100 000 F</td>
+              <td style="text-align:center;"><span class="badge badge-green">● Payé</span></td>
+            </tr>
+            <tr style="background:#fffbeb;">
+              <td>janvier 2025</td>
+              <td><span class="badge badge-gray">Mensualité 4</span></td>
+              <td style="text-align:right;font-weight:600;">100 000 F</td>
+              <td style="text-align:center;"><span class="badge badge-amber">● Partiel</span></td>
+            </tr>
+            <tr style="background:#fef2f2;">
+              <td>février 2025</td>
+              <td><span class="badge badge-gray">Mensualité 5</span></td>
+              <td style="text-align:right;font-weight:600;">100 000 F</td>
+              <td style="text-align:center;"><span class="badge badge-red">● Non payé</span></td>
+            </tr>
+            <tr style="background:#fef2f2;">
+              <td>mars 2025</td>
+              <td><span class="badge badge-gray">Mensualité 6</span></td>
+              <td style="text-align:right;font-weight:600;">100 000 F</td>
+              <td style="text-align:center;"><span class="badge badge-red">● Non payé</span></td>
+            </tr>
+            <tr style="opacity:.5;">
+              <td>avril 2025</td>
+              <td><span class="badge badge-gray">Mensualité 7</span></td>
+              <td style="text-align:right;font-weight:600;">100 000 F</td>
+              <td style="text-align:center;"><span class="badge badge-gray">● Non payé</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div style="background:#fffbeb;border-top:1px solid #fde68a;padding:10px 20px;display:flex;gap:20px;flex-wrap:wrap;font-size:11px;color:#92400e;">
+      <span>🔵 Inscription = frais d'inscription</span>
+      <span>🟣 Tenue = frais de tenue scolaire</span>
+      <span>⚪ Mensualité = paiement mensuel</span>
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-top:20px;">
+    <div class="card">
+      <div class="card-title">🟢 Statut "Payé"</div>
+      <p style="font-size:12px;color:#475569;">L'échéance a été intégralement réglée. Un paiement confirmé couvre ce mois.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">🟡 Statut "Partiel"</div>
+      <p style="font-size:12px;color:#475569;">Un paiement a été enregistré pour ce mois mais ne couvre pas la totalité du montant dû.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">🔴 Statut "Non payé" (passé)</div>
+      <p style="font-size:12px;color:#475569;">Le mois est dépassé et aucun paiement confirmé n'a été enregistré. Compte dans les <strong>retards</strong>.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">⬜ Statut "Non payé" (futur)</div>
+      <p style="font-size:12px;color:#475569;">Le mois est dans le futur. Le paiement n'est pas encore dû — ce n'est pas un retard.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     7. HISTORIQUE DES PAIEMENTS
+════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">Chapitre 7</div>
+    <div class="section-title">L'historique des paiements</div>
+    <div class="section-sub">Tous les paiements enregistrés avec leurs détails complets</div>
+    <div class="section-strip"></div>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-icon">ℹ️</div>
+    <div>
+      <div class="callout-title">L'historique vs l'échéancier</div>
+      <div class="callout-text">L'<strong>échéancier</strong> montre ce qui est prévu. L'<strong>historique</strong> montre ce qui a réellement été encaissé. Un paiement peut couvrir une ou plusieurs échéances, et peut être en attente de confirmation.</div>
+    </div>
+  </div>
+
+  <!-- Mockup historique -->
+  <div class="mockup">
+    <div class="mockup-bar">
+      <div class="mockup-dot" style="background:#ff5f57;"></div>
+      <div class="mockup-dot" style="background:#febc2e;"></div>
+      <div class="mockup-dot" style="background:#28c840;"></div>
+      <div class="mockup-url"><span class="mockup-url-text">Onglet Finance → Historique des paiements</span></div>
+    </div>
+    <div class="ui-section">
+      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Historique des paiements</div>
+      <table class="ui-table" style="background:#fff;border-radius:10px;overflow:hidden;border:1px solid #f1f5f9;">
+        <thead>
+          <tr>
+            <th>Reçu</th>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Mode</th>
+            <th style="text-align:right;">Montant</th>
+            <th style="text-align:center;">Statut</th>
+            <th style="text-align:center;">🖨</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-family:monospace;font-size:10px;color:#94a3b8;">REC-2024-0001</td>
+            <td style="font-size:11px;">15 sept. 2024</td>
+            <td><span class="badge badge-blue">Inscription</span></td>
+            <td style="font-size:11px;color:#64748b;">Espèces</td>
+            <td style="text-align:right;font-weight:700;color:#16a34a;">+150 000 F</td>
+            <td style="text-align:center;"><span class="badge badge-green">OK</span></td>
+            <td style="text-align:center;"><button class="ui-print-btn">🖨</button></td>
+          </tr>
+          <tr>
+            <td style="font-family:monospace;font-size:10px;color:#94a3b8;">REC-2024-0002</td>
+            <td style="font-size:11px;">15 sept. 2024</td>
+            <td><span class="badge badge-purple">Tenue</span></td>
+            <td style="font-size:11px;color:#64748b;">Wave</td>
+            <td style="text-align:right;font-weight:700;color:#16a34a;">+50 000 F</td>
+            <td style="text-align:center;"><span class="badge badge-green">OK</span></td>
+            <td style="text-align:center;"><button class="ui-print-btn">🖨</button></td>
+          </tr>
+          <tr>
+            <td style="font-family:monospace;font-size:10px;color:#94a3b8;">REC-2024-0015</td>
+            <td style="font-size:11px;">02 oct. 2024</td>
+            <td><span class="badge badge-gray">Mensualité</span></td>
+            <td style="font-size:11px;color:#64748b;">Orange Money</td>
+            <td style="text-align:right;font-weight:700;color:#16a34a;">+100 000 F</td>
+            <td style="text-align:center;"><span class="badge badge-green">OK</span></td>
+            <td style="text-align:center;"><button class="ui-print-btn">🖨</button></td>
+          </tr>
+          <tr>
+            <td style="font-family:monospace;font-size:10px;color:#94a3b8;">REC-2024-0028</td>
+            <td style="font-size:11px;">04 nov. 2024</td>
+            <td><span class="badge badge-gray">Mensualité</span></td>
+            <td style="font-size:11px;color:#64748b;">Virement</td>
+            <td style="text-align:right;font-weight:700;color:#16a34a;">+100 000 F</td>
+            <td style="text-align:center;"><span class="badge badge-green">OK</span></td>
+            <td style="text-align:center;"><button class="ui-print-btn">🖨</button></td>
+          </tr>
+          <tr style="background:#fffbeb;">
+            <td style="font-family:monospace;font-size:10px;color:#94a3b8;">REC-2025-0042</td>
+            <td style="font-size:11px;">10 janv. 2025</td>
+            <td><span class="badge badge-gray">Mensualité</span></td>
+            <td style="font-size:11px;color:#64748b;">Espèces</td>
+            <td style="text-align:right;font-weight:700;color:#16a34a;">+50 000 F</td>
+            <td style="text-align:center;"><span class="badge badge-amber">Attente</span></td>
+            <td style="text-align:center;"><span style="color:#d1d5db;font-size:11px;">—</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="background:#eff6ff;border-top:1px solid #bfdbfe;padding:10px 20px;display:flex;gap:20px;flex-wrap:wrap;font-size:11px;color:#1d4ed8;">
+      <span><strong>①</strong> N° de reçu unique automatique</span>
+      <span><strong>②</strong> Mode de paiement (Espèces, Wave, OM, Virement, Chèque)</span>
+      <span><strong>③</strong> Bouton 🖨 actif seulement pour les paiements confirmés</span>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section-header" style="margin-top:0;">
+    <div class="section-num">Sous-section 7.1</div>
+    <div class="section-title" style="font-size:20px;">Impression d'un reçu de paiement</div>
+    <div class="section-sub">Comment générer et imprimer un reçu officiel</div>
+    <div class="section-strip"></div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <div class="step-title">Localiser le paiement dans l'historique</div>
+      <div class="step-desc">Seuls les paiements au statut <span class="badge badge-green">Confirmé</span> ont le bouton d'impression actif. Les paiements en attente n'ont pas de reçu.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <div class="step-title">Cliquer sur l'icône 🖨 en fin de ligne</div>
+      <div class="step-desc">Une fenêtre d'impression s'ouvre automatiquement avec 2 exemplaires du reçu : un pour l'établissement, un pour l'étudiant.</div>
+      <div class="step-tip">💡 Le reçu contient : N° de reçu, nom de l'étudiant, filière, type de paiement, montant, date et un QR code de vérification.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-body">
+      <div class="step-title">Imprimer ou enregistrer en PDF</div>
+      <div class="step-desc">Depuis la boîte de dialogue d'impression du navigateur, choisir l'imprimante ou "Enregistrer en PDF".</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     8. INTERFACE ÉTUDIANT
+════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">Chapitre 8</div>
+    <div class="section-title">Interface Étudiant — Comptabilité</div>
+    <div class="section-sub">Ce que l'étudiant voit dans son espace personnel quand il se connecte</div>
+    <div class="section-strip"></div>
+  </div>
+
+  <div class="access-path">
+    <div class="access-crumb">🔑 Connexion compte étudiant</div>
+    <div class="access-sep">›</div>
+    <div class="access-crumb">🏠 Accueil</div>
+    <div class="access-sep">›</div>
+    <div class="access-crumb active">💰 Comptabilité</div>
+  </div>
+
+  <div class="callout callout-success">
+    <div class="callout-icon">✅</div>
+    <div>
+      <div class="callout-title">Même information, même affichage</div>
+      <div class="callout-text">L'étudiant voit exactement les mêmes données que l'administrateur dans l'onglet Finance : dates clés, KPIs, échéancier, historique. La seule différence : <strong>il ne peut pas imprimer ses reçus</strong> — ce droit est réservé à l'administration.</div>
+    </div>
+  </div>
+
+  <!-- MOCKUP Espace étudiant complet -->
+  <div class="mockup">
+    <div class="mockup-bar">
+      <div class="mockup-dot" style="background:#ff5f57;"></div>
+      <div class="mockup-dot" style="background:#febc2e;"></div>
+      <div class="mockup-dot" style="background:#28c840;"></div>
+      <div class="mockup-url"><span class="mockup-url-text">https://uptechcampus.vercel.app — Espace Étudiant</span></div>
+    </div>
+
+    <!-- Hero -->
+    <div class="ui-ee-hero">
+      <div class="ui-ee-avatar">AM</div>
+      <div>
+        <div style="font-size:11px;color:rgba(255,255,255,.5);margin-bottom:2px;">Bonjour 👋</div>
+        <div class="ui-ee-name">Aminata MBAYE</div>
+        <div class="ui-ee-tags">
+          <div class="ui-ee-tag ui-ee-tag-red">L3 Informatique</div>
+          <div class="ui-ee-tag ui-ee-tag-gray">2024/2025</div>
+        </div>
+      </div>
+      <div style="margin-left:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+        <div style="text-align:center;"><div style="font-size:18px;font-weight:800;color:#f87171;">14.5</div><div style="font-size:9px;color:rgba(255,255,255,.4);">Moyenne</div></div>
+        <div style="text-align:center;"><div style="font-size:18px;font-weight:800;color:#4ade80;">82%</div><div style="font-size:9px;color:rgba(255,255,255,.4);">Assiduité</div></div>
+        <div style="text-align:center;"><div style="font-size:18px;font-weight:800;color:#f87171;">500k</div><div style="font-size:9px;color:rgba(255,255,255,.4);">Restant</div></div>
+      </div>
+    </div>
+
+    <!-- Quick actions -->
+    <div class="ui-qa">
+      <div class="ui-qa-btn">📅 Emploi du temps</div>
+      <div class="ui-qa-btn">📋 Notes</div>
+      <div class="ui-qa-btn active">💰 Comptabilité</div>
+      <div class="ui-qa-btn">💬 Messages</div>
+      <div class="ui-qa-btn">🪪 Ma Carte</div>
+    </div>
+
+    <!-- Section comptabilité -->
+    <div class="ui-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:15px;font-weight:700;color:#0f172a;">💰 Suivi financier</div>
+        <span class="badge badge-amber">60%</span>
+      </div>
+
+      <!-- Dates ① -->
+      <div class="ui-fin-dates">
+        <div class="ui-fin-date-item">📅 <span class="ui-fin-date-lbl">Début des cours :</span> 02 octobre 2024</div>
+        <div class="ui-fin-date-item">📋 <span class="ui-fin-date-lbl">Date d'inscription :</span> 15 septembre 2024</div>
+      </div>
+
+      <!-- KPIs ② -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">
+        <div style="background:#f8fafc;border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-size:9px;text-transform:uppercase;color:#94a3b8;font-weight:600;margin-bottom:4px;">Total prévu</div>
+          <div style="font-size:17px;font-weight:800;color:#1e293b;">1 250 000 <span style="font-size:10px;font-weight:400;">F</span></div>
+        </div>
+        <div style="background:#f0fdf4;border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-size:9px;text-transform:uppercase;color:#16a34a;font-weight:600;margin-bottom:4px;">Total payé</div>
+          <div style="font-size:17px;font-weight:800;color:#15803d;">750 000 <span style="font-size:10px;font-weight:400;">F</span></div>
+        </div>
+        <div style="background:#fef2f2;border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-size:9px;text-transform:uppercase;color:#f87171;font-weight:600;margin-bottom:4px;">Reste dû</div>
+          <div style="font-size:17px;font-weight:800;color:#dc2626;">500 000 <span style="font-size:10px;font-weight:400;">F</span></div>
+        </div>
+      </div>
+
+      <!-- Barre ③ -->
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#64748b;margin-bottom:4px;"><span>Avancement du paiement</span><strong>60%</strong></div>
+        <div style="background:#e2e8f0;border-radius:999px;height:8px;overflow:hidden;">
+          <div style="width:60%;height:100%;border-radius:999px;background:#ef4444;"></div>
+        </div>
+      </div>
+
+      <!-- Échéancier mini ④ -->
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Échéancier</div>
+        <table class="ui-table" style="font-size:11px;">
+          <thead><tr><th>Mois</th><th>Type</th><th style="text-align:right;">Montant</th><th style="text-align:center;">Statut</th></tr></thead>
+          <tbody>
+            <tr><td>sept. 2024</td><td><span class="badge badge-blue" style="font-size:9px;">Inscription</span></td><td style="text-align:right;">150 000 F</td><td style="text-align:center;"><span class="badge badge-green" style="font-size:9px;">● Payé</span></td></tr>
+            <tr><td>oct. 2024</td><td><span class="badge badge-gray" style="font-size:9px;">Mensualité 1</span></td><td style="text-align:right;">100 000 F</td><td style="text-align:center;"><span class="badge badge-green" style="font-size:9px;">● Payé</span></td></tr>
+            <tr style="background:#fef2f2;"><td>févr. 2025</td><td><span class="badge badge-gray" style="font-size:9px;">Mensualité 5</span></td><td style="text-align:right;">100 000 F</td><td style="text-align:center;"><span class="badge badge-red" style="font-size:9px;">● Non payé</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Historique sans bouton imprimer ⑤ -->
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;">
+        <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Historique des paiements</div>
+        <table class="ui-table">
+          <thead><tr><th>Reçu</th><th>Date</th><th>Type</th><th>Mode</th><th style="text-align:right;">Montant</th><th style="text-align:center;">Statut</th></tr></thead>
+          <tbody>
+            <tr><td style="font-family:monospace;font-size:10px;">REC-0001</td><td style="font-size:11px;">15 sept.</td><td><span class="badge badge-blue" style="font-size:9px;">Inscription</span></td><td style="font-size:11px;">Espèces</td><td style="text-align:right;color:#16a34a;font-weight:700;">+150 000 F</td><td style="text-align:center;"><span class="badge badge-green" style="font-size:9px;">Confirmé</span></td></tr>
+            <tr><td style="font-family:monospace;font-size:10px;">REC-0015</td><td style="font-size:11px;">02 oct.</td><td><span class="badge badge-gray" style="font-size:9px;">Mensualité</span></td><td style="font-size:11px;">Wave</td><td style="text-align:right;color:#16a34a;font-weight:700;">+100 000 F</td><td style="text-align:center;"><span class="badge badge-green" style="font-size:9px;">Confirmé</span></td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top:8px;padding:8px 10px;background:#f8fafc;border-radius:8px;font-size:11px;color:#94a3b8;text-align:center;">
+          🔒 L'impression des reçus est réservée à l'administration
+        </div>
+      </div>
+    </div>
+    <div style="background:#dcfce7;border-top:1px solid #bbf7d0;padding:10px 20px;display:flex;gap:20px;flex-wrap:wrap;font-size:11px;color:#14532d;">
+      <span><strong>①</strong> Dates clés en haut</span>
+      <span><strong>②</strong> 3 KPIs financiers</span>
+      <span><strong>③</strong> Barre de progression</span>
+      <span><strong>④</strong> Échéancier complet</span>
+      <span><strong>⑤</strong> Historique sans bouton imprimer</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     9. CARTE ÉTUDIANT
+════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">Chapitre 9</div>
+    <div class="section-title">La Carte Étudiant Numérique</div>
+    <div class="section-sub">Carte d'identité scolaire avec statut financier — accessible depuis l'espace étudiant</div>
+    <div class="section-strip"></div>
+  </div>
+
+  <div class="access-path">
+    <div class="access-crumb">🎓 Espace étudiant</div>
+    <div class="access-sep">›</div>
+    <div class="access-crumb">⚡ Actions rapides</div>
+    <div class="access-sep">›</div>
+    <div class="access-crumb active">🪪 Ma Carte</div>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-icon">🪪</div>
+    <div>
+      <div class="callout-title">À quoi sert la carte numérique ?</div>
+      <div class="callout-text">La carte étudiant numérique est une carte d'identité scolaire au format portrait (54 × 85.6 mm), générée en temps réel depuis l'espace étudiant. Elle montre en un coup d'œil l'identité de l'étudiant et sa situation de paiement (mois payés vs mois en retard). Elle peut être téléchargée en PNG ou imprimée.</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <!-- Carte mockup -->
+    <div>
+      <div style="font-size:12px;font-weight:700;color:#64748b;margin-bottom:12px;text-align:center;">Carte — Étudiant EN RÈGLE</div>
+      <div class="carte-mockup">
+        <div class="carte-top"></div>
+        <div style="padding:12px 14px;display:flex;justify-content:center;">
+          <img src="/logo-normal.png" style="max-height:40px;max-width:200px;object-fit:contain;" onerror="this.outerHTML='<div style=\'text-align:center;\'><div style=\'width:40px;height:40px;background:#E30613;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;margin:0 auto 4px;\'>U</div><div style=\'font-size:10px;font-weight:800;color:#fff;letter-spacing:.08em;\'>UPTECH CAMPUS</div></div>'" />
+        </div>
+        <div style="text-align:center;font-size:10px;font-weight:700;color:rgba(255,255,255,.6);padding:0 14px 4px;letter-spacing:.06em;">CARTE D'ÉTUDIANT · 2024/2025</div>
+        <!-- Bande diagonale simulée -->
+        <div style="height:22px;background:repeating-linear-gradient(135deg,#E30613 0px,#E30613 8px,#111 8px,#111 16px);margin-bottom:0;"></div>
+        <!-- Photo + info -->
+        <div class="carte-body-area">
+          <div class="carte-photo">AM</div>
+          <div class="carte-info">
+            <div class="carte-info-name">Aminata MBAYE</div>
+            <div class="carte-info-num">UPTECH-2024-0042</div>
+            <div class="carte-info-row">Filière : <span>L3 Informatique</span></div>
+            <div class="carte-info-row">Classe : <span>L3 Info 2024</span></div>
+          </div>
+        </div>
+        <!-- Paiement -->
+        <div class="carte-pay">
+          <div class="carte-pay-badge ok">✓ EN RÈGLE</div>
+          <div class="carte-pay-label">Mensualités : 9 / 9 mois payés</div>
+          <div class="carte-dots">
+            <div class="carte-dot paid"></div><div class="carte-dot paid"></div><div class="carte-dot paid"></div>
+            <div class="carte-dot paid"></div><div class="carte-dot paid"></div><div class="carte-dot paid"></div>
+            <div class="carte-dot paid"></div><div class="carte-dot paid"></div><div class="carte-dot paid"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:12px;font-weight:700;color:#64748b;margin-bottom:12px;text-align:center;">Carte — Étudiant EN RETARD</div>
+      <div class="carte-mockup" style="background:linear-gradient(145deg,#1c0a0a,#7f1d1d,#1c0a0a);">
+        <div class="carte-top"></div>
+        <div style="padding:12px 14px;display:flex;justify-content:center;">
+          <img src="/logo-normal.png" style="max-height:40px;max-width:200px;object-fit:contain;" onerror="this.outerHTML='<div style=\'text-align:center;\'><div style=\'width:40px;height:40px;background:#E30613;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;margin:0 auto 4px;\'>U</div><div style=\'font-size:10px;font-weight:800;color:#fff;letter-spacing:.08em;\'>UPTECH CAMPUS</div></div>'" />
+        </div>
+        <div style="text-align:center;font-size:10px;font-weight:700;color:rgba(255,255,255,.6);padding:0 14px 4px;letter-spacing:.06em;">CARTE D'ÉTUDIANT · 2024/2025</div>
+        <div style="height:22px;background:repeating-linear-gradient(135deg,#E30613 0px,#E30613 8px,#111 8px,#111 16px);margin-bottom:0;"></div>
+        <div class="carte-body-area">
+          <div class="carte-photo">MB</div>
+          <div class="carte-info">
+            <div class="carte-info-name">Mamadou BALDE</div>
+            <div class="carte-info-num">UPTECH-2024-0078</div>
+            <div class="carte-info-row">Filière : <span>BTS Gestion</span></div>
+            <div class="carte-info-row">Classe : <span>BTS2 Gest.</span></div>
+          </div>
+        </div>
+        <div class="carte-pay">
+          <div class="carte-pay-badge nok">⚠ 2 MOIS EN RETARD</div>
+          <div class="carte-pay-label">Mensualités : 4 / 9 mois payés</div>
+          <div class="carte-dots">
+            <div class="carte-dot paid"></div><div class="carte-dot paid"></div><div class="carte-dot paid"></div><div class="carte-dot paid"></div>
+            <div class="carte-dot late"></div><div class="carte-dot late"></div>
+            <div class="carte-dot future"></div><div class="carte-dot future"></div><div class="carte-dot future"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Légende carte -->
+  <div class="card" style="margin-top:20px;">
+    <div class="card-title">🔑 Légende des éléments de la carte</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px;">
+      <div style="font-size:12px;color:#475569;"><strong style="color:#0f172a;">Logo UPTECH</strong> — Logo officiel de l'établissement chargé depuis le serveur</div>
+      <div style="font-size:12px;color:#475569;"><strong style="color:#0f172a;">Bande diagonale</strong> — Motif rouge/noir signature d'Uptech Campus</div>
+      <div style="font-size:12px;color:#475569;"><strong style="color:#0f172a;">Photo / Initiales</strong> — Photo de l'étudiant ou ses initiales si pas de photo</div>
+      <div style="font-size:12px;color:#475569;"><strong style="color:#0f172a;">Badge statut</strong> — Vert "EN RÈGLE" ou Rouge "X MOIS EN RETARD"</div>
+      <div style="font-size:12px;color:#475569;"><strong style="color:#4ade80;">● Pastille verte</strong> — Mensualité payée</div>
+      <div style="font-size:12px;color:#475569;"><strong style="color:#f87171;">● Pastille rouge</strong> — Mensualité en retard (mois passé non payé)</div>
+      <div style="font-size:12px;color:#475569;"><strong style="color:#94a3b8;">● Pastille grise</strong> — Mensualité future (pas encore due)</div>
+      <div style="font-size:12px;color:#475569;"><strong style="color:#0f172a;">Fond rouge foncé</strong> — Indique une situation de retard de paiement</div>
+    </div>
+  </div>
+
+  <div class="step" style="margin-top:20px;">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <div class="step-title">Accéder à la carte</div>
+      <div class="step-desc">Dans l'espace étudiant, cliquer sur le bouton <strong>🪪 Ma Carte</strong> dans les actions rapides. Si des mois sont en retard, un badge rouge avec le nombre apparaît sur le bouton.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <div class="step-title">Visualiser la carte</div>
+      <div class="step-desc">La carte se génère en quelques secondes. Un fond sombre s'affiche avec la carte en portrait. Cliquer en dehors de la carte ou sur ✕ pour fermer.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-body">
+      <div class="step-title">Télécharger ou imprimer</div>
+      <div class="step-desc">Deux boutons disponibles : <strong>Télécharger PNG</strong> (enregistrer sur l'appareil) et <strong>Imprimer</strong> (imprimer physiquement).</div>
+      <div class="step-tip">💡 La carte est au format portrait optimisé pour l'affichage sur téléphone — idéal pour la montrer à un agent de sécurité ou un enseignant.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     10. GLOSSAIRE
+════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-header">
+    <div class="section-num">Chapitre 10</div>
+    <div class="section-title">Codes couleurs & Glossaire</div>
+    <div class="section-sub">Référence rapide des couleurs, termes et définitions utilisés dans le module</div>
+    <div class="section-strip"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">🎨 Codes couleurs</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:36px;height:36px;background:#16a34a;border-radius:8px;flex-shrink:0;"></div>
+          <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Vert</div><div style="font-size:11px;color:#475569;">Payé, En règle, Soldé, OK</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:36px;height:36px;background:#E30613;border-radius:8px;flex-shrink:0;"></div>
+          <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Rouge</div><div style="font-size:11px;color:#475569;">Non payé, Retard, Rejeté, Reste dû</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:36px;height:36px;background:#f59e0b;border-radius:8px;flex-shrink:0;"></div>
+          <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Orange/Amber</div><div style="font-size:11px;color:#475569;">Partiel, En attente, Retards</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:36px;height:36px;background:#3b82f6;border-radius:8px;flex-shrink:0;"></div>
+          <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Bleu</div><div style="font-size:11px;color:#475569;">Frais d'inscription</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:36px;height:36px;background:#7c3aed;border-radius:8px;flex-shrink:0;"></div>
+          <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Violet</div><div style="font-size:11px;color:#475569;">Frais de tenue scolaire</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:36px;height:36px;background:#94a3b8;border-radius:8px;flex-shrink:0;"></div>
+          <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Gris</div><div style="font-size:11px;color:#475569;">Mensualités, À venir, Non concerné</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📖 Glossaire</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px;">
+        <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Échéance</div><div style="font-size:11px;color:#475569;">Paiement prévu à une date donnée (frais d'inscription, mensualité, tenue)</div></div>
+        <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Mensualité</div><div style="font-size:11px;color:#475569;">Paiement mensuel régulier pour couvrir les frais de scolarité</div></div>
+        <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Retard</div><div style="font-size:11px;color:#475569;">Échéance dont la date est passée et qui n'est pas au statut "Payé"</div></div>
+        <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Partiel</div><div style="font-size:11px;color:#475569;">Paiement enregistré mais inférieur au montant dû</div></div>
+        <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Confirmé</div><div style="font-size:11px;color:#475569;">Paiement validé par l'administration — génère un reçu</div></div>
+        <div><div style="font-size:12px;font-weight:700;color:#0f172a;">En attente</div><div style="font-size:11px;color:#475569;">Paiement enregistré mais pas encore validé — pas de reçu</div></div>
+        <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Soldé</div><div style="font-size:11px;color:#475569;">Reste dû = 0 FCFA — tous les frais sont réglés</div></div>
+        <div><div style="font-size:12px;font-weight:700;color:#0f172a;">Reçu</div><div style="font-size:11px;color:#475569;">Document officiel numéroté prouvant un paiement confirmé</div></div>
+        <div><div style="font-size:12px;font-weight:700;color:#0f172a;">KPI</div><div style="font-size:11px;color:#475569;">Key Performance Indicator — indicateur clé affiché en gros chiffres</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tableau récapitulatif modes de paiement -->
+  <div class="card" style="margin-top:20px;">
+    <div class="card-title">💳 Modes de paiement acceptés</div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:12px;">
+      <div style="text-align:center;padding:14px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
+        <div style="font-size:20px;margin-bottom:6px;">💵</div>
+        <div style="font-size:11px;font-weight:700;color:#0f172a;">Espèces</div>
+      </div>
+      <div style="text-align:center;padding:14px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
+        <div style="font-size:20px;margin-bottom:6px;">📱</div>
+        <div style="font-size:11px;font-weight:700;color:#0f172a;">Wave</div>
+      </div>
+      <div style="text-align:center;padding:14px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
+        <div style="font-size:20px;margin-bottom:6px;">🟠</div>
+        <div style="font-size:11px;font-weight:700;color:#0f172a;">Orange Money</div>
+      </div>
+      <div style="text-align:center;padding:14px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
+        <div style="font-size:20px;margin-bottom:6px;">🏦</div>
+        <div style="font-size:11px;font-weight:700;color:#0f172a;">Virement</div>
+      </div>
+      <div style="text-align:center;padding:14px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
+        <div style="font-size:20px;margin-bottom:6px;">📝</div>
+        <div style="font-size:11px;font-weight:700;color:#0f172a;">Chèque</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="margin-top:40px;padding:20px;background:#0f172a;border-radius:14px;display:flex;align-items:center;justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="width:36px;height:36px;background:#E30613;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;color:#fff;">U</div>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#fff;">Uptech Campus</div>
+        <div style="font-size:10px;color:rgba(255,255,255,.4);">Institut supérieur de formation · Dakar, Sénégal</div>
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:11px;color:rgba(255,255,255,.5);">Guide Suivi Comptabilité</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.3);">Version 2025 · Document interne</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- BOUTON IMPRIMER -->
+<div class="no-print" style="position:fixed;bottom:24px;right:24px;z-index:100;">
+  <button onclick="window.print()" style="background:#E30613;color:#fff;border:none;border-radius:12px;padding:14px 24px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(227,6,19,.4);display:flex;align-items:center;gap:8px;">
+    🖨 Imprimer / Enregistrer en PDF
+  </button>
+</div>
+
+</body>
+</html>

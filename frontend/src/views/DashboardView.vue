@@ -26,8 +26,10 @@ interface Seance {
 }
 
 const monProfil   = ref<MonProfil | null>(null)
-const seancesProf = ref<Seance[]>([])
-const loadingProf = ref(true)
+const seancesProf    = ref<Seance[]>([])
+const loadingProf    = ref(true)
+const avoirsVisibles = ref(false)   // masqué par défaut — confidentialité
+
 const mesStats    = ref<{
   heures_total: number; heures_ce_mois: number; tarif_horaire: number
   montant_du: number; montant_du_classique: number; montant_du_fi: number
@@ -247,6 +249,80 @@ const canSeeFinance = computed(() =>
   auth.user?.role === 'dg' || auth.user?.role === 'resp_fin'
 )
 
+// ─── Stats avancées dashboard ──────────────────────────────────────
+interface EvolPaiement { mois: string; montant: number }
+interface ClasseRemplissage { id: number; nom: string; capacite: number; inscrits: number }
+interface TopRetard { id: number; nom: string; prenom: string; numero_etudiant: string; montant_retard: number; nb_mois_retard: number }
+
+const evolutionPaiements = ref<EvolPaiement[]>([])
+const classesRemplissage = ref<ClasseRemplissage[]>([])
+const topRetards = ref<TopRetard[]>([])
+const tauxPresence = ref<number | null>(null)
+const seancesEffectuees = ref(0)
+const seancesTotalPassees = ref(0)
+const loadingAvance = ref(true)
+
+async function loadStatsAvancees() {
+  try {
+    const { data } = await api.get('/dashboard/stats-avancees')
+    evolutionPaiements.value = data.evolution_paiements ?? []
+    classesRemplissage.value = data.classes_remplissage ?? []
+    topRetards.value = data.top_retards ?? []
+    tauxPresence.value = data.taux_presence ?? null
+    seancesEffectuees.value = data.seances_effectuees ?? 0
+    seancesTotalPassees.value = data.seances_total_passees ?? 0
+  } catch { /* silencieux */ }
+  finally { loadingAvance.value = false }
+}
+
+// SVG chart helpers
+const CHART_W = 300
+const CHART_H = 80
+const chartBars = computed(() => {
+  const vals = evolutionPaiements.value.map(e => e.montant)
+  const maxVal = Math.max(...vals, 1)
+  const bw = (CHART_W - 10) / vals.length - 4
+  return vals.map((v, i) => ({
+    x: i * ((CHART_W - 10) / vals.length) + 2,
+    y: CHART_H - Math.round((v / maxVal) * (CHART_H - 10)),
+    h: Math.round((v / maxVal) * (CHART_H - 10)),
+    w: bw,
+    v,
+    mois: evolutionPaiements.value[i]?.mois ?? '',
+  }))
+})
+
+const maxPaiement = computed(() => Math.max(...evolutionPaiements.value.map(e => e.montant), 1))
+
+function fmtMoisCourt(iso: string) {
+  const d = new Date(iso + '-01')
+  return d.toLocaleDateString('fr-FR', { month: 'short' })
+}
+
+function remplissagePct(cl: ClasseRemplissage) {
+  return Math.min(100, Math.round((cl.inscrits / (cl.capacite || 30)) * 100))
+}
+function remplissageColor(pct: number) {
+  if (pct >= 90) return '#E30613'
+  if (pct >= 70) return '#f97316'
+  if (pct >= 40) return '#22c55e'
+  return '#3b82f6'
+}
+
+const presenceGaugeR = 36
+const presenceCirc = 2 * Math.PI * presenceGaugeR
+const presenceOffset = computed(() =>
+  tauxPresence.value !== null
+    ? presenceCirc - (tauxPresence.value / 100) * presenceCirc
+    : presenceCirc
+)
+const presenceColor = computed(() => {
+  const t = tauxPresence.value ?? 0
+  if (t >= 80) return '#22c55e'
+  if (t >= 50) return '#f97316'
+  return '#E30613'
+})
+
 async function loadAdmin() {
   try {
     const { data } = await api.get('/stats')
@@ -284,6 +360,7 @@ onMounted(() => {
   } else {
     loadAdmin()
     loadRisques()
+    loadStatsAvancees()
   }
 })
 onUnmounted(() => { if (ticker) clearInterval(ticker) })
@@ -370,7 +447,15 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
           <div class="db-avoirs-title">
             <span>💰</span> Mes avoirs — Rémunération
           </div>
-          <button class="db-avoirs-link" @click="router.push('/emargement')">Voir le détail →</button>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button
+              @click="avoirsVisibles = !avoirsVisibles"
+              :title="avoirsVisibles ? 'Masquer les montants' : 'Afficher les montants'"
+              style="background:rgba(255,255,255,0.12);border:none;border-radius:8px;padding:4px 9px;cursor:pointer;color:#fff;font-size:15px;line-height:1;">
+              {{ avoirsVisibles ? '👁' : '🙈' }}
+            </button>
+            <button class="db-avoirs-link" @click="router.push('/emargement')">Voir le détail →</button>
+          </div>
         </div>
         <div v-if="mesStats" class="db-avoirs-body">
           <!-- KPIs financiers -->
@@ -384,24 +469,28 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
               <div class="db-akpi-lbl">Total heures</div>
             </div>
             <div class="db-akpi">
-              <div class="db-akpi-val">{{ (mesStats.tarif_horaire > 0 || mesStats.fi_tarif_horaire > 0) ? new Intl.NumberFormat('fr-FR').format(mesStats.tarif_horaire || mesStats.fi_tarif_horaire) + ' F/h' : '—' }}</div>
+              <div class="db-akpi-val db-akpi-secret" :class="{ 'db-akpi-masked': !avoirsVisibles }">
+                {{ avoirsVisibles ? ((mesStats.tarif_horaire > 0 || mesStats.fi_tarif_horaire > 0) ? new Intl.NumberFormat('fr-FR').format(mesStats.tarif_horaire || mesStats.fi_tarif_horaire) + ' F/h' : '—') : '••••' }}
+              </div>
               <div class="db-akpi-lbl">Tarif horaire{{ mesStats.fi_tarif_horaire > 0 && !mesStats.tarif_horaire ? ' (FI)' : '' }}</div>
             </div>
             <div class="db-akpi db-akpi--green">
-              <div class="db-akpi-val">{{ fmtMontant(mesStats.montant_du) }}</div>
+              <div class="db-akpi-val db-akpi-secret" :class="{ 'db-akpi-masked': !avoirsVisibles }">{{ avoirsVisibles ? fmtMontant(mesStats.montant_du) : '••••' }}</div>
               <div class="db-akpi-lbl">Montant dû</div>
             </div>
             <div class="db-akpi db-akpi--blue">
-              <div class="db-akpi-val">{{ fmtMontant(mesStats.montant_paye) }}</div>
+              <div class="db-akpi-val db-akpi-secret" :class="{ 'db-akpi-masked': !avoirsVisibles }">{{ avoirsVisibles ? fmtMontant(mesStats.montant_paye) : '••••' }}</div>
               <div class="db-akpi-lbl">Déjà payé</div>
             </div>
             <div class="db-akpi" :class="mesStats.montant_restant > 0 ? 'db-akpi--red' : 'db-akpi--green'">
-              <div class="db-akpi-val">{{ mesStats.montant_restant > 0 ? fmtMontant(mesStats.montant_restant) : '✓ Soldé' }}</div>
+              <div class="db-akpi-val db-akpi-secret" :class="{ 'db-akpi-masked': !avoirsVisibles }">
+                {{ avoirsVisibles ? (mesStats.montant_restant > 0 ? fmtMontant(mesStats.montant_restant) : '✓ Soldé') : '••••' }}
+              </div>
               <div class="db-akpi-lbl">Solde restant</div>
             </div>
           </div>
           <!-- Détail FI -->
-          <div v-if="mesStats.fi_nb_modules > 0" style="margin-top:8px;padding:8px 14px;background:rgba(99,102,241,0.15);border-radius:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;">
+          <div v-if="mesStats.fi_nb_modules > 0 && avoirsVisibles" style="margin-top:8px;padding:8px 14px;background:rgba(99,102,241,0.15);border-radius:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;">
             <span style="color:#c7d2fe;">🎓 FI</span>
             <span style="color:#e0e7ff;font-weight:600;">{{ mesStats.fi_heures_effectuees }}h / {{ mesStats.fi_heures_total }}h</span>
             <span style="color:#a5b4fc;">{{ new Intl.NumberFormat('fr-FR').format(mesStats.fi_tarif_horaire) }} F/h</span>
@@ -411,7 +500,7 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
             </div>
           </div>
           <!-- Barre progression paiement -->
-          <div v-if="mesStats.montant_du > 0" class="db-avoirs-progress">
+          <div v-if="mesStats.montant_du > 0 && avoirsVisibles" class="db-avoirs-progress">
             <div class="db-avoirs-progress-header">
               <span style="font-size:11px;color:rgba(255,255,255,.45);">Avancement paiement</span>
               <strong style="font-size:11px;color:rgba(255,255,255,.7);">{{ tauxPaiementAvoirs }}%</strong>
@@ -837,6 +926,155 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
         </div>
 
       </div>
+
+      <!-- ══════════════════════════════════════════════════════
+           WIDGETS AVANCÉS
+      ═══════════════════════════════════════════════════════ -->
+      <div class="db-adv-grid">
+
+        <!-- 1. Graphique évolution paiements -->
+        <div class="uc-card db-adv-card" v-if="canSeeFinance">
+          <div class="uc-card-header">
+            <span class="uc-card-title">📈 Évolution des paiements</span>
+            <span class="db-adv-period">6 derniers mois</span>
+          </div>
+          <div class="db-chart-wrap">
+            <div v-if="loadingAvance" class="db-adv-loading">Chargement…</div>
+            <template v-else>
+              <svg :width="CHART_W" :height="CHART_H + 22" style="width:100%;overflow:visible;" viewBox="0 0 300 102">
+                <!-- Lignes de grille -->
+                <line x1="0" :y1="CHART_H - (CHART_H-10)*0.25" x2="300" :y2="CHART_H - (CHART_H-10)*0.25" stroke="#f1f5f9" stroke-width="1"/>
+                <line x1="0" :y1="CHART_H - (CHART_H-10)*0.5"  x2="300" :y2="CHART_H - (CHART_H-10)*0.5"  stroke="#f1f5f9" stroke-width="1"/>
+                <line x1="0" :y1="CHART_H - (CHART_H-10)*0.75" x2="300" :y2="CHART_H - (CHART_H-10)*0.75" stroke="#f1f5f9" stroke-width="1"/>
+                <!-- Barres -->
+                <g v-for="(bar, i) in chartBars" :key="i">
+                  <rect
+                    :x="bar.x" :y="bar.y" :width="bar.w" :height="bar.h"
+                    :fill="bar.v === maxPaiement ? '#E30613' : '#fca5a5'"
+                    rx="3"
+                    style="transition:height 0.4s,y 0.4s;"
+                  />
+                  <!-- Mois label -->
+                  <text :x="bar.x + bar.w/2" :y="CHART_H + 14" text-anchor="middle" font-size="9" fill="#9ca3af">
+                    {{ fmtMoisCourt(bar.mois) }}
+                  </text>
+                  <!-- Montant au survol → tooltip via title -->
+                  <title>{{ fmtMoisCourt(bar.mois) }} : {{ fmt(bar.v) }}</title>
+                </g>
+              </svg>
+              <!-- Légende min/max -->
+              <div class="db-chart-legend">
+                <span>{{ fmt(0) }}</span>
+                <span style="color:#E30613;font-weight:700;">Max : {{ fmt(maxPaiement) }}</span>
+              </div>
+              <!-- Totaux rapides -->
+              <div class="db-chart-totals">
+                <div v-for="bar in chartBars.slice(-3)" :key="bar.mois" class="db-chart-month-pill">
+                  <span class="db-cmp-label">{{ fmtMoisCourt(bar.mois) }}</span>
+                  <span class="db-cmp-val">{{ bar.v > 0 ? fmt(bar.v) : '—' }}</span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- 2. Taux de remplissage des classes -->
+        <div class="uc-card db-adv-card">
+          <div class="uc-card-header">
+            <span class="uc-card-title">🏫 Remplissage des classes</span>
+            <a class="uc-card-link" @click="router.push('/classes')">Gérer →</a>
+          </div>
+          <div class="db-fill-list">
+            <div v-if="loadingAvance" class="db-adv-loading">Chargement…</div>
+            <div v-else-if="!classesRemplissage.length" class="db-adv-empty">Aucune classe configurée</div>
+            <div v-else v-for="cl in classesRemplissage" :key="cl.id" class="db-fill-row">
+              <div class="db-fill-info">
+                <span class="db-fill-nom">{{ cl.nom }}</span>
+                <span class="db-fill-count">{{ cl.inscrits }} / {{ cl.capacite }}</span>
+              </div>
+              <div class="db-fill-track">
+                <div class="db-fill-bar" :style="{ width: remplissagePct(cl) + '%', background: remplissageColor(remplissagePct(cl)) }"></div>
+              </div>
+              <span class="db-fill-pct" :style="{ color: remplissageColor(remplissagePct(cl)) }">{{ remplissagePct(cl) }}%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Top 5 retards de paiement -->
+        <div class="uc-card db-adv-card" v-if="canSeeFinance">
+          <div class="uc-card-header">
+            <span class="uc-card-title">⚠️ Top retards paiement</span>
+            <a class="uc-card-link" @click="router.push('/paiements')">Voir tout →</a>
+          </div>
+          <div style="padding:0;">
+            <div v-if="loadingAvance" class="db-adv-loading" style="padding:16px 20px;">Chargement…</div>
+            <div v-else-if="!topRetards.length" class="db-adv-empty" style="padding:16px 20px;">
+              <span>✅</span> Aucun retard — situation saine !
+            </div>
+            <div v-else v-for="(et, rank) in topRetards" :key="et.id"
+              class="db-retard-row"
+              @click="router.push('/etudiants')">
+              <div class="db-retard-rank" :class="rank === 0 ? 'db-retard-rank--1' : rank === 1 ? 'db-retard-rank--2' : ''">
+                {{ rank + 1 }}
+              </div>
+              <div class="db-retard-info">
+                <span class="db-retard-nom">{{ et.prenom }} {{ et.nom }}</span>
+                <span class="db-retard-num">{{ et.numero_etudiant }}</span>
+              </div>
+              <div class="db-retard-amounts">
+                <span class="db-retard-montant">{{ fmt(et.montant_retard) }}</span>
+                <span class="db-retard-mois">{{ et.nb_mois_retard }} mois</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Taux de présence global -->
+        <div class="uc-card db-adv-card">
+          <div class="uc-card-header">
+            <span class="uc-card-title">📋 Taux de présence</span>
+            <span class="db-adv-period">3 derniers mois</span>
+          </div>
+          <div class="db-presence-wrap">
+            <div v-if="loadingAvance" class="db-adv-loading">Chargement…</div>
+            <template v-else>
+              <div class="db-presence-gauge">
+                <svg width="100" height="100" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" :r="presenceGaugeR" fill="none" stroke="#f1f5f9" stroke-width="8"/>
+                  <circle cx="50" cy="50" :r="presenceGaugeR" fill="none"
+                    :stroke="presenceColor"
+                    stroke-width="8" stroke-linecap="round"
+                    :stroke-dasharray="presenceCirc"
+                    :stroke-dashoffset="presenceOffset"
+                    transform="rotate(-90 50 50)"
+                    style="transition:stroke-dashoffset 0.6s ease;"/>
+                  <text x="50" y="45" text-anchor="middle" font-size="15" font-weight="800" :fill="presenceColor">
+                    {{ tauxPresence !== null ? tauxPresence + '%' : 'N/A' }}
+                  </text>
+                  <text x="50" y="59" text-anchor="middle" font-size="7" fill="#9ca3af">présence</text>
+                </svg>
+              </div>
+              <div class="db-presence-detail">
+                <div class="db-pd-row">
+                  <span class="db-pd-dot" style="background:#22c55e;"></span>
+                  <span class="db-pd-lbl">Séances émargées</span>
+                  <strong class="db-pd-val">{{ seancesEffectuees }}</strong>
+                </div>
+                <div class="db-pd-row">
+                  <span class="db-pd-dot" style="background:#e5e7eb;"></span>
+                  <span class="db-pd-lbl">Total séances passées</span>
+                  <strong class="db-pd-val">{{ seancesTotalPassees }}</strong>
+                </div>
+                <div class="db-pd-status" :style="{ background: presenceColor + '18', color: presenceColor }">
+                  {{ tauxPresence === null ? 'Pas encore de données' : tauxPresence >= 80 ? '✅ Taux satisfaisant' : tauxPresence >= 50 ? '⚠️ À améliorer' : '🔴 Taux insuffisant' }}
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+      </div>
+
     </template>
 
   </div>
@@ -937,7 +1175,9 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
 .db-akpi { display: flex; flex-direction: column; gap: 3px; padding: 0 20px; border-right: 1px solid rgba(255,255,255,.1); }
 .db-akpi:first-child { padding-left: 0; }
 .db-akpi:last-child { border-right: none; }
-.db-akpi-val { font-size: 18px; font-weight: 800; color: #f1f5f9; }
+.db-akpi-val { font-size: 18px; font-weight: 800; color: #f1f5f9; transition: filter .25s; }
+.db-akpi-secret { transition: filter .25s; }
+.db-akpi-masked { filter: blur(6px); user-select: none; opacity: .7; }
 .db-akpi-lbl { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: .4px; }
 .db-akpi--green .db-akpi-val { color: #4ade80; }
 .db-akpi--blue  .db-akpi-val { color: #60a5fa; }
@@ -1205,4 +1445,87 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
 .db-fi-bar { flex:1; height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden; }
 .db-fi-fill { height:100%; border-radius:3px; transition:width .3s; }
 .db-fi-hours { font-size:11px; color:#64748b; font-weight:500; white-space:nowrap; }
+
+/* ══════��════════════════════════════════════��══════════════════
+   WIDGETS AVANCÉS DASHBOARD ADMIN
+═══════════════════════════════════════════════════��═══════════ */
+.db-adv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+.db-adv-card { min-height: 200px; }
+.db-adv-period { font-size: 10.5px; color: #9ca3af; font-weight: 500; }
+.db-adv-loading { padding: 24px 16px; font-size: 12px; color: #aaa; text-align: center; }
+.db-adv-empty { font-size: 12px; color: #aaa; padding: 24px 16px; text-align: center; }
+
+/* ── Graphique barres ── */
+.db-chart-wrap { padding: 14px 16px 10px; }
+.db-chart-legend {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: #9ca3af; margin-top: 4px;
+}
+.db-chart-totals {
+  display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;
+}
+.db-chart-month-pill {
+  display: flex; flex-direction: column; align-items: center;
+  background: #f9fafb; border: 1px solid #f0f0f0;
+  border-radius: 8px; padding: 6px 10px; min-width: 70px;
+}
+.db-cmp-label { font-size: 10px; color: #9ca3af; text-transform: capitalize; }
+.db-cmp-val { font-size: 11.5px; font-weight: 700; color: #111; margin-top: 2px; }
+
+/* ── Remplissage classes ── */
+.db-fill-list { padding: 8px 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+.db-fill-row { display: flex; align-items: center; gap: 8px; }
+.db-fill-info { display: flex; flex-direction: column; min-width: 100px; }
+.db-fill-nom { font-size: 11.5px; font-weight: 600; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
+.db-fill-count { font-size: 10px; color: #9ca3af; }
+.db-fill-track { flex: 1; height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; }
+.db-fill-bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+.db-fill-pct { font-size: 11px; font-weight: 700; min-width: 34px; text-align: right; }
+
+/* ── Top retards ── */
+.db-retard-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px; border-bottom: 1px solid #f5f5f5;
+  cursor: pointer; transition: background 0.12s;
+}
+.db-retard-row:hover { background: #fff9f9; }
+.db-retard-rank {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #f1f5f9; display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #6b7280; flex-shrink: 0;
+}
+.db-retard-rank--1 { background: #fef2f2; color: #E30613; }
+.db-retard-rank--2 { background: #fff7ed; color: #f97316; }
+.db-retard-info { flex: 1; min-width: 0; }
+.db-retard-nom { font-size: 12px; font-weight: 600; color: #111; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.db-retard-num { font-size: 10px; color: #9ca3af; }
+.db-retard-amounts { text-align: right; }
+.db-retard-montant { font-size: 12px; font-weight: 700; color: #E30613; display: block; }
+.db-retard-mois { font-size: 10px; color: #9ca3af; }
+
+/* ── Présence gauge ── */
+.db-presence-wrap { display: flex; align-items: center; gap: 16px; padding: 14px 16px; }
+.db-presence-gauge { flex-shrink: 0; }
+.db-presence-detail { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.db-pd-row { display: flex; align-items: center; gap: 6px; font-size: 11.5px; }
+.db-pd-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.db-pd-lbl { flex: 1; color: #6b7280; }
+.db-pd-val { font-weight: 700; color: #111; }
+.db-pd-status {
+  font-size: 11px; font-weight: 600; padding: 5px 10px;
+  border-radius: 6px; margin-top: 4px; text-align: center;
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .db-adv-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .db-presence-wrap { flex-direction: column; align-items: flex-start; }
+}
 </style>

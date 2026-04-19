@@ -42,6 +42,25 @@ interface Vacation {
   paye_at: string | null
   reference_paiement: string | null
   note: string | null
+  type_formation_id: number | null
+  type_formation_libelle: string | null
+  type_formation_libelle_resolved?: string | null
+}
+
+interface VacationGroupe {
+  enseignant_id: number
+  enseignant_nom: string
+  enseignant_prenom: string
+  specialite: string
+  grade: string
+  type_contrat: string
+  mois: string
+  lignes: Vacation[]
+  total_heures: number
+  total_montant: number
+  tout_en_attente: boolean
+  tout_valide: boolean
+  tout_paye: boolean
 }
 
 interface Resume {
@@ -57,12 +76,13 @@ interface Resume {
 }
 
 const loading = ref(false)
+const loadError = ref('')
 const vacations = ref<Vacation[]>([])
 const resume = ref<Resume | null>(null)
-const annees = ref<{ id: number; libelle: string }[]>([])
+const annees = ref<{ id: number; libelle: string; actif?: boolean }[]>([])
 const enseignants = ref<{ id: number; nom: string; prenom: string; tarif_horaire: number }[]>([])
 
-const moisSelectionne = ref(new Date().toISOString().slice(0, 7))
+const moisSelectionne = ref('')   // vide = pas de filtre mois par défaut → tout afficher
 const filterAnnee = ref<number | null>(null)
 const filterStatut = ref('')
 const search = ref('')
@@ -133,10 +153,48 @@ const vacationsFiltrees = computed(() => {
   return list
 })
 
+// Grouper les lignes par enseignant+mois pour affichage en tableau hiérarchique
+const vacationsGroupees = computed((): VacationGroupe[] => {
+  const map = new Map<string, VacationGroupe>()
+  for (const v of vacationsFiltrees.value) {
+    const key = `${v.enseignant_id}_${v.mois}`
+    if (!map.has(key)) {
+      map.set(key, {
+        enseignant_id: v.enseignant_id,
+        enseignant_nom: v.enseignant_nom,
+        enseignant_prenom: v.enseignant_prenom,
+        specialite: v.specialite,
+        grade: v.grade,
+        type_contrat: v.type_contrat,
+        mois: v.mois,
+        lignes: [],
+        total_heures: 0,
+        total_montant: 0,
+        tout_en_attente: true,
+        tout_valide: false,
+        tout_paye: false,
+      })
+    }
+    const g = map.get(key)!
+    g.lignes.push(v)
+    g.total_heures += Number(v.nb_heures)
+    g.total_montant += Number(v.montant)
+  }
+  // Recalculer les drapeaux de statut
+  for (const g of map.values()) {
+    g.tout_en_attente = g.lignes.every(l => l.statut === 'en_attente')
+    g.tout_valide     = g.lignes.every(l => l.statut === 'validee' || l.statut === 'payee')
+    g.tout_paye       = g.lignes.every(l => l.statut === 'payee')
+  }
+  return [...map.values()]
+})
+
 const resumeFiltre = computed(() => {
   const list = vacationsFiltrees.value
+  const ensDistincts = new Set(list.map(v => `${v.enseignant_id}_${v.mois}`)).size
   return {
-    total: list.length,
+    total: ensDistincts,          // nb d'enseignants (groupes)
+    nb_lignes: list.length,
     total_heures: list.reduce((s, v) => s + Number(v.nb_heures), 0),
     total_montant: list.reduce((s, v) => s + Number(v.montant), 0),
     montant_en_attente: list.filter(v => v.statut === 'en_attente').reduce((s, v) => s + Number(v.montant), 0),
@@ -150,6 +208,7 @@ const resumeFiltre = computed(() => {
 
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     const [vRes, aRes, eRes] = await Promise.all([
       api.get('/vacations', { params: {
@@ -159,11 +218,23 @@ async function load() {
       api.get('/annees-academiques'),
       api.get('/enseignants'),
     ])
-    vacations.value = vRes.data
+    vacations.value = Array.isArray(vRes.data) ? vRes.data : []
     annees.value = aRes.data
+
+    // Pré-sélectionner l'année académique active dans les modals (si pas encore sélectionnée)
+    const anneeActive = (aRes.data as any[]).find((a: any) => a.actif)
+    if (anneeActive) {
+      if (!genererAnnee.value) genererAnnee.value = anneeActive.id
+      // Ne pas écraser filterAnnee si déjà choisi
+      if (filterAnnee.value === null) filterAnnee.value = anneeActive.id
+    }
+
     enseignants.value = (eRes.data.data ?? eRes.data).map((e: any) => ({
       id: e.id, nom: e.nom, prenom: e.prenom, tarif_horaire: e.tarif_horaire || 0
     }))
+  } catch (err: any) {
+    loadError.value = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Erreur de chargement'
+    vacations.value = []
   } finally {
     loading.value = false
   }
@@ -274,6 +345,47 @@ async function confirmerPaiement() {
   }
 }
 
+// Valider toutes les lignes en_attente d'un groupe enseignant
+async function validerGroupe(g: VacationGroupe) {
+  const lignesAttendu = g.lignes.filter(l => l.statut === 'en_attente')
+  if (!lignesAttendu.length) return
+  const total = formatFCFA(g.total_montant)
+  if (!confirm(`Valider toutes les vacations de ${g.enseignant_prenom} ${g.enseignant_nom} (${total}) ?`)) return
+  for (const l of lignesAttendu) {
+    try { await api.post(`/vacations/${l.id}/valider`, {}) } catch { /* continue */ }
+  }
+  await load()
+}
+
+// Ouvrir la modale de paiement pour tout le groupe (référence commune)
+const showPayerGroupeModal = ref(false)
+const payerGroupeTarget = ref<VacationGroupe | null>(null)
+const payerGroupeRef = ref('')
+const payerGroupeLoading = ref(false)
+
+function openPayerGroupe(g: VacationGroupe) {
+  payerGroupeTarget.value = g
+  payerGroupeRef.value = ''
+  showPayerGroupeModal.value = true
+}
+
+async function confirmerPaiementGroupe() {
+  if (!payerGroupeTarget.value) return
+  payerGroupeLoading.value = true
+  const lignesValidees = payerGroupeTarget.value.lignes.filter(l => l.statut === 'validee')
+  try {
+    for (const l of lignesValidees) {
+      await api.post(`/vacations/${l.id}/payer`, { reference_paiement: payerGroupeRef.value || undefined })
+    }
+    showPayerGroupeModal.value = false
+    await load()
+  } catch (err: any) {
+    alert(err?.response?.data?.error || 'Erreur')
+  } finally {
+    payerGroupeLoading.value = false
+  }
+}
+
 async function supprimer(v: Vacation) {
   if (!confirm(`Supprimer la vacation de ${v.enseignant_prenom} ${v.enseignant_nom} ?`)) return
   actionLoading.value = v.id
@@ -316,6 +428,7 @@ function onEnseignantChange() {
 
 function exportExcel() {
   const list = vacationsFiltrees.value
+  const moisLabel = moisSelectionne.value ? formatMois(moisSelectionne.value) : 'Tous les mois'
   const rows = list.map(v => ({
     'Enseignant': `${v.enseignant_prenom} ${v.enseignant_nom}`,
     'Spécialité': v.specialite || '',
@@ -335,7 +448,7 @@ function exportExcel() {
 
   const r = resumeFiltre.value
   const summary = [
-    [`Bordereau Vacations — ${formatMois(moisSelectionne.value)}`],
+    [`Bordereau Vacations — ${moisSelectionne.value ? formatMois(moisSelectionne.value) : 'Tous les mois'}`],
     [],
     ['Total enseignants', r.total],
     ['Total heures', r.total_heures],
@@ -351,7 +464,7 @@ function exportExcel() {
   ws['!cols'] = [{ wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 20 }]
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Résumé')
   XLSX.utils.book_append_sheet(wb, ws, 'Détail vacations')
-  XLSX.writeFile(wb, `vacations_${moisSelectionne.value}.xlsx`)
+  XLSX.writeFile(wb, `vacations_${moisSelectionne.value || 'tous'}.xlsx`)
 }
 
 // ── Chargement logo en base64 ─────────────────────────────────────────────────
@@ -405,7 +518,7 @@ async function exportPDF() {
   // ── En-tête ──
   addPDFHeader(doc, logo, pageW, 'BORDEREAU DE PAIEMENT DES VACATIONS', dateGen)
   doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(200, 210, 230)
-  doc.text(`Mois : ${formatMois(moisSelectionne.value).toUpperCase()}   |   Édité le ${dateGen}`, 65, 23)
+  doc.text(`Mois : ${(moisSelectionne.value ? formatMois(moisSelectionne.value) : 'Tous les mois').toUpperCase()}   |   Édité le ${dateGen}`, 65, 23)
 
   // ── KPIs ──
   const kpis: { label: string; val: string; color?: [number,number,number] }[] = [
@@ -636,6 +749,7 @@ onMounted(load)
       <div class="uc-kpi-card">
         <div class="uc-kpi-label">Enseignants</div>
         <div class="uc-kpi-value">{{ resumeFiltre.total }}</div>
+        <div style="font-size:10px;color:#94a3b8;margin-top:2px;">{{ resumeFiltre.nb_lignes }} ligne(s)</div>
       </div>
       <div class="uc-kpi-card">
         <div class="uc-kpi-label">Total heures</div>
@@ -662,19 +776,23 @@ onMounted(load)
       </div>
     </div>
 
-    <!-- Chargement / vide -->
+    <!-- Chargement / erreur / vide -->
     <div v-if="loading" class="uc-empty">Chargement…</div>
-    <div v-else-if="vacationsFiltrees.length === 0" class="uc-empty">
-      Aucune vacation trouvée.<br>
-      <span style="font-size:12px;">Utilisez "Générer depuis séances" pour créer automatiquement les vacations du mois.</span>
+    <div v-else-if="loadError" class="uc-alert uc-alert-danger" style="margin-bottom:16px;">
+      ⚠️ Erreur : {{ loadError }}
+      <button @click="load" style="margin-left:12px;padding:4px 10px;border-radius:5px;border:1px solid #E30613;background:#fff;color:#E30613;cursor:pointer;font-size:12px;">Réessayer</button>
+    </div>
+    <div v-else-if="vacationsGroupees.length === 0" class="uc-empty">
+      Aucune vacation trouvée{{ moisSelectionne ? ` pour ${formatMois(moisSelectionne)}` : '' }}.<br>
+      <span style="font-size:12px;">Utilisez "Générer depuis séances" pour créer automatiquement les vacations du mois, ou changez le filtre mois.</span>
     </div>
 
-    <!-- Tableau -->
+    <!-- Tableau groupé par enseignant -->
     <div v-else class="uc-table-wrap">
-      <table class="uc-table">
+      <table class="uc-table vac-table">
         <thead>
           <tr>
-            <th>Enseignant</th>
+            <th>Enseignant / Type de formation</th>
             <th>Mois</th>
             <th style="text-align:center;">Heures</th>
             <th style="text-align:right;">Tarif/h</th>
@@ -684,77 +802,136 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="v in vacationsFiltrees" :key="v.id">
-            <td>
-              <div style="font-weight:600;color:#1e293b;">{{ v.enseignant_prenom }} {{ v.enseignant_nom }}</div>
-              <div style="font-size:10px;color:#94a3b8;">{{ v.specialite || v.type_contrat || '—' }}</div>
-              <div v-if="v.grade" style="font-size:10px;color:#64748b;">{{ v.grade }}</div>
-            </td>
-            <td style="font-weight:600;color:#334155;">{{ formatMois(v.mois) }}</td>
-            <td style="text-align:center;font-weight:700;">{{ Number(v.nb_heures).toFixed(1) }}h</td>
-            <td style="text-align:right;">
-              <span v-if="Number(v.tarif_horaire) === 0"
-                @click="openTarif(v)"
-                title="Tarif non configuré — cliquer pour corriger"
-                style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;">
-                ⚠️ Tarif non défini
-              </span>
-              <span v-else style="color:#475569;">{{ formatFCFA(v.tarif_horaire) }}</span>
-            </td>
-            <td style="text-align:right;font-weight:700;">
-              <span v-if="Number(v.montant) === 0" style="color:#dc2626;">0 FCFA</span>
-              <span v-else>{{ formatFCFA(v.montant) }}</span>
-            </td>
-            <td style="text-align:center;">
-              <span :style="{
-                display:'inline-flex',alignItems:'center',gap:'5px',
-                padding:'3px 10px',borderRadius:'20px',fontSize:'11px',fontWeight:'700',
-                background: statutColors[v.statut]?.bg,
-                color: statutColors[v.statut]?.text,
-              }">
-                <span :style="{ width:'7px',height:'7px',borderRadius:'50%',background:statutColors[v.statut]?.dot,display:'inline-block' }"></span>
-                {{ statutLabels[v.statut] }}
-              </span>
-              <div v-if="v.valide_at" style="font-size:10px;color:#94a3b8;margin-top:3px;">
-                {{ new Date(v.valide_at).toLocaleDateString('fr-FR') }}
-              </div>
-              <div v-if="v.reference_paiement" style="font-size:10px;color:#16a34a;margin-top:2px;">Réf: {{ v.reference_paiement }}</div>
-            </td>
-            <td style="text-align:center;">
-              <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
-                <button v-if="v.statut === 'en_attente' && canValidate" @click="openEdit(v)" class="uc-btn-xs">✏️ Modifier</button>
-                <button v-if="v.statut === 'en_attente' && canValidate" @click="valider(v)"
-                  :disabled="actionLoading === v.id" class="uc-btn-xs" style="background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe;">
-                  ✓ Valider
-                </button>
-                <button v-if="v.statut === 'validee' && canValidate" @click="openPayer(v)"
-                  class="uc-btn-xs" style="background:#f0fdf4;color:#166534;border-color:#bbf7d0;">
-                  💳 Payer
-                </button>
-                <button v-if="v.statut === 'en_attente' && canValidate" @click="supprimer(v)"
-                  :disabled="actionLoading === v.id" class="uc-btn-xs" style="background:#fef2f2;color:#dc2626;border-color:#fecaca;">
-                  🗑️
-                </button>
-                <!-- Fiche de paiement — vacations validées ou payées -->
-                <button v-if="v.statut === 'validee' || v.statut === 'payee'" @click="fichePaiement(v)"
-                  class="uc-btn-xs" style="background:#f0fdf4;color:#166534;border-color:#bbf7d0;">
-                  🧾 Fiche
-                </button>
-                <!-- Correction tarif — DG uniquement, tous statuts -->
-                <button v-if="auth.user?.role === 'dg' && (!v.tarif_horaire || Number(v.tarif_horaire) === 0)" @click="openTarif(v)"
-                  class="uc-btn-xs" style="background:#fef3c7;color:#92400e;border-color:#fde68a;">
-                  ⚠️ Corriger taux
-                </button>
-                <button v-else-if="auth.user?.role === 'dg' && v.statut !== 'en_attente'" @click="openTarif(v)"
-                  class="uc-btn-xs" style="background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe;">
-                  🔧 Tarif
-                </button>
-              </div>
-            </td>
-          </tr>
+          <template v-for="g in vacationsGroupees" :key="`g_${g.enseignant_id}_${g.mois}`">
+            <!-- ── Ligne enseignant (en-tête de groupe) ── -->
+            <tr class="vac-row-group">
+              <td>
+                <div style="font-weight:700;color:#1e293b;font-size:13px;">
+                  {{ g.enseignant_prenom }} {{ g.enseignant_nom }}
+                </div>
+                <div style="font-size:10px;color:#94a3b8;">
+                  {{ g.specialite || g.type_contrat || '—' }}
+                  <span v-if="g.grade"> · {{ g.grade }}</span>
+                </div>
+              </td>
+              <td style="font-weight:600;color:#334155;">{{ formatMois(g.mois) }}</td>
+              <td style="text-align:center;font-weight:700;">{{ g.total_heures.toFixed(1) }}h</td>
+              <td style="text-align:right;color:#94a3b8;font-size:11px;">{{ g.lignes.length }} type(s)</td>
+              <td style="text-align:right;font-weight:800;color:#1e293b;">{{ formatFCFA(g.total_montant) }}</td>
+              <td style="text-align:center;">
+                <span v-if="g.tout_paye" class="vac-badge vac-badge--paye">● Tout payé</span>
+                <span v-else-if="g.tout_valide" class="vac-badge vac-badge--valide">● Tout validé</span>
+                <span v-else-if="g.tout_en_attente" class="vac-badge vac-badge--attente">● En attente</span>
+                <span v-else class="vac-badge vac-badge--mixte">⚡ Partiel</span>
+              </td>
+              <td style="text-align:center;">
+                <div style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;">
+                  <!-- Valider tout le groupe -->
+                  <button v-if="g.tout_en_attente && canValidate" @click="validerGroupe(g)"
+                    class="uc-btn-xs" style="background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe;">
+                    ✓ Valider tout
+                  </button>
+                  <!-- Payer tout le groupe -->
+                  <button v-if="g.tout_valide && !g.tout_paye && canValidate" @click="openPayerGroupe(g)"
+                    class="uc-btn-xs" style="background:#f0fdf4;color:#166534;border-color:#bbf7d0;">
+                    💳 Payer tout
+                  </button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- ── Lignes détail par type de formation ── -->
+            <tr v-for="v in g.lignes" :key="v.id" class="vac-row-detail">
+              <td style="padding-left:28px;">
+                <span class="vac-type-pill">
+                  {{ v.type_formation_libelle_resolved || v.type_formation_libelle || '—' }}
+                </span>
+                <span v-if="v.note" style="font-size:10px;color:#94a3b8;margin-left:6px;">{{ v.note }}</span>
+              </td>
+              <td></td>
+              <td style="text-align:center;color:#475569;">{{ Number(v.nb_heures).toFixed(1) }}h</td>
+              <td style="text-align:right;">
+                <span v-if="Number(v.tarif_horaire) === 0"
+                  @click="openTarif(v)" title="Tarif non configuré — cliquer pour corriger"
+                  style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;">
+                  ⚠️ Tarif non défini
+                </span>
+                <span v-else style="color:#475569;font-size:12px;">{{ formatFCFA(v.tarif_horaire) }}/h</span>
+              </td>
+              <td style="text-align:right;font-weight:600;color:#374151;">{{ formatFCFA(v.montant) }}</td>
+              <td style="text-align:center;">
+                <span :style="{
+                  display:'inline-flex',alignItems:'center',gap:'5px',
+                  padding:'2px 8px',borderRadius:'20px',fontSize:'10px',fontWeight:'700',
+                  background: statutColors[v.statut]?.bg,
+                  color: statutColors[v.statut]?.text,
+                }">
+                  <span :style="{ width:'6px',height:'6px',borderRadius:'50%',background:statutColors[v.statut]?.dot,display:'inline-block' }"></span>
+                  {{ statutLabels[v.statut] }}
+                </span>
+                <div v-if="v.valide_at" style="font-size:10px;color:#94a3b8;margin-top:2px;">
+                  {{ new Date(v.valide_at).toLocaleDateString('fr-FR') }}
+                </div>
+                <div v-if="v.reference_paiement" style="font-size:10px;color:#16a34a;margin-top:1px;">
+                  Réf: {{ v.reference_paiement }}
+                </div>
+              </td>
+              <td style="text-align:center;">
+                <div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap;">
+                  <button v-if="v.statut === 'en_attente' && canValidate" @click="openEdit(v)" class="uc-btn-xs">✏️</button>
+                  <button v-if="v.statut === 'en_attente' && canValidate" @click="valider(v)"
+                    :disabled="actionLoading === v.id" class="uc-btn-xs" style="background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe;">
+                    ✓
+                  </button>
+                  <button v-if="v.statut === 'validee' && canValidate" @click="openPayer(v)"
+                    class="uc-btn-xs" style="background:#f0fdf4;color:#166534;border-color:#bbf7d0;">
+                    💳
+                  </button>
+                  <button v-if="v.statut === 'en_attente' && canValidate" @click="supprimer(v)"
+                    :disabled="actionLoading === v.id" class="uc-btn-xs" style="background:#fef2f2;color:#dc2626;border-color:#fecaca;">
+                    🗑️
+                  </button>
+                  <button v-if="(v.statut === 'validee' || v.statut === 'payee')" @click="fichePaiement(v)"
+                    class="uc-btn-xs" style="background:#f0fdf4;color:#166534;border-color:#bbf7d0;">
+                    🧾
+                  </button>
+                  <button v-if="auth.user?.role === 'dg' && (!v.tarif_horaire || Number(v.tarif_horaire) === 0)" @click="openTarif(v)"
+                    class="uc-btn-xs" style="background:#fef3c7;color:#92400e;border-color:#fde68a;">
+                    ⚠️
+                  </button>
+                  <button v-else-if="auth.user?.role === 'dg' && v.statut !== 'en_attente'" @click="openTarif(v)"
+                    class="uc-btn-xs" style="background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe;">
+                    🔧
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>
+
+    <!-- Modal paiement groupe -->
+    <UcModal v-model="showPayerGroupeModal" title="Confirmer le paiement" width="420px">
+      <div v-if="payerGroupeTarget" style="font-size:13px;color:#374151;line-height:1.6;">
+        Payer toutes les vacations de
+        <strong>{{ payerGroupeTarget.enseignant_prenom }} {{ payerGroupeTarget.enseignant_nom }}</strong>
+        pour {{ formatMois(payerGroupeTarget.mois) }} ?<br>
+        <strong style="font-size:16px;color:#1e293b;">Total : {{ formatFCFA(payerGroupeTarget.total_montant) }}</strong>
+        <div style="margin-top:6px;font-size:11px;color:#64748b;">
+          {{ payerGroupeTarget.lignes.filter(l=>l.statut==='validee').length }} ligne(s) validée(s) à payer
+        </div>
+      </div>
+      <UcFormGroup label="Référence de paiement" style="margin-top:14px;">
+        <input v-model="payerGroupeRef" class="uc-input" placeholder="N° chèque, virement…" />
+      </UcFormGroup>
+      <template #footer>
+        <button @click="showPayerGroupeModal = false" class="uc-btn-outline">Annuler</button>
+        <button @click="confirmerPaiementGroupe" :disabled="payerGroupeLoading" class="uc-btn-primary" style="background:#16a34a;">
+          {{ payerGroupeLoading ? 'Traitement…' : '💳 Confirmer le paiement' }}
+        </button>
+      </template>
+    </UcModal>
 
     <!-- Modal Générer -->
     <UcModal v-model="showGenererModal" title="Générer les vacations"
@@ -886,3 +1063,50 @@ onMounted(load)
     </UcModal>
   </div>
 </template>
+
+<style scoped>
+/* ── Tableau groupé vacations ── */
+.vac-table tbody tr.vac-row-group {
+  background: #f8fafc;
+  border-top: 2px solid #e2e8f0;
+}
+.vac-table tbody tr.vac-row-group td {
+  padding: 10px 12px;
+}
+.vac-table tbody tr.vac-row-detail {
+  background: #fff;
+}
+.vac-table tbody tr.vac-row-detail td {
+  padding: 7px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.vac-table tbody tr.vac-row-detail:last-of-type td {
+  border-bottom: 2px solid #e2e8f0;
+}
+
+/* Pilule type de formation */
+.vac-type-pill {
+  display: inline-block;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Badges statut groupe */
+.vac-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+.vac-badge--attente { background: #fffbeb; color: #92400e; }
+.vac-badge--valide  { background: #eff6ff; color: #1d4ed8; }
+.vac-badge--paye    { background: #f0fdf4; color: #166534; }
+.vac-badge--mixte   { background: #f5f3ff; color: #6d28d9; }
+</style>

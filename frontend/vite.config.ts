@@ -104,4 +104,30 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  build: {
+    // 1 MB : on limite la charge d'un seul chunk, les gros libs (xlsx, jspdf, exceljs…)
+    // sont isolées via manualChunks ci-dessous et chargées dynamiquement côté vues.
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          // Libs lourdes → chunks dédiés, chargées uniquement quand la vue correspondante est ouverte.
+          if (id.includes('exceljs')) return 'vendor-exceljs'
+          if (id.includes('xlsx')) return 'vendor-xlsx'
+          if (id.includes('jspdf-autotable')) return 'vendor-jspdf-autotable'
+          if (id.includes('jspdf')) return 'vendor-jspdf'
+          if (id.includes('html2canvas')) return 'vendor-html2canvas'
+          if (id.includes('chart.js') || id.includes('vue-chartjs')) return 'vendor-chart'
+          if (id.includes('docx-templates') || id.includes('docx')) return 'vendor-docx'
+          if (id.includes('qrcode')) return 'vendor-qrcode'
+          if (id.includes('dompurify') || id.includes('purify')) return 'vendor-purify'
+          // Tronc commun Vue — déjà implicite mais on le nomme pour clarté dans les reports
+          if (id.includes('/vue/') || id.includes('@vue/') || id.includes('vue-router') || id.includes('pinia')) {
+            return 'vendor-vue'
+          }
+        },
+      },
+    },
+  },
 })

@@ -111,6 +111,12 @@ const hasUeGroupes = computed(() => uesVisibleGroupes.value.some(g => g.code !==
 // Semestres disponibles (pour le filtre)
 const semestresDisponibles = computed(() => [...new Set(ues.value.map(u => (u as any).semestre ?? 1))].sort() as number[])
 
+// Position sticky top pour la ligne des EC (décalée si une ligne de groupe est visible)
+const ecRowTop = computed(() =>
+  (hasUeGroupes.value || (filterSemestre.value === null && semestresDisponibles.value.length > 1))
+    ? '32px' : '0px'
+)
+
 // Grille notes [inscription_id][ue_id] = valeur
 const localNotes = ref<Record<number, Record<number, string>>>({})
 
@@ -742,6 +748,8 @@ async function deleteUe(ue: UE) {
 const showBulletin = ref(false)
 const bulletin = ref<Bulletin | null>(null)
 const loadingBulletin = ref(false)
+const envoyantBulletinId = ref<number | null>(null)
+const envoyiMsg = ref('')
 
 async function voirBulletin(insc: Inscription) {
   loadingBulletin.value = true
@@ -752,9 +760,39 @@ async function voirBulletin(insc: Inscription) {
   } finally { loadingBulletin.value = false }
 }
 
-async function exportBulletinPdf() {
-  const b = bulletin.value
+// ─── Envoi du bulletin par email (DG uniquement) ──────────────────────
+async function envoyerBulletin(insc: Inscription) {
+  envoyantBulletinId.value = insc.id
+  envoyiMsg.value = ''
+  try {
+    // 1. Charger les données du bulletin
+    const { data: b } = await api.get(`/notes/bulletin/${insc.id}`)
+
+    // 2. Générer le PDF avec signature DG
+    const nomDg = `${auth.user?.prenom ?? ''} ${auth.user?.nom ?? ''}`.trim()
+    const pdfBase64 = await generateBulletinBase64(b, nomDg)
+    if (!pdfBase64) { envoyiMsg.value = 'Erreur génération PDF.'; return }
+
+    // 3. Envoyer via l'API
+    await api.post(`/notes/bulletin/${insc.id}/envoyer`, { pdf_base64: pdfBase64, nom_dg: nomDg })
+    envoyiMsg.value = `✅ Bulletin envoyé à ${insc.etudiant.prenom} ${insc.etudiant.nom}`
+  } catch (e: any) {
+    envoyiMsg.value = `❌ ${e?.response?.data?.message ?? 'Erreur envoi'}`
+  } finally {
+    envoyantBulletinId.value = null
+    setTimeout(() => { envoyiMsg.value = '' }, 5000)
+  }
+}
+
+// Wrapper pour la génération base64 (envoi email DG)
+async function generateBulletinBase64(b: any, nomDg: string): Promise<string> {
+  return (await exportBulletinPdf({ returnBase64: true, nomDg, bulletinData: b })) as string
+}
+
+async function exportBulletinPdf(opts?: { returnBase64?: boolean; nomDg?: string; bulletinData?: any }): Promise<string | void> {
+  const b = opts?.bulletinData ?? bulletin.value
   if (!b) return
+  const nomDg = opts?.nomDg ?? ''
 
   const etd = b.inscription?.etudiant
   const nom = `${etd?.prenom ?? ''} ${etd?.nom ?? ''}`.toUpperCase().trim()
@@ -1065,9 +1103,19 @@ async function exportBulletinPdf() {
       doc.setFontSize(8); doc.setFont('times', 'normal')
       const labels = ['Le Directeur Pédagogique', 'Le Directeur Général', "Cachet de l'établissement"]
       doc.text(labels[i] ?? '', x, sigY + 4, { align: 'center' })
+      // Signature numérique DG
+      if (i === 1 && nomDg) {
+        doc.setFontSize(7.5); doc.setFont('times', 'bold')
+        doc.text(nomDg, x, sigY + 9, { align: 'center' })
+        doc.setFontSize(7); doc.setFont('times', 'italic')
+        doc.text('Directeur Général', x, sigY + 13, { align: 'center' })
+        doc.setFont('times', 'normal')
+        doc.text(new Date().toLocaleDateString('fr-FR'), x, sigY + 17, { align: 'center' })
+      }
     })
 
     const semLabel = bulletinSemestre.value !== null ? `-S${bulletinSemestre.value}` : ''
+    if (opts?.returnBase64) return doc.output('datauristring').split(',')[1]
     doc.save(`releve-notes-${nom.replace(/\s+/g, '-')}${semLabel}.pdf`)
     return
   }
@@ -1329,8 +1377,18 @@ async function exportBulletinPdf() {
       doc.line(mL + i * col2 + 5, sigY2, mL + (i + 1) * col2 - 5, sigY2)
       doc.setFontSize(8); doc.setFont('times', 'normal')
       doc.text(label, x, sigY2 + 4, { align: 'center' })
+      // Signature numérique DG
+      if (i === 1 && nomDg) {
+        doc.setFontSize(7.5); doc.setFont('times', 'bold')
+        doc.text(nomDg, x, sigY2 + 9, { align: 'center' })
+        doc.setFontSize(7); doc.setFont('times', 'italic')
+        doc.text('Directeur General', x, sigY2 + 13, { align: 'center' })
+        doc.setFont('times', 'normal')
+        doc.text(new Date().toLocaleDateString('fr-FR'), x, sigY2 + 17, { align: 'center' })
+      }
     })
 
+    if (opts?.returnBase64) return doc.output('datauristring').split(',')[1]
     doc.save(`releve-notes-FP-${nom.replace(/\s+/g, '-')}.pdf`)
   }
 }
@@ -2890,13 +2948,20 @@ watch(filterSession, () => {
               @click="filterSemestre = s"
               :class="['nb-session-btn', filterSemestre === s ? 'nb-session-btn--active' : '']">S{{ s }}</button>
           </div>
-          <div style="display:flex;align-items:center;gap:10px;margin-left:auto;">
-            <span v-if="saved" class="nb-saved-badge">✓ Enregistré</span>
-            <button v-if="canWrite" @click="enregistrerNotes" :disabled="saving" class="nb-btn-save-notes">
-              {{ saving ? '⏳ Enregistrement…' : '💾 Enregistrer tout' }}
+        </div>
+
+        <!-- Bouton flottant Enregistrer tout – toujours visible -->
+        <Teleport to="body">
+          <div v-if="canWrite && filterClasse && activeTab === 'saisie'" class="nb-save-float">
+            <transition name="nb-fade">
+              <span v-if="saved" class="nb-saved-badge" style="white-space:nowrap;">✓ Enregistré</span>
+            </transition>
+            <button @click="enregistrerNotes" :disabled="saving" class="nb-btn-save-notes nb-btn-save-float-btn">
+              <span style="font-size:16px;line-height:1;">💾</span>
+              {{ saving ? 'Enregistrement…' : 'Enregistrer tout' }}
             </button>
           </div>
-        </div>
+        </Teleport>
         <div v-if="!ues.length" class="nb-empty-ues">
           Aucune UE configurée.
           <button v-if="canWrite" @click="openUeCreate" class="nb-link-btn">Créer des UEs →</button>
@@ -2907,34 +2972,35 @@ watch(filterSession, () => {
             <thead>
               <!-- Ligne groupes UE (si des groupes sont définis) -->
               <tr v-if="hasUeGroupes">
-                <th class="nb-th-sticky"></th>
+                <th class="nb-th-sticky" style="position:sticky;top:0;left:0;z-index:6;background:#f9f9f9;"></th>
                 <template v-for="g in uesVisibleGroupes" :key="g.code ?? '__none__'">
                   <th :colspan="g.count"
                     class="nb-th-group"
                     :style="g.code
-                      ? 'background:#eef2ff;color:#4338ca;border-bottom:2px solid #c7d2fe;font-weight:700;'
-                      : 'background:#f9fafb;color:#9ca3af;border-bottom:2px solid #e5e7eb;font-weight:400;font-style:italic;'">
+                      ? 'position:sticky;top:0;z-index:3;background:#eef2ff;color:#4338ca;border-bottom:2px solid #c7d2fe;font-weight:700;'
+                      : 'position:sticky;top:0;z-index:3;background:#f9fafb;color:#9ca3af;border-bottom:2px solid #e5e7eb;font-weight:400;font-style:italic;'">
                     {{ g.code ? `${g.code} — ${g.intitule}` : 'Sans groupe' }}
                   </th>
                 </template>
-                <th></th>
+                <th style="position:sticky;top:0;z-index:3;background:#f9f9f9;"></th>
               </tr>
               <!-- Groupement par semestre si tous les semestres affichés et pas de groupes UE -->
               <tr v-else-if="filterSemestre === null && semestresDisponibles.length > 1">
-                <th class="nb-th-sticky"></th>
+                <th class="nb-th-sticky" style="position:sticky;top:0;left:0;z-index:6;background:#f9f9f9;"></th>
                 <template v-for="sem in semestresDisponibles" :key="sem">
                   <th :colspan="uesVisible.filter(u => ((u as any).semestre||1) === sem).length"
                     class="nb-th-group"
-                    :style="{ background: sem===1 ? '#eff6ff' : '#f0fdf4', color: sem===1 ? '#1d4ed8' : '#15803d', borderBottom: sem===1 ? '2px solid #bfdbfe' : '2px solid #86efac' }">
+                    :style="{ position:'sticky', top:'0', zIndex:3, background: sem===1 ? '#eff6ff' : '#f0fdf4', color: sem===1 ? '#1d4ed8' : '#15803d', borderBottom: sem===1 ? '2px solid #bfdbfe' : '2px solid #86efac' }">
                     📅 Semestre {{ sem }}
                   </th>
                 </template>
-                <th></th>
+                <th style="position:sticky;top:0;z-index:3;background:#f9f9f9;"></th>
               </tr>
               <tr>
-                <th class="nb-th-sticky nb-th-etudiant">Étudiant</th>
+                <th class="nb-th-sticky nb-th-etudiant"
+                  :style="{ position:'sticky', top:ecRowTop, left:'0', zIndex:5, background:'#f9f9f9' }">Étudiant</th>
                 <th v-for="(ue, idx) in uesVisible" :key="ue.id" class="nb-th-ue"
-                  :style="{ '--ue-color': ['#6366f1','#10b981','#f97316','#3b82f6','#ec4899','#14b8a6','#f59e0b','#8b5cf6'][idx % 8] }">
+                  :style="{ '--ue-color': ['#6366f1','#10b981','#f97316','#3b82f6','#ec4899','#14b8a6','#f59e0b','#8b5cf6'][idx % 8], position:'sticky', top:ecRowTop, zIndex:2, background:'#f9f9f9' }">
                   <div class="nb-ue-header">
                     <span class="nb-ue-code">{{ ue.code }}</span>
                     <span class="nb-ue-name">{{ ue.intitule }}</span>
@@ -2961,7 +3027,7 @@ watch(filterSession, () => {
                     </button>
                   </div>
                 </th>
-                <th class="nb-th-moy">Moyenne</th>
+                <th class="nb-th-moy" :style="{ position:'sticky', top:ecRowTop, zIndex:2 }">Moyenne</th>
               </tr>
             </thead>
             <tbody>
@@ -3435,7 +3501,29 @@ watch(filterSession, () => {
               {{ decisionLabel(moyennePonderee(insc.id), insc.id) }}
             </span>
             <button @click="voirBulletin(insc)" class="nb-btn-bulletin">📄 Voir bulletin</button>
+            <button
+              v-if="isDG"
+              @click="envoyerBulletin(insc)"
+              :disabled="envoyantBulletinId === insc.id"
+              class="nb-btn-bulletin"
+              style="margin-top:4px;background:#0ea5e9;color:#fff;border-color:#0ea5e9;"
+              title="Envoyer le bulletin par email à l'étudiant (signature DG)"
+            >
+              {{ envoyantBulletinId === insc.id ? '⏳ Envoi…' : '📧 Envoyer' }}
+            </button>
           </div>
+        </div>
+
+        <!-- Toast feedback envoi bulletin -->
+        <div v-if="envoyiMsg" :style="{
+          position:'fixed', bottom:'20px', right:'20px', zIndex:9999,
+          background: envoyiMsg.startsWith('✅') ? '#dcfce7' : '#fee2e2',
+          color: envoyiMsg.startsWith('✅') ? '#166534' : '#991b1b',
+          border: `1px solid ${envoyiMsg.startsWith('✅') ? '#86efac' : '#fca5a5'}`,
+          borderRadius:'8px', padding:'12px 18px', fontSize:'13px', fontWeight:'600',
+          boxShadow:'0 4px 14px rgba(0,0,0,0.15)', maxWidth:'360px'
+        }">
+          {{ envoyiMsg }}
         </div>
       </div>
     </div>
@@ -3950,7 +4038,7 @@ watch(filterSession, () => {
               :class="['nb-session-btn', bulletinSemestre === s ? 'nb-session-btn--active' : '']" style="font-size:11px;padding:5px 10px;">S{{ s }}</button>
           </div>
         </div>
-        <button @click="exportBulletinPdf" class="nb-btn-pdf">📥 Télécharger PDF</button>
+        <button @click="exportBulletinPdf()" class="nb-btn-pdf">📥 Télécharger PDF</button>
         <button @click="showBulletin = false" class="nb-btn-cancel">Fermer</button>
       </template>
     </UcModal>
@@ -4097,7 +4185,7 @@ watch(filterSession, () => {
   background: #fff;
   border-radius: 14px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.07);
-  overflow: hidden;
+  /* Pas d'overflow ici : .nb-scroll-x est le seul scroll container → sticky fonctionne */
 }
 .nb-table-toolbar {
   display: flex;
@@ -4132,11 +4220,20 @@ watch(filterSession, () => {
   text-decoration: underline;
   margin-left: 6px;
 }
-.nb-scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.nb-scroll-x {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - 300px);
+  -webkit-overflow-scrolling: touch;
+}
 
 /* ── TABLE ───────────────────────────────────────────────── */
-.nb-table { width: 100%; border-collapse: collapse; }
+.nb-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+/* border-collapse:separate est obligatoire pour que position:sticky left:0
+   fonctionne sur les colonnes (bug Chrome avec border-collapse:collapse).
+   border-spacing:0 préserve l'apparence visuelle. */
 .nb-table thead tr { background: #f9f9f9; }
+.nb-table thead th { background: #f9f9f9; }
 .nb-table th {
   padding: 10px 14px;
   text-align: left;
@@ -4878,6 +4975,33 @@ watch(filterSession, () => {
 }
 .nb-btn-save-notes:disabled { opacity: 0.5; }
 
+/* Bouton flottant – toujours visible */
+.nb-save-float {
+  position: fixed;
+  top: 80px;
+  right: 28px;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.97);
+  border-radius: 14px;
+  padding: 8px 12px 8px 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0,0,0,0.07);
+}
+.nb-btn-save-float-btn {
+  padding: 10px 20px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 16px rgba(227,6,19,0.35);
+}
+.nb-fade-enter-active, .nb-fade-leave-active { transition: opacity 0.3s; }
+.nb-fade-enter-from, .nb-fade-leave-to { opacity: 0; }
+
 .nb-input {
   border: 1.5px solid #e5e5e5;
   border-radius: 6px;
@@ -4936,7 +5060,6 @@ watch(filterSession, () => {
 @media (max-width: 768px) {
   .nb-toolbar { flex-direction: column; align-items: flex-start; }
   .nb-toolbar-left { flex-direction: column; align-items: flex-start; }
-  .nb-saisie-wrap { overflow-x: auto; }
   .nb-table { min-width: 600px; }
   .nb-table-toolbar { flex-wrap: wrap; gap: 8px; }
   .nb-tabs { overflow-x: auto; }

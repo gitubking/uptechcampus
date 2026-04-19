@@ -7,10 +7,11 @@ export interface User {
   nom: string
   prenom: string
   email: string
-  role: 'dg' | 'dir_peda' | 'resp_fin' | 'coordinateur' | 'secretariat' | 'enseignant' | 'etudiant'
+  role: 'dg' | 'dir_peda' | 'resp_fin' | 'coordinateur' | 'secretariat' | 'enseignant' | 'etudiant' | 'parent'
   photo_path: string | null
   premier_connexion: boolean
   cgu_acceptees: boolean
+  totp_enabled?: boolean
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -25,11 +26,25 @@ export const useAuthStore = defineStore('auth', () => {
     () => !!user.value && (user.value.premier_connexion || !user.value.cgu_acceptees),
   )
 
-  async function login(email: string, password: string) {
+  // Retourne { requires_2fa: true, pending_token } si 2FA activée, sinon undefined
+  async function login(email: string, password: string): Promise<{ requires_2fa: boolean; pending_token?: string }> {
     const { data } = await api.post('/auth/login', { email, password })
+    if (data.requires_2fa) {
+      return { requires_2fa: true, pending_token: data.pending_token }
+    }
     token.value = data.token
     user.value = data.user
     localStorage.setItem('token', data.token)
+    return { requires_2fa: false }
+  }
+
+  // Étape 2 du login : vérification du code TOTP
+  async function verify2FA(pendingToken: string, code: string): Promise<{ used_backup: boolean }> {
+    const { data } = await api.post('/auth/2fa/verify', { pending_token: pendingToken, code })
+    token.value = data.token
+    user.value = data.user
+    localStorage.setItem('token', data.token)
+    return { used_backup: !!data.used_backup }
   }
 
   async function fetchMe() {
@@ -76,6 +91,7 @@ export const useAuthStore = defineStore('auth', () => {
     fullName,
     needsSetup,
     login,
+    verify2FA,
     fetchMe,
     logout,
     acceptCgu,

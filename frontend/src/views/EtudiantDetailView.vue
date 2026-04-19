@@ -54,7 +54,7 @@ async function confirmDeleteEtudiant() {
 // --- Données ---
 const etudiant = ref<any>(null)
 const loading = ref(true)
-const activeTab = ref<'infos' | 'inscriptions' | 'documents' | 'finance' | 'timeline' | 'commentaires' | 'parents'>('infos')
+const activeTab = ref<'infos' | 'inscriptions' | 'documents' | 'finance' | 'timeline' | 'commentaires' | 'parents' | 'exonerations'>('infos')
 const echeancesMap = ref<Record<number, any[]>>({})
 const paiementsMap = ref<Record<number, any[]>>({})
 
@@ -1615,6 +1615,166 @@ async function sendManualRelance(inscriptionId: number) {
   }
 }
 
+// ── Exonérations de l'étudiant ───────────────────────────────────────
+const exonerations = ref<any[]>([])
+const exonerationsLoading = ref(false)
+const canManageExo      = computed(() => ['dg', 'resp_fin', 'secretariat'].includes(auth.user?.role ?? ''))
+const canValidateExo    = computed(() => ['dg', 'resp_fin'].includes(auth.user?.role ?? ''))
+const canCancelExo      = computed(() => auth.user?.role === 'dg')
+
+const showExoForm = ref(false)
+const savingExo = ref(false)
+const exoError = ref('')
+const exoForm = ref({
+  inscription_id: 0,
+  motif: 'bourse_merite',
+  portee: 'mensualites_toutes',
+  mois_concerne: '',
+  mode_calcul: 'pourcentage' as 'pourcentage' | 'montant_fixe',
+  valeur: 0,
+  libelle: '',
+  date_effet: new Date().toISOString().slice(0, 10),
+  notes: '',
+})
+const EXO_MOTIFS = [
+  { code: 'bourse_merite',    label: 'Bourse de mérite' },
+  { code: 'bourse_sociale',   label: 'Bourse sociale' },
+  { code: 'convention',       label: 'Convention / Partenariat' },
+  { code: 'enfant_personnel', label: 'Enfant du personnel' },
+  { code: 'decision_dg',      label: 'Décision DG' },
+  { code: 'autre',            label: 'Autre' },
+]
+const EXO_PORTEES = [
+  { code: 'totale',                label: 'Totalité des frais' },
+  { code: 'inscription',           label: 'Inscription uniquement' },
+  { code: 'tenue',                 label: 'Tenue uniquement' },
+  { code: 'mensualites_toutes',    label: 'Toutes les mensualités' },
+  { code: 'mensualite_specifique', label: 'Mensualité spécifique' },
+]
+
+function exoMotifLabel(c: string)  { return EXO_MOTIFS.find(m => m.code === c)?.label ?? c }
+function exoPorteeLabel(c: string) { return EXO_PORTEES.find(p => p.code === c)?.label ?? c }
+function exoStatutLabel(s: string) {
+  return ({ en_attente: 'En attente', validee: 'Validée', rejetee: 'Rejetée', annulee: 'Annulée' } as Record<string,string>)[s] ?? s
+}
+function exoStatutClass(s: string) {
+  return ({
+    en_attente: 'bg-yellow-100 text-yellow-800',
+    validee:    'bg-green-100 text-green-800',
+    rejetee:    'bg-red-100 text-red-800',
+    annulee:    'bg-gray-100 text-gray-700',
+  } as Record<string,string>)[s] ?? 'bg-gray-100 text-gray-700'
+}
+function fmtExoMoney(n: number) {
+  return new Intl.NumberFormat('fr-FR').format(Math.round(n)).replace(/\u202F/g, ' ') + ' FCFA'
+}
+function fmtExoMois(d: string | null) {
+  if (!d) return ''
+  return new Date(d).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+}
+
+async function loadExonerations() {
+  if (!etudiant.value?.id) return
+  exonerationsLoading.value = true
+  try {
+    const { data } = await api.get('/exonerations', { params: { etudiant_id: etudiant.value.id } })
+    exonerations.value = data.data ?? data ?? []
+  } finally {
+    exonerationsLoading.value = false
+  }
+}
+
+function openExoForm() {
+  const inscActives = (etudiant.value?.inscriptions ?? []).filter((i: any) => i.statut === 'active' || i.statut === 'inscrit_actif' || i.statut === 'en_cours')
+  const defaultInsc = inscActives[0]?.id ?? etudiant.value?.inscriptions?.[0]?.id ?? 0
+  exoForm.value = {
+    inscription_id: defaultInsc,
+    motif: 'bourse_merite',
+    portee: 'mensualites_toutes',
+    mois_concerne: '',
+    mode_calcul: 'pourcentage',
+    valeur: 0,
+    libelle: '',
+    date_effet: new Date().toISOString().slice(0, 10),
+    notes: '',
+  }
+  exoError.value = ''
+  showExoForm.value = true
+}
+
+async function saveExo() {
+  if (!exoForm.value.inscription_id) { exoError.value = 'Inscription requise.'; return }
+  if (!(exoForm.value.valeur > 0))   { exoError.value = 'Valeur doit être > 0.'; return }
+  if (exoForm.value.mode_calcul === 'pourcentage' && exoForm.value.valeur > 100) {
+    exoError.value = 'Pourcentage ≤ 100%.'; return
+  }
+  if (exoForm.value.portee === 'mensualite_specifique' && !exoForm.value.mois_concerne) {
+    exoError.value = 'Précisez le mois concerné.'; return
+  }
+  savingExo.value = true
+  exoError.value = ''
+  try {
+    await api.post('/exonerations', {
+      ...exoForm.value,
+      mois_concerne: exoForm.value.mois_concerne || null,
+    })
+    showExoForm.value = false
+    await loadExonerations()
+  } catch (e: any) {
+    exoError.value = e.response?.data?.message ?? 'Erreur'
+  } finally {
+    savingExo.value = false
+  }
+}
+
+async function validerExo(e: any) {
+  if (!confirm(`Valider cette exonération ? Elle sera appliquée aux échéances.`)) return
+  try {
+    await api.post(`/exonerations/${e.id}/valider`)
+    await loadExonerations()
+    // Recharger les échéances du paiement
+    if (e.inscription_id) {
+      try {
+        const { data: echs } = await api.get(`/inscriptions/${e.inscription_id}/echeances`)
+        echeancesMap.value = { ...echeancesMap.value, [e.inscription_id]: echs }
+      } catch { /* noop */ }
+    }
+  } catch (err: any) {
+    alert(err.response?.data?.message ?? 'Erreur')
+  }
+}
+
+async function rejeterExo(e: any) {
+  const motif = prompt('Motif du rejet (optionnel) :') ?? ''
+  try {
+    await api.post(`/exonerations/${e.id}/rejeter`, { motif: motif || null })
+    await loadExonerations()
+  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
+}
+
+async function annulerExo(e: any) {
+  const motif = prompt('Motif de l\'annulation (optionnel) :') ?? ''
+  if (!confirm('Annuler cette exonération validée ? Les échéances seront recalculées.')) return
+  try {
+    await api.post(`/exonerations/${e.id}/annuler`, { motif: motif || null })
+    await loadExonerations()
+    if (e.inscription_id) {
+      try {
+        const { data: echs } = await api.get(`/inscriptions/${e.inscription_id}/echeances`)
+        echeancesMap.value = { ...echeancesMap.value, [e.inscription_id]: echs }
+      } catch { /* noop */ }
+    }
+  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
+}
+
+async function supprimerExo(e: any) {
+  if (!confirm('Supprimer cette exonération ?')) return
+  try {
+    await api.delete(`/exonerations/${e.id}`)
+    await loadExonerations()
+  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
+}
+
 function switchTab(key: string) {
   activeTab.value = key as any
   if (key === 'timeline' && !timeline.value.length && !timelineLoading.value) {
@@ -1625,6 +1785,9 @@ function switchTab(key: string) {
   }
   if (key === 'parents') {
     loadParents()
+  }
+  if (key === 'exonerations' && !exonerations.value.length && !exonerationsLoading.value) {
+    loadExonerations()
   }
 }
 
@@ -2380,6 +2543,7 @@ async function delierParent(lienId: number) {
           { key: 'inscriptions', label: `Inscriptions (${etudiant.inscriptions?.length ?? 0})` },
           { key: 'documents', label: `Documents (${checklistRecuCount}/${checklist.length})` },
           { key: 'finance', label: 'Finances' },
+          { key: 'exonerations', label: `🎖️ Exonérations${exonerations.length ? ` (${exonerations.length})` : ''}` },
           { key: 'timeline', label: '📅 Timeline' },
           { key: 'commentaires', label: `🗒️ Notes internes${commentaires.length ? ` (${commentaires.length})` : ''}` },
           { key: 'parents', label: `👨‍👩‍👧 Parents${parentsLies.length ? ` (${parentsLies.length})` : ''}` },
@@ -3104,6 +3268,174 @@ async function delierParent(lienId: number) {
           </div>
         </div>
 
+      </div>
+
+      <!-- ── Onglet : Exonérations ──────────────────────────────────── -->
+      <div v-else-if="activeTab === 'exonerations'">
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#1e40af;">
+          💡 Les exonérations (bourses, remises, décisions DG) sont créées ici puis validées par le DG / Resp. financier. Une exonération validée diminue automatiquement le montant dû sur les échéances concernées.
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="font-size:15px;font-weight:600;color:#111;margin:0;">Exonérations ({{ exonerations.length }})</h3>
+          <button v-if="canManageExo" @click="openExoForm"
+                  style="padding:8px 14px;background:#b91c1c;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">
+            + Nouvelle exonération
+          </button>
+        </div>
+
+        <div v-if="exonerationsLoading" class="text-sm text-gray-500 py-8 text-center">Chargement…</div>
+        <div v-else-if="exonerations.length === 0" class="text-sm text-gray-400 py-8 text-center">
+          Aucune exonération pour cet étudiant
+        </div>
+        <div v-else class="overflow-x-auto border border-gray-200 rounded-lg bg-white">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
+              <tr>
+                <th class="px-3 py-2 text-left">Motif</th>
+                <th class="px-3 py-2 text-left">Portée</th>
+                <th class="px-3 py-2 text-right">Valeur</th>
+                <th class="px-3 py-2 text-right">Appliqué</th>
+                <th class="px-3 py-2 text-left">Statut</th>
+                <th class="px-3 py-2 text-left">Demandée le</th>
+                <th class="px-3 py-2 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="exo in exonerations" :key="exo.id" class="border-t border-gray-100">
+                <td class="px-3 py-2">
+                  <div class="font-medium text-gray-900">{{ exoMotifLabel(exo.motif) }}</div>
+                  <div v-if="exo.libelle" class="text-xs text-gray-500">{{ exo.libelle }}</div>
+                </td>
+                <td class="px-3 py-2">
+                  <div>{{ exoPorteeLabel(exo.portee) }}</div>
+                  <div v-if="exo.mois_concerne" class="text-xs text-gray-500">{{ fmtExoMois(exo.mois_concerne) }}</div>
+                </td>
+                <td class="px-3 py-2 text-right font-semibold">
+                  <span v-if="exo.mode_calcul === 'pourcentage'">{{ Number(exo.valeur) }}%</span>
+                  <span v-else>{{ fmtExoMoney(Number(exo.valeur)) }}</span>
+                </td>
+                <td class="px-3 py-2 text-right font-semibold text-emerald-700">
+                  {{ Number(exo.montant_applique) > 0 ? fmtExoMoney(Number(exo.montant_applique)) : '—' }}
+                </td>
+                <td class="px-3 py-2">
+                  <span class="px-2 py-1 rounded-full text-xs font-semibold" :class="exoStatutClass(exo.statut)">
+                    {{ exoStatutLabel(exo.statut) }}
+                  </span>
+                  <div v-if="exo.statut === 'rejetee' && exo.motif_rejet" class="text-xs text-red-600 mt-1">{{ exo.motif_rejet }}</div>
+                  <div v-if="exo.statut === 'annulee' && exo.motif_annulation" class="text-xs text-gray-500 mt-1">{{ exo.motif_annulation }}</div>
+                </td>
+                <td class="px-3 py-2 text-xs text-gray-500">{{ formatEventDate(exo.created_at) }}</td>
+                <td class="px-3 py-2 text-center">
+                  <div class="flex gap-1 justify-center flex-wrap">
+                    <button v-if="canValidateExo && exo.statut === 'en_attente'"
+                            @click="validerExo(exo)"
+                            class="px-2 py-1 text-xs rounded bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100">
+                      ✓ Valider
+                    </button>
+                    <button v-if="canValidateExo && exo.statut === 'en_attente'"
+                            @click="rejeterExo(exo)"
+                            class="px-2 py-1 text-xs rounded bg-red-50 text-red-700 border border-red-200 hover:bg-red-100">
+                      ✗ Rejeter
+                    </button>
+                    <button v-if="canCancelExo && exo.statut === 'validee'"
+                            @click="annulerExo(exo)"
+                            class="px-2 py-1 text-xs rounded bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100">
+                      ↶ Annuler
+                    </button>
+                    <button v-if="canCancelExo"
+                            @click="supprimerExo(exo)"
+                            class="px-2 py-1 text-xs rounded bg-red-50 text-red-700 border border-red-200 hover:bg-red-100">
+                      🗑️
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Modal création exonération -->
+        <Teleport to="body">
+          <div v-if="showExoForm" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" @click.self="showExoForm = false">
+            <div class="bg-white rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto shadow-xl">
+              <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-base font-semibold text-gray-900">Nouvelle exonération</h3>
+                <button @click="showExoForm = false" class="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              </div>
+              <div class="px-6 py-5 space-y-4">
+                <div v-if="exoError" class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">{{ exoError }}</div>
+
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Inscription <span class="text-red-500">*</span></label>
+                  <select v-model.number="exoForm.inscription_id" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                    <option :value="0" disabled>— Choisir une inscription —</option>
+                    <option v-for="insc in (etudiant.inscriptions || [])" :key="insc.id" :value="insc.id">
+                      {{ insc.filiere?.nom || '—' }} / {{ insc.annee_academique?.libelle || '' }} ({{ insc.statut }})
+                    </option>
+                  </select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Motif <span class="text-red-500">*</span></label>
+                    <select v-model="exoForm.motif" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                      <option v-for="m in EXO_MOTIFS" :key="m.code" :value="m.code">{{ m.label }}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Portée <span class="text-red-500">*</span></label>
+                    <select v-model="exoForm.portee" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                      <option v-for="p in EXO_PORTEES" :key="p.code" :value="p.code">{{ p.label }}</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div v-if="exoForm.portee === 'mensualite_specifique'">
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Mois concerné <span class="text-red-500">*</span></label>
+                  <input v-model="exoForm.mois_concerne" type="month" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Mode de calcul <span class="text-red-500">*</span></label>
+                    <select v-model="exoForm.mode_calcul" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                      <option value="pourcentage">Pourcentage (%)</option>
+                      <option value="montant_fixe">Montant fixe (FCFA)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">
+                      {{ exoForm.mode_calcul === 'pourcentage' ? 'Pourcentage (%)' : 'Montant (FCFA)' }} <span class="text-red-500">*</span>
+                    </label>
+                    <input v-model.number="exoForm.valeur" type="number" min="0" :max="exoForm.mode_calcul === 'pourcentage' ? 100 : undefined" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                  </div>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Libellé / Justification</label>
+                  <input v-model="exoForm.libelle" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ex: Bourse d'excellence — 1er de promo" />
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Date d'effet</label>
+                  <input v-model="exoForm.date_effet" type="date" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Notes internes</label>
+                  <textarea v-model="exoForm.notes" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                </div>
+              </div>
+              <div class="px-6 py-4 border-t border-gray-200 flex justify-end gap-2 bg-gray-50 rounded-b-xl">
+                <button @click="showExoForm = false" class="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">Annuler</button>
+                <button @click="saveExo" :disabled="savingExo" class="px-4 py-2 text-sm text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50">
+                  {{ savingExo ? 'Enregistrement…' : 'Soumettre la demande' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Teleport>
       </div>
 
       <!-- ── Onglet : Parents / Tuteurs ─────────────────────────────── -->

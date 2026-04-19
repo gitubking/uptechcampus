@@ -112,6 +112,31 @@ const editingDep         = ref<Depense | null>(null)
 const formEditDep        = ref({ libelle: '', montant: '', date_depense: '', categorie: '', mode_paiement: '', beneficiaire: '', notes: '' })
 const savingEditDep      = ref(false)
 
+// Export comptabilité (modèle ANAQ-Sup)
+const showExportCompta  = ref(false)
+const exportAnnee       = ref(new Date().getFullYear())
+const exportSoldeInitial = ref(0)
+const exportingCompta   = ref(false)
+
+function openExportComptabilite() {
+  exportAnnee.value = new Date().getFullYear()
+  exportSoldeInitial.value = 0
+  showExportCompta.value = true
+}
+
+async function doExportComptabilite() {
+  exportingCompta.value = true
+  try {
+    const { exportSuiviComptabilite } = await import('@/utils/comptabiliteExport')
+    await exportSuiviComptabilite(Number(exportAnnee.value), Number(exportSoldeInitial.value) || 0)
+    showExportCompta.value = false
+  } catch (e: any) {
+    alert(e?.response?.data?.message || e?.message || 'Erreur lors de la génération de l\'export')
+  } finally {
+    exportingCompta.value = false
+  }
+}
+
 // Formulaires
 const formPersonnel = ref({ nom: '', prenom: '', poste: '', type_contrat: 'CDI', salaire_brut: '' as string | number, date_debut: '', date_fin: '', statut: 'actif', notes: '', contrat_url: '' })
 const formContrat   = ref({ libelle: '', beneficiaire: '', montant: '' as string | number, periodicite: 'mensuelle', categorie: 'prestation', date_debut: '', date_fin: '', statut: 'actif', description: '', contrat_url: '' })
@@ -779,14 +804,14 @@ function montantEnLettres(n: number): string {
   const u = ['', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf',
     'dix', 'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize']
   function below100(x: number): string {
-    if (x < 17) return u[x]
-    if (x < 20) return 'dix-' + u[x - 10]
+    if (x < 17) return u[x] ?? ''
+    if (x < 20) return 'dix-' + (u[x - 10] ?? '')
     if (x < 60) {
       const t = Math.floor(x / 10), r = x % 10
-      const tens = ['', '', 'vingt', 'trente', 'quarante', 'cinquante'][t]
+      const tens = ['', '', 'vingt', 'trente', 'quarante', 'cinquante'][t] ?? ''
       if (r === 0) return tens
       if (r === 1) return tens + '-et-un'
-      return tens + '-' + u[r]
+      return tens + '-' + (u[r] ?? '')
     }
     if (x < 80) {
       const r = x - 60
@@ -1030,8 +1055,42 @@ watch(budgetAnnee, loadBudget)
           <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
           Dépense ponctuelle
         </button>
+        <button v-if="canWrite" @click="openExportComptabilite" class="dep-btn-secondary" title="Exporter le suivi comptabilité annuel (modèle ANAQ-Sup)">
+          <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          Export comptabilité
+        </button>
       </template>
     </UcPageHeader>
+
+    <!-- Modal export comptabilité -->
+    <UcModal v-model="showExportCompta" title="Exporter le suivi comptabilité" width="440px">
+      <div style="font-size:13px;color:#475569;line-height:1.55;margin-bottom:12px;">
+        Génère un classeur Excel <strong>au format ANAQ-Sup</strong> (13 feuilles : un livre par mois + récapitulatif annuel).<br/>
+        Sont incluses uniquement les <strong>entrées validées</strong> :
+        <ul style="margin:6px 0 0 18px;padding:0;">
+          <li>Paiements étudiants confirmés</li>
+          <li>Autres recettes validées</li>
+          <li>Dépenses validées</li>
+        </ul>
+      </div>
+      <UcFormGrid :cols="2">
+        <UcFormGroup label="Année" :required="true">
+          <select v-model="exportAnnee" class="uc-input">
+            <option v-for="y in [new Date().getFullYear() + 1, new Date().getFullYear(), new Date().getFullYear() - 1, new Date().getFullYear() - 2]"
+                    :key="y" :value="y">{{ y }}</option>
+          </select>
+        </UcFormGroup>
+        <UcFormGroup label="Solde initial (FCFA)" hint="Trésorerie au 1er janvier">
+          <input v-model.number="exportSoldeInitial" type="number" min="0" class="uc-input" />
+        </UcFormGroup>
+      </UcFormGrid>
+      <template #footer>
+        <button @click="showExportCompta = false" class="uc-btn-outline">Annuler</button>
+        <button @click="doExportComptabilite" :disabled="exportingCompta" class="uc-btn-primary">
+          {{ exportingCompta ? 'Génération…' : 'Télécharger' }}
+        </button>
+      </template>
+    </UcModal>
 
     <!-- Sélecteur de période (global, pilote KPIs + Journal) -->
     <div class="dep-periode-bar">

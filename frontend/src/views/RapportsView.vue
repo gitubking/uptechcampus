@@ -6,10 +6,11 @@ import * as XLSX from 'xlsx'
 
 const auth = useAuthStore()
 
-type Tab = 'financier' | 'pedagogique' | 'rh' | 'etudiants' | 'resultats'
+type Tab = 'financier' | 'pedagogique' | 'rh' | 'etudiants' | 'resultats' | 'exonerations'
 const activeTab    = ref<Tab>('financier')
 const loading      = ref(true)
 const loadingRes   = ref(false)
+const loadingExo   = ref(false)
 const annees       = ref<{ id: number; libelle: string; actif: boolean }[]>([])
 const selectedAnneeId = ref<number | null>(null)
 
@@ -53,6 +54,50 @@ interface ResultatsData {
 
 const data      = ref<RapportData | null>(null)
 const resultats = ref<ResultatsData | null>(null)
+
+// ── Exonérations ─────────────────────────────────────────────────────────────
+interface ExoStats {
+  total: number
+  nb: number
+  etudiants: number
+  by_motif: { motif: string; total: number; nb: number }[]
+  by_portee: { portee: string; total: number; nb: number }[]
+  by_month: { mois: string; total: number; nb: number }[]
+  top_etudiants: {
+    etudiant: string
+    numero_etudiant: string | null
+    filiere: string | null
+    total: number
+    nb: number
+  }[]
+  by_filiere: { filiere: string; total: number; nb: number }[]
+}
+const exoStats = ref<ExoStats | null>(null)
+const exoAnnee = ref<string>('') // '' = toutes années, sinon '2024', '2025'…
+const exoYears = computed(() => {
+  const current = new Date().getFullYear()
+  const arr: string[] = []
+  for (let y = current; y >= current - 5; y--) arr.push(String(y))
+  return arr
+})
+
+const EXO_MOTIF_LABELS: Record<string, string> = {
+  bourse_dg:         'Bourse DG',
+  bourse_excellence: 'Bourse d\'excellence',
+  bourse_sociale:    'Bourse sociale',
+  remise_commerciale:'Remise commerciale',
+  erreur_facturation:'Erreur de facturation',
+  geste_commercial:  'Geste commercial',
+  decision_dg:       'Décision DG',
+  autre:             'Autre',
+}
+const EXO_PORTEE_LABELS: Record<string, string> = {
+  totale:                'Totale',
+  inscription:           'Inscription',
+  tenue:                 'Tenue',
+  mensualites_toutes:    'Toutes mensualités',
+  mensualite_specifique: 'Mensualité spécifique',
+}
 
 interface DemographicsData {
   total: number
@@ -144,9 +189,33 @@ async function loadResultats() {
   } finally { loadingRes.value = false }
 }
 
+async function loadExonerations() {
+  loadingExo.value = true
+  try {
+    const qs = exoAnnee.value ? `?annee=${exoAnnee.value}` : ''
+    const { data: d } = await api.get(`/exonerations/stats/overview${qs}`)
+    exoStats.value = d
+  } catch (e) {
+    exoStats.value = null
+  } finally { loadingExo.value = false }
+}
+
 function switchTab(tab: Tab) {
   activeTab.value = tab
   if (tab === 'resultats' && !resultats.value) loadResultats()
+  if (tab === 'exonerations' && !exoStats.value) loadExonerations()
+}
+
+// Quand l'année filtre exonérations change → recharger
+watch(exoAnnee, () => {
+  if (activeTab.value === 'exonerations') loadExonerations()
+})
+
+function moisLabelExo(iso: string) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  return d.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' })
 }
 
 // Quand l'année change → recharger
@@ -196,6 +265,63 @@ function exportExcel() {
   XLSX.utils.book_append_sheet(wb, ws3, 'Top étudiants')
 
   XLSX.writeFile(wb, `resultats_${libelle.replace(/\s+/g, '_')}.xlsx`)
+}
+
+// ── Export Excel (Exonérations) ───────────────────────────────────────────────
+function exportExoExcel() {
+  if (!exoStats.value) return
+  const s = exoStats.value
+  const wb = XLSX.utils.book_new()
+  const suffix = exoAnnee.value ? `_${exoAnnee.value}` : '_tout'
+
+  const wsSum = XLSX.utils.aoa_to_sheet([
+    ['Synthèse — Exonérations validées'],
+    ['Période', exoAnnee.value || 'Toutes années'],
+    [],
+    ['Indicateur', 'Valeur'],
+    ['Montant total exonéré (FCFA)', Math.round(s.total)],
+    ['Nombre de dossiers',            s.nb],
+    ['Étudiants concernés',           s.etudiants],
+  ])
+  wsSum['!cols'] = [{ wch: 32 }, { wch: 22 }]
+  XLSX.utils.book_append_sheet(wb, wsSum, 'Synthèse')
+
+  const wsMotif = XLSX.utils.aoa_to_sheet([
+    ['Motif', 'Nb dossiers', 'Montant total (FCFA)'],
+    ...s.by_motif.map(r => [EXO_MOTIF_LABELS[r.motif] ?? r.motif, r.nb, Math.round(r.total)]),
+  ])
+  wsMotif['!cols'] = [{ wch: 28 }, { wch: 14 }, { wch: 22 }]
+  XLSX.utils.book_append_sheet(wb, wsMotif, 'Par motif')
+
+  const wsPortee = XLSX.utils.aoa_to_sheet([
+    ['Portée', 'Nb dossiers', 'Montant total (FCFA)'],
+    ...s.by_portee.map(r => [EXO_PORTEE_LABELS[r.portee] ?? r.portee, r.nb, Math.round(r.total)]),
+  ])
+  wsPortee['!cols'] = [{ wch: 28 }, { wch: 14 }, { wch: 22 }]
+  XLSX.utils.book_append_sheet(wb, wsPortee, 'Par portée')
+
+  const wsFil = XLSX.utils.aoa_to_sheet([
+    ['Filière', 'Nb dossiers', 'Montant total (FCFA)'],
+    ...s.by_filiere.map(r => [r.filiere, r.nb, Math.round(r.total)]),
+  ])
+  wsFil['!cols'] = [{ wch: 32 }, { wch: 14 }, { wch: 22 }]
+  XLSX.utils.book_append_sheet(wb, wsFil, 'Par filière')
+
+  const wsTop = XLSX.utils.aoa_to_sheet([
+    ['#', 'Étudiant', 'N° Étudiant', 'Filière', 'Nb dossiers', 'Montant total (FCFA)'],
+    ...s.top_etudiants.map((r, i) => [i + 1, r.etudiant, r.numero_etudiant ?? '', r.filiere ?? '', r.nb, Math.round(r.total)]),
+  ])
+  wsTop['!cols'] = [{ wch: 4 }, { wch: 28 }, { wch: 14 }, { wch: 28 }, { wch: 14 }, { wch: 22 }]
+  XLSX.utils.book_append_sheet(wb, wsTop, 'Top étudiants')
+
+  const wsMonth = XLSX.utils.aoa_to_sheet([
+    ['Mois', 'Nb dossiers', 'Montant total (FCFA)'],
+    ...s.by_month.map(r => [moisLabelExo(r.mois), r.nb, Math.round(r.total)]),
+  ])
+  wsMonth['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 22 }]
+  XLSX.utils.book_append_sheet(wb, wsMonth, 'Par mois')
+
+  XLSX.writeFile(wb, `exonerations${suffix}.xlsx`)
 }
 
 // ── Export CSV (autres onglets) ────────────────────────────────────────────────
@@ -285,7 +411,10 @@ function exportCSV() {
         <button v-if="activeTab === 'resultats' && resultats" @click="exportExcel" class="rp-btn-export rp-btn-excel">
           📊 Excel
         </button>
-        <button v-else-if="activeTab !== 'resultats' && data" @click="exportCSV" class="rp-btn-export">
+        <button v-else-if="activeTab === 'exonerations' && exoStats" @click="exportExoExcel" class="rp-btn-export rp-btn-excel">
+          📊 Excel
+        </button>
+        <button v-else-if="activeTab !== 'resultats' && activeTab !== 'exonerations' && data" @click="exportCSV" class="rp-btn-export">
           ⬇ CSV
         </button>
       </div>
@@ -293,20 +422,21 @@ function exportCSV() {
 
     <!-- ── Tabs ── -->
     <div class="rp-tabs">
-      <button v-for="tab in (['financier','pedagogique','rh','etudiants','resultats'] as Tab[])" :key="tab"
+      <button v-for="tab in (['financier','pedagogique','rh','etudiants','resultats','exonerations'] as Tab[])" :key="tab"
         @click="switchTab(tab)"
         class="rp-tab" :class="activeTab === tab ? 'rp-tab--active' : ''">
-        {{ tab === 'financier'   ? '💰 Financier'
-         : tab === 'pedagogique' ? '📚 Pédagogique'
-         : tab === 'rh'         ? '👥 RH'
-         : tab === 'etudiants'  ? '🎓 Étudiants'
-         :                        '🏆 Résultats' }}
+        {{ tab === 'financier'    ? '💰 Financier'
+         : tab === 'pedagogique'  ? '📚 Pédagogique'
+         : tab === 'rh'           ? '👥 RH'
+         : tab === 'etudiants'    ? '🎓 Étudiants'
+         : tab === 'resultats'    ? '🏆 Résultats'
+         :                          '🎖️ Exonérations' }}
       </button>
     </div>
 
     <!-- ── Chargement général ── -->
-    <div v-if="loading && activeTab !== 'resultats'" class="rp-loading">Chargement…</div>
-    <div v-else-if="!data && activeTab !== 'resultats'" class="rp-err">Erreur de chargement.</div>
+    <div v-if="loading && activeTab !== 'resultats' && activeTab !== 'exonerations'" class="rp-loading">Chargement…</div>
+    <div v-else-if="!data && activeTab !== 'resultats' && activeTab !== 'exonerations'" class="rp-err">Erreur de chargement.</div>
     <div v-else>
 
       <!-- ════ FINANCIER ════ -->
@@ -787,6 +917,185 @@ function exportCSV() {
                     <td style="text-align:center;">
                       <span style="font-size:16px;font-weight:800;" :style="{ color: tauxColor(e.moyenne * 5) }">{{ e.moyenne }}</span>
                       <span style="font-size:11px;color:#aaa;">/20</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ════ EXONÉRATIONS ════ -->
+      <div v-else-if="activeTab === 'exonerations'">
+        <!-- Filtre année -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+          <span style="font-size:12px;color:#666;font-weight:600;">Année civile :</span>
+          <select v-model="exoAnnee" class="rp-year-select" style="min-width:140px;">
+            <option value="">Toutes années</option>
+            <option v-for="y in exoYears" :key="y" :value="y">{{ y }}</option>
+          </select>
+          <span v-if="exoStats" class="rp-annee-badge">
+            {{ exoAnnee || 'Toutes périodes' }} • {{ exoStats.nb }} dossier{{ exoStats.nb > 1 ? 's' : '' }}
+          </span>
+        </div>
+
+        <div v-if="loadingExo" class="rp-loading">Chargement des exonérations…</div>
+        <div v-else-if="!exoStats" class="rp-err">Erreur de chargement.</div>
+        <div v-else class="rp-tab-content">
+
+          <!-- KPIs -->
+          <div class="uc-kpi-grid">
+            <div class="uc-kpi-card" style="border-left:3px solid #10b981;">
+              <div class="uc-kpi-icon" style="background:#ecfdf5;">🎖️</div>
+              <div class="uc-kpi-label">Montant total exonéré</div>
+              <div class="uc-kpi-value" style="font-size:22px;color:#059669;">{{ fmt(exoStats.total) }}</div>
+              <div class="uc-kpi-trend" style="color:#059669;">Manque à gagner</div>
+            </div>
+            <div class="uc-kpi-card blue">
+              <div class="uc-kpi-icon">📋</div>
+              <div class="uc-kpi-label">Dossiers validés</div>
+              <div class="uc-kpi-value" style="font-size:28px;">{{ exoStats.nb }}</div>
+            </div>
+            <div class="uc-kpi-card purple">
+              <div class="uc-kpi-icon">🎓</div>
+              <div class="uc-kpi-label">Étudiants concernés</div>
+              <div class="uc-kpi-value" style="font-size:28px;">{{ exoStats.etudiants }}</div>
+            </div>
+            <div class="uc-kpi-card orange">
+              <div class="uc-kpi-icon">📊</div>
+              <div class="uc-kpi-label">Moyenne par dossier</div>
+              <div class="uc-kpi-value" style="font-size:22px;">
+                {{ exoStats.nb > 0 ? fmt(Math.round(exoStats.total / exoStats.nb)) : fmt(0) }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Aucune donnée -->
+          <div v-if="exoStats.nb === 0" class="rp-card rp-empty-card">
+            <div style="font-size:40px;margin-bottom:12px;">🎖️</div>
+            <p style="font-size:14px;font-weight:600;color:#555;margin:0 0 6px;">Aucune exonération validée</p>
+            <p style="font-size:12px;color:#aaa;margin:0;">
+              {{ exoAnnee ? `Aucune exonération validée pour l'année ${exoAnnee}.` : 'Aucune exonération n\'a encore été validée.' }}
+            </p>
+          </div>
+
+          <template v-else>
+            <!-- Par motif -->
+            <div class="rp-card">
+              <h3 class="rp-card-title">Répartition par motif</h3>
+              <table class="uc-table">
+                <thead>
+                  <tr>
+                    <th>Motif</th>
+                    <th style="text-align:center;">Dossiers</th>
+                    <th style="text-align:right;">Montant total</th>
+                    <th style="text-align:right;width:140px;">% du total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in exoStats.by_motif" :key="r.motif">
+                    <td style="font-weight:600;color:#111;">{{ EXO_MOTIF_LABELS[r.motif] ?? r.motif }}</td>
+                    <td style="text-align:center;">{{ r.nb }}</td>
+                    <td style="text-align:right;font-weight:700;color:#059669;">{{ fmt(r.total) }}</td>
+                    <td style="text-align:right;">
+                      <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;">
+                        <div style="width:80px;background:#f0f0f0;border-radius:10px;height:6px;overflow:hidden;">
+                          <div style="height:100%;background:#10b981;border-radius:10px;"
+                            :style="{ width: `${exoStats.total > 0 ? (r.total / exoStats.total * 100).toFixed(1) : 0}%` }"></div>
+                        </div>
+                        <span style="font-size:11px;color:#555;font-weight:700;min-width:44px;text-align:right;">
+                          {{ exoStats.total > 0 ? (r.total / exoStats.total * 100).toFixed(1) : '0.0' }}%
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Par portée + Par filière en grid -->
+            <div class="rp-grid-2">
+              <div class="rp-card">
+                <h3 class="rp-card-title">Répartition par portée</h3>
+                <div v-if="!exoStats.by_portee.length" class="rp-empty">Aucune donnée</div>
+                <div v-else style="display:flex;flex-direction:column;gap:10px;">
+                  <div v-for="r in exoStats.by_portee" :key="r.portee"
+                    style="display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:12px;color:#555;min-width:140px;flex-shrink:0;">
+                      {{ EXO_PORTEE_LABELS[r.portee] ?? r.portee }}
+                    </span>
+                    <div style="flex:1;background:#f0f0f0;border-radius:20px;height:10px;overflow:hidden;">
+                      <div style="height:100%;background:#10b981;border-radius:20px;transition:width 0.3s;"
+                        :style="{ width: `${exoStats.total > 0 ? (r.total / exoStats.total * 100) : 0}%` }"></div>
+                    </div>
+                    <span style="font-size:11px;font-weight:700;color:#111;min-width:90px;text-align:right;">
+                      {{ fmt(r.total) }}
+                    </span>
+                    <span style="font-size:10px;color:#888;min-width:36px;text-align:right;">
+                      ({{ r.nb }})
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="rp-card">
+                <h3 class="rp-card-title">Répartition par filière</h3>
+                <div v-if="!exoStats.by_filiere.length" class="rp-empty">Aucune donnée</div>
+                <div v-else style="display:flex;flex-direction:column;gap:10px;">
+                  <div v-for="r in exoStats.by_filiere" :key="r.filiere"
+                    style="display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:12px;color:#555;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :title="r.filiere">{{ r.filiere }}</span>
+                    <div style="width:100px;background:#f0f0f0;border-radius:20px;height:8px;overflow:hidden;flex-shrink:0;">
+                      <div style="height:100%;background:#059669;border-radius:20px;"
+                        :style="{ width: `${exoStats.total > 0 ? (r.total / exoStats.total * 100) : 0}%` }"></div>
+                    </div>
+                    <span style="font-size:11px;font-weight:700;color:#111;min-width:90px;text-align:right;">
+                      {{ fmt(r.total) }}
+                    </span>
+                    <span style="font-size:10px;color:#888;min-width:30px;text-align:right;">({{ r.nb }})</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Évolution mensuelle -->
+            <div v-if="exoStats.by_month.length" class="rp-card">
+              <h3 class="rp-card-title">Évolution mensuelle</h3>
+              <div class="rp-bar-chart" style="height:140px;">
+                <div v-for="m in exoStats.by_month" :key="m.mois" class="rp-bar-group">
+                  <div class="rp-bar" style="background:#10b981;width:22px;"
+                    :style="{ height: `${barHeight(m.total, Math.max(...exoStats.by_month.map(x => x.total), 1), 110)}px` }"
+                    :title="`${moisLabelExo(m.mois)} : ${fmt(m.total)} (${m.nb} dossier${m.nb > 1 ? 's' : ''})`"></div>
+                  <p class="rp-bar-label">{{ moisLabelExo(m.mois) }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Top 10 étudiants -->
+            <div v-if="exoStats.top_etudiants.length" class="rp-card">
+              <h3 class="rp-card-title">🏆 Top 10 — Étudiants les plus exonérés</h3>
+              <table class="uc-table">
+                <thead>
+                  <tr>
+                    <th style="text-align:center;width:40px;">#</th>
+                    <th>Étudiant</th>
+                    <th>Filière</th>
+                    <th style="text-align:center;">Dossiers</th>
+                    <th style="text-align:right;">Montant total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(e, idx) in exoStats.top_etudiants" :key="(e.numero_etudiant ?? '') + idx">
+                    <td style="text-align:center;font-size:14px;font-weight:700;color:#888;">{{ idx + 1 }}</td>
+                    <td>
+                      <div style="font-weight:700;color:#111;font-size:13px;">{{ e.etudiant }}</div>
+                      <div v-if="e.numero_etudiant" style="font-size:11px;color:#aaa;font-family:monospace;">{{ e.numero_etudiant }}</div>
+                    </td>
+                    <td style="font-size:12px;color:#555;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ e.filiere ?? '—' }}</td>
+                    <td style="text-align:center;font-weight:600;">{{ e.nb }}</td>
+                    <td style="text-align:right;">
+                      <span style="font-size:14px;font-weight:800;color:#059669;">{{ fmt(e.total) }}</span>
                     </td>
                   </tr>
                 </tbody>

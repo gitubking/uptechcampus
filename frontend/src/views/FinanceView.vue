@@ -28,6 +28,8 @@ interface Kpis {
   solde_net: number
   creances: number
   recettes_fi?: number
+  exonerations_total?: number
+  exonerations_count?: number
 }
 
 const loading = ref(true)
@@ -309,6 +311,8 @@ function exportExcel() {
   rows.push(['Dépenses validées',   String(Math.round(kpis.value?.depenses_total ?? 0))])
   rows.push(['Solde net',           String(Math.round(kpis.value?.solde_net ?? 0))])
   rows.push(['Créances',            String(Math.round(kpis.value?.creances ?? 0))])
+  rows.push(['Exonérations accordées', String(Math.round(kpis.value?.exonerations_total ?? 0))])
+  rows.push(["Dossiers d'exonération", String(kpis.value?.exonerations_count ?? 0)])
   rows.push([])
   rows.push(['Récapitulatif mensuel'])
   rows.push(['Mois', 'Recettes', 'Dépenses', 'Solde'])
@@ -472,6 +476,20 @@ function exportPDF() { window.print() }
           <div class="uc-kpi-label">Créances</div>
           <div class="uc-kpi-value" style="font-size:16px;">{{ fmt(kpis!.creances) }}</div>
           <div class="uc-kpi-trend uc-trend-down">Scolarités non réglées</div>
+        </div>
+
+        <!-- Exonérations (manque à gagner) -->
+        <div class="uc-kpi-card" style="border-left:3px solid #10b981;">
+          <div class="uc-kpi-icon" style="background:#ecfdf5;">
+            <svg width="20" height="20" fill="none" stroke="#10b981" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
+          <div class="uc-kpi-label">Exonérations accordées</div>
+          <div class="uc-kpi-value" style="font-size:16px; color:#059669;">{{ fmt(kpis!.exonerations_total ?? 0) }}</div>
+          <div class="uc-kpi-trend" style="color:#059669;">
+            {{ kpis!.exonerations_count ?? 0 }} dossier{{ (kpis!.exonerations_count ?? 0) > 1 ? 's' : '' }} • manque à gagner
+          </div>
         </div>
 
       </div>

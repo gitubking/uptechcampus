@@ -5,10 +5,20 @@ import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 import UcTable from '@/components/ui/UcTable.vue'
+import EtudiantsImportModal from '@/components/EtudiantsImportModal.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
 const canWrite = computed(() => ['dg', 'secretariat'].includes(auth.user?.role ?? ''))
+
+// Import CSV modal
+const showImportModal = ref(false)
+async function onImportDone(_count: number) {
+  // Recharge la liste étudiants après import en masse
+  try {
+    await fetchEtudiants()
+  } catch { /* silencieux : la recharge manuelle reste possible */ }
+}
 const canDelete = computed(() => auth.user?.role === 'dg')
 
 // ── Suppression étudiant ──────────────────────────────────────────────
@@ -730,7 +740,7 @@ function normalizeDateForInput(d: string | null | undefined): string {
   // année > 4 chiffres (format ISO étendu).
   const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (!m) return ''
-  const year = parseInt(m[1], 10)
+  const year = parseInt(m[1]!, 10)
   if (year < 1900 || year > 2100) return ''
   return `${m[1]}-${m[2]}-${m[3]}`
 }
@@ -1567,6 +1577,9 @@ onMounted(() => {
           <a href="/formations-individuelles" class="et-action-btn et-action-btn--ghost" style="text-decoration:none;">
             🎓 Formations individuelles
           </a>
+          <button v-if="canWrite" @click="showImportModal = true" class="et-action-btn et-action-btn--ghost">
+            📥 Import CSV
+          </button>
           <button v-if="canWrite" @click="openInscrire" class="et-action-btn et-action-btn--primary">
             + Nouvel étudiant
           </button>
@@ -2701,6 +2714,13 @@ onMounted(() => {
         </div>
       </div>
     </Teleport>
+
+    <!-- Import CSV modal -->
+    <EtudiantsImportModal
+      :open="showImportModal"
+      @close="showImportModal = false"
+      @imported="onImportDone"
+    />
 
   </div>
 </template>

@@ -118,6 +118,12 @@ const navSections: NavSection[] = [
         roles: ['dg', 'dir_peda', 'coordinateur', 'secretariat', 'enseignant'],
       },
       {
+        path: '/emargement',
+        label: 'Émargement',
+        icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+        roles: ['enseignant'],
+      },
+      {
         path: '/absences',
         label: 'Absences',
         icon: 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636',
@@ -157,6 +163,18 @@ const navSections: NavSection[] = [
         label: 'Dépenses',
         icon: 'M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z',
         roles: ['dg', 'resp_fin'],
+      },
+      {
+        path: '/autres-recettes',
+        label: 'Autres recettes',
+        icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+        roles: ['dg', 'resp_fin', 'secretariat'],
+      },
+      {
+        path: '/exonerations',
+        label: 'Exonérations',
+        icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z',
+        roles: ['dg', 'resp_fin', 'secretariat'],
       },
     ],
   },
@@ -221,15 +239,58 @@ const navSections: NavSection[] = [
         icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
         roles: ['dg'],
       },
+      {
+        path: '/audit-logs',
+        label: 'Journal d\'audit',
+        icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+        roles: ['dg'],
+      },
+      {
+        path: '/backups',
+        label: 'Sauvegardes',
+        icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4',
+        roles: ['dg'],
+      },
     ],
   },
 ]
+
+// DB permissions (loaded on mount, used to filter nav)
+const dbNavPerms = ref<Record<string, boolean>>({}) // { '/dashboard': true, ... }
+
+onMounted(async () => {
+  if (!auth.user) return
+  try {
+    const { data } = await api.get('/role-permissions')
+    const map: Record<string, boolean> = {}
+    if (auth.user.role === 'dg') {
+      // full matrix returned: [{role, page_path, has_access}]
+      for (const p of data) {
+        if (p.role === 'dg') map[p.page_path] = p.has_access
+      }
+    } else {
+      // only current role: [{page_path, has_access}]
+      for (const p of data) map[p.page_path] = p.has_access
+    }
+    dbNavPerms.value = map
+  } catch (_) {}
+})
 
 const visibleSections = computed(() =>
   navSections
     .map(s => ({
       ...s,
-      items: s.items.filter(i => auth.user?.role && i.roles.includes(auth.user.role)),
+      items: s.items.filter(i => {
+        const userRole = auth.user?.role
+        if (!userRole) return false
+        if (!i.roles.includes(userRole)) return false
+        // If DB permissions loaded and has entry for this page, use it
+        const basePath = i.path.split('#')[0] ?? i.path
+        if (Object.keys(dbNavPerms.value).length > 0 && basePath in dbNavPerms.value) {
+          return dbNavPerms.value[basePath] === true
+        }
+        return true
+      }),
     }))
     .filter(s => s.items.length > 0),
 )
@@ -288,6 +349,8 @@ const pageTitleMap: Record<string, string> = {
   '/finance': 'Tableau financier',
   '/paiements': 'Recettes',
   '/depenses': 'Dépenses',
+  '/autres-recettes': 'Autres recettes',
+  '/exonerations': 'Exonérations',
   '/caisse': 'Journal de caisse',
   '/formations-individuelles': 'Formations individuelles',
   '/emplois-du-temps': 'Emplois du temps',
@@ -305,6 +368,9 @@ const pageTitleMap: Record<string, string> = {
   '/tarifs': 'Tarifs',
   '/users': 'Utilisateurs',
   '/parametres': 'Paramètres',
+  '/audit-logs': 'Journal d\'audit',
+  '/backups': 'Sauvegardes',
+  '/securite': 'Sécurité de mon compte',
 }
 
 const pageTitle = computed(() => {
@@ -326,6 +392,64 @@ const userInitials = computed(() => {
   const p = auth.user?.prenom?.[0] ?? ''
   const n = auth.user?.nom?.[0] ?? ''
   return (p + n).toUpperCase()
+})
+
+// ── Notifications in-app ────────────────────────────────────────────
+const userNotifs = ref<any[]>([])
+const unreadCount = ref(0)
+const showNotifPanel = ref(false)
+let notifPollTimer: ReturnType<typeof setInterval> | null = null
+
+async function fetchNotifs() {
+  if (!auth.isAuthenticated) return
+  try {
+    const { data } = await api.get('/user-notifications')
+    userNotifs.value = data.notifications ?? []
+    unreadCount.value = data.unread ?? 0
+  } catch { /* silencieux */ }
+}
+
+async function markAllRead() {
+  try {
+    await api.post('/user-notifications/read-all')
+    userNotifs.value = userNotifs.value.map(n => ({ ...n, lu: true }))
+    unreadCount.value = 0
+  } catch { /* silencieux */ }
+}
+
+async function markOneRead(id: number) {
+  try {
+    await api.post(`/user-notifications/${id}/read`)
+    const notif = userNotifs.value.find(n => n.id === id)
+    if (notif && !notif.lu) { notif.lu = true; unreadCount.value = Math.max(0, unreadCount.value - 1) }
+  } catch { /* silencieux */ }
+}
+
+function toggleNotifPanel() {
+  showNotifPanel.value = !showNotifPanel.value
+}
+
+function notifTimeAgo(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'à l\'instant'
+  if (mins < 60) return `il y a ${mins} min`
+  const h = Math.floor(mins / 60)
+  if (h < 24) return `il y a ${h}h`
+  const d = Math.floor(h / 24)
+  return `il y a ${d}j`
+}
+
+const notifIconMap: Record<string, string> = {
+  paiement: '✅', note: '📊', echeance: '⏰', info: 'ℹ️',
+}
+
+onMounted(() => {
+  fetchNotifs()
+  notifPollTimer = setInterval(fetchNotifs, 30000)
+})
+onUnmounted(() => {
+  if (notifPollTimer) clearInterval(notifPollTimer)
 })
 </script>
 
@@ -370,6 +494,12 @@ const userInitials = computed(() => {
             <strong>{{ auth.fullName }}</strong>
             <span>{{ auth.user?.role ? roleLabel[auth.user.role] : '' }}</span>
           </div>
+          <button class="uc-logout-btn" title="Sécurité (2FA)" @click="router.push('/securite')" style="margin-right:4px;">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </button>
           <button class="uc-logout-btn" title="Se déconnecter" @click="logout">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -403,13 +533,51 @@ const userInitials = computed(() => {
                 d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
             </svg>{{ todayStr }}
           </span>
-          <button class="uc-notif-btn" title="Notifications">
-            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-            <span class="uc-notif-dot"></span>
-          </button>
+          <!-- Cloche notifications -->
+          <div style="position:relative;">
+            <button class="uc-notif-btn" :class="{ 'uc-notif-btn--active': showNotifPanel }" title="Notifications" @click="toggleNotifPanel">
+              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+              <span v-if="unreadCount > 0" class="uc-notif-badge">{{ unreadCount > 9 ? '9+' : unreadCount }}</span>
+              <span v-else class="uc-notif-dot"></span>
+            </button>
+
+            <!-- Overlay transparent pour fermer au clic extérieur -->
+            <div v-if="showNotifPanel" class="uc-notif-overlay" @click="showNotifPanel = false"></div>
+
+            <!-- Dropdown panel -->
+            <Transition name="notif-drop">
+              <div v-if="showNotifPanel" class="uc-notif-panel">
+                <div class="uc-notif-panel-head">
+                  <span>Notifications</span>
+                  <button v-if="unreadCount > 0" class="uc-notif-read-all" @click="markAllRead">Tout marquer lu</button>
+                </div>
+                <div class="uc-notif-list">
+                  <div v-if="userNotifs.length === 0" class="uc-notif-empty">
+                    <svg width="32" height="32" fill="none" stroke="#d1d5db" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                    <p>Aucune notification</p>
+                  </div>
+                  <div
+                    v-for="notif in userNotifs"
+                    :key="notif.id"
+                    class="uc-notif-item"
+                    :class="{ 'uc-notif-item--unread': !notif.lu }"
+                    @click="markOneRead(notif.id)"
+                  >
+                    <span class="uc-notif-ico">{{ notifIconMap[notif.type] ?? 'ℹ️' }}</span>
+                    <div class="uc-notif-content">
+                      <p class="uc-notif-titre">{{ notif.titre }}</p>
+                      <p class="uc-notif-msg">{{ notif.message }}</p>
+                      <span class="uc-notif-time">{{ notifTimeAgo(notif.created_at) }}</span>
+                    </div>
+                    <span v-if="!notif.lu" class="uc-notif-unread-dot"></span>
+                  </div>
+                </div>
+              </div>
+            </Transition>
+          </div>
           <div class="uc-topbar-sep"></div>
           <div class="uc-topbar-user">
             <div class="uc-topbar-user-avatar">{{ userInitials }}</div>

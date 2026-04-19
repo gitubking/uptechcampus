@@ -94,6 +94,16 @@ const router = createRouter({
           component: () => import('@/views/DepensesView.vue'),
         },
         {
+          path: 'autres-recettes',
+          name: 'autres-recettes',
+          component: () => import('@/views/AutresRecettesView.vue'),
+        },
+        {
+          path: 'exonerations',
+          name: 'exonerations',
+          component: () => import('@/views/ExonerationsView.vue'),
+        },
+        {
           path: 'caisse',
           name: 'caisse',
           component: () => import('@/views/CaisseView.vue'),
@@ -174,6 +184,21 @@ const router = createRouter({
           component: () => import('@/views/ParametresView.vue'),
         },
         {
+          path: 'securite',
+          name: 'securite',
+          component: () => import('@/views/SecurityView.vue'),
+        },
+        {
+          path: 'audit-logs',
+          name: 'audit-logs',
+          component: () => import('@/views/AuditLogsView.vue'),
+        },
+        {
+          path: 'backups',
+          name: 'backups',
+          component: () => import('@/views/BackupsView.vue'),
+        },
+        {
           path: 'rapports-ministere',
           name: 'rapports-ministere',
           component: () => import('@/views/RapportsMinistereView.vue'),
@@ -203,6 +228,18 @@ const router = createRouter({
       meta: { public: true },
     },
     { path: '/utilisateurs', redirect: '/users' },
+    {
+      path: '/espace-parent',
+      component: () => import('@/layouts/ParentLayout.vue'),
+      meta: { requiresAuth: true },
+      children: [
+        {
+          path: '',
+          name: 'espace-parent',
+          component: () => import('@/views/EspaceParentView.vue'),
+        },
+      ],
+    },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
   ],
 })
@@ -229,6 +266,15 @@ router.beforeEach(async (to) => {
 
   if (auth.isAuthenticated && auth.needsSetup && to.name !== 'setup') {
     return '/setup'
+  }
+
+  // Parent → redirigé vers espace-parent (sauf login/setup)
+  if (auth.isAuthenticated && auth.user?.role === 'parent' && !to.path.startsWith('/espace-parent') && to.name !== 'login' && to.name !== 'setup') {
+    return '/espace-parent'
+  }
+  // Non-parent → interdit d'accéder à espace-parent
+  if (auth.isAuthenticated && auth.user?.role !== 'parent' && to.path.startsWith('/espace-parent')) {
+    return '/dashboard'
   }
 
   // Étudiant → redirigé vers espace-etudiant (sauf pages autorisées)

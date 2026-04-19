@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -13,6 +13,13 @@ const error = ref('')
 const isBlocked = ref(false)
 const attemptsLeft = ref<number | null>(null)
 
+// ── 2FA step ──
+const requires2FA = ref(false)
+const pendingToken = ref('')
+const twoFACode = ref('')
+const twoFAError = ref('')
+const codeInputRef = ref<HTMLInputElement | null>(null)
+
 async function submit() {
   error.value = ''
   isBlocked.value = false
@@ -20,7 +27,14 @@ async function submit() {
   loading.value = true
 
   try {
-    await auth.login(email.value, password.value)
+    const result = await auth.login(email.value, password.value)
+    if (result.requires_2fa) {
+      requires2FA.value = true
+      pendingToken.value = result.pending_token ?? ''
+      await nextTick()
+      codeInputRef.value?.focus()
+      return
+    }
     router.push(auth.needsSetup ? '/setup' : '/dashboard')
   } catch (err: any) {
     const data = err.response?.data
@@ -36,6 +50,29 @@ async function submit() {
   } finally {
     loading.value = false
   }
+}
+
+async function submit2FA() {
+  twoFAError.value = ''
+  loading.value = true
+  try {
+    await auth.verify2FA(pendingToken.value, twoFACode.value)
+    router.push(auth.needsSetup ? '/setup' : '/dashboard')
+  } catch (err: any) {
+    twoFAError.value = err.response?.data?.message ?? 'Code invalide.'
+    twoFACode.value = ''
+    await nextTick()
+    codeInputRef.value?.focus()
+  } finally {
+    loading.value = false
+  }
+}
+
+function cancel2FA() {
+  requires2FA.value = false
+  pendingToken.value = ''
+  twoFACode.value = ''
+  twoFAError.value = ''
 }
 </script>
 
@@ -74,62 +111,110 @@ async function submit() {
 
       <!-- ── Panneau droit BLANC ── -->
       <div class="auth-right">
-        <h2>Connexion</h2>
-        <p class="auth-subtitle">Entrez vos identifiants pour accéder à votre espace</p>
+        <!-- ─── Étape 1 : identifiants ─── -->
+        <template v-if="!requires2FA">
+          <h2>Connexion</h2>
+          <p class="auth-subtitle">Entrez vos identifiants pour accéder à votre espace</p>
 
-        <!-- Compte bloqué -->
-        <div v-if="isBlocked" class="auth-alert auth-alert-block">
-          🔒 {{ error }}
-        </div>
+          <!-- Compte bloqué -->
+          <div v-if="isBlocked" class="auth-alert auth-alert-block">
+            🔒 {{ error }}
+          </div>
 
-        <!-- Erreur / tentatives -->
-        <div v-else-if="error" class="auth-alert auth-alert-error">
-          {{ error }}
-          <span v-if="attemptsLeft !== null" style="display:block;margin-top:4px;font-size:11.5px;opacity:0.8;">
-            {{ attemptsLeft }} tentative{{ attemptsLeft !== 1 ? 's' : '' }} restante{{ attemptsLeft !== 1 ? 's' : '' }}
-          </span>
-        </div>
+          <!-- Erreur / tentatives -->
+          <div v-else-if="error" class="auth-alert auth-alert-error">
+            {{ error }}
+            <span v-if="attemptsLeft !== null" style="display:block;margin-top:4px;font-size:11.5px;opacity:0.8;">
+              {{ attemptsLeft }} tentative{{ attemptsLeft !== 1 ? 's' : '' }} restante{{ attemptsLeft !== 1 ? 's' : '' }}
+            </span>
+          </div>
 
-        <form @submit.prevent="submit">
-          <div class="auth-form-group">
-            <label class="auth-label">Adresse email</label>
-            <div class="auth-input-wrap">
-              <span class="auth-ico">✉</span>
-              <input
-                v-model="email"
-                type="email"
-                required
-                autocomplete="email"
-                placeholder="prenom.nom@uptechformation.com"
-                class="auth-input"
-              />
+          <form @submit.prevent="submit">
+            <div class="auth-form-group">
+              <label class="auth-label">Adresse email</label>
+              <div class="auth-input-wrap">
+                <span class="auth-ico">✉</span>
+                <input
+                  v-model="email"
+                  type="email"
+                  required
+                  autocomplete="email"
+                  placeholder="prenom.nom@uptechformation.com"
+                  class="auth-input"
+                />
+              </div>
             </div>
-          </div>
 
-          <div class="auth-form-group">
-            <label class="auth-label">Mot de passe</label>
-            <div class="auth-input-wrap">
-              <span class="auth-ico">🔒</span>
-              <input
-                v-model="password"
-                type="password"
-                required
-                autocomplete="current-password"
-                placeholder="••••••••••"
-                class="auth-input"
-              />
+            <div class="auth-form-group">
+              <label class="auth-label">Mot de passe</label>
+              <div class="auth-input-wrap">
+                <span class="auth-ico">🔒</span>
+                <input
+                  v-model="password"
+                  type="password"
+                  required
+                  autocomplete="current-password"
+                  placeholder="••••••••••"
+                  class="auth-input"
+                />
+              </div>
             </div>
+
+            <div class="auth-row-extras">
+              <a href="/reset-password" class="auth-forgot">Mot de passe oublié ?</a>
+            </div>
+
+            <button type="submit" :disabled="loading" class="auth-btn-login">
+              <span v-if="loading">Connexion en cours…</span>
+              <span v-else>Se connecter</span>
+            </button>
+          </form>
+        </template>
+
+        <!-- ─── Étape 2 : vérification 2FA ─── -->
+        <template v-else>
+          <h2>Vérification en 2 étapes</h2>
+          <p class="auth-subtitle">
+            Entrez le code à 6 chiffres affiché dans votre application d'authentification (Google Authenticator, Authy, 1Password…).
+          </p>
+
+          <div v-if="twoFAError" class="auth-alert auth-alert-error">
+            {{ twoFAError }}
           </div>
 
-          <div class="auth-row-extras">
-            <a href="/reset-password" class="auth-forgot">Mot de passe oublié ?</a>
-          </div>
+          <form @submit.prevent="submit2FA">
+            <div class="auth-form-group">
+              <label class="auth-label">Code à 6 chiffres</label>
+              <div class="auth-input-wrap">
+                <span class="auth-ico">🔐</span>
+                <input
+                  ref="codeInputRef"
+                  v-model="twoFACode"
+                  type="text"
+                  required
+                  autocomplete="one-time-code"
+                  inputmode="numeric"
+                  placeholder="123456"
+                  maxlength="10"
+                  class="auth-input"
+                  style="letter-spacing:3px; font-size:16px; font-family:monospace;"
+                />
+              </div>
+              <p style="margin-top:8px; font-size:11px; color:#6b7280;">
+                Vous pouvez aussi saisir un code de secours (format XXXX-XXXX).
+              </p>
+            </div>
 
-          <button type="submit" :disabled="loading" class="auth-btn-login">
-            <span v-if="loading">Connexion en cours…</span>
-            <span v-else>Se connecter</span>
-          </button>
-        </form>
+            <button type="submit" :disabled="loading || !twoFACode" class="auth-btn-login">
+              <span v-if="loading">Vérification…</span>
+              <span v-else>Vérifier et se connecter</span>
+            </button>
+
+            <button type="button" class="auth-btn-cancel" @click="cancel2FA">
+              ← Revenir à la connexion
+            </button>
+          </form>
+        </template>
 
         <div class="auth-security">
           <span class="auth-dot-green"></span>
@@ -397,6 +482,21 @@ async function submit() {
 
 .auth-btn-login:hover:not(:disabled) { background: #c0000e; }
 .auth-btn-login:disabled { background: #888; cursor: not-allowed; }
+
+.auth-btn-cancel {
+  width: 100%;
+  margin-top: 12px;
+  background: transparent;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 10px;
+  font-family: 'Poppins', sans-serif;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.auth-btn-cancel:hover { background: #f9fafb; color: #374151; }
 
 .auth-security {
   display: flex;
