@@ -866,6 +866,10 @@ const ROLE_PERMS_DEFAULTS: { path: string; roles: string[] }[] = [
   { path: '/users',                   roles: ['dg'] },
   { path: '/filieres',                roles: ['dg','dir_peda'] },
   { path: '/parametres',              roles: ['dg'] },
+  // Productivité équipe
+  { path: '/taches',                  roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant'] },
+  { path: '/journal-activite',        roles: ['dg'] },
+  { path: '/mon-equipe',              roles: ['dg'] },
 ]
 
 let rolePermsReady: Promise<void> | null = null
@@ -899,6 +903,41 @@ async function ensureRolePermissionsReady(): Promise<void> {
   })
   return rolePermsReady
 }
+
+// ─── Audit logs — journal d'activité ────────────────────────────────────────
+pool.query(`CREATE TABLE IF NOT EXISTS activity_logs (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  user_role VARCHAR(30),
+  action VARCHAR(10) NOT NULL,
+  entity VARCHAR(80) NOT NULL,
+  entity_id VARCHAR(80),
+  path VARCHAR(255),
+  status_code INTEGER,
+  ip VARCHAR(64),
+  user_agent TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+)`).catch(() => {})
+pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_logs(user_id, created_at DESC)`).catch(() => {})
+pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_entity ON activity_logs(entity, created_at DESC)`).catch(() => {})
+pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_date ON activity_logs(created_at DESC)`).catch(() => {})
+
+// ─── Table Tâches (productivité équipe admin) ────────────────────────────────
+pool.query(`CREATE TABLE IF NOT EXISTS taches (
+  id SERIAL PRIMARY KEY,
+  titre VARCHAR(255) NOT NULL,
+  description TEXT,
+  assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  priorite VARCHAR(20) DEFAULT 'normale' CHECK (priorite IN ('basse','normale','haute','urgente')),
+  statut VARCHAR(20) DEFAULT 'a_faire' CHECK (statut IN ('a_faire','en_cours','en_revue','termine')),
+  deadline DATE,
+  completed_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+)`).catch(() => {})
+pool.query(`CREATE INDEX IF NOT EXISTS idx_taches_assignee ON taches(assignee_id)`).catch(() => {})
+pool.query(`CREATE INDEX IF NOT EXISTS idx_taches_statut ON taches(statut)`).catch(() => {})
 
 // ─── Tables Jury ─────────────────────────────────────────────────────────────
 pool.query(`CREATE TABLE IF NOT EXISTS jurys (
@@ -1071,6 +1110,38 @@ app.use('/auth/reset-password',  rateLimit({ capacity: 5,  refillPerMin: 5,  key
 app.use('/auth/check-email',     rateLimit({ capacity: 20, refillPerMin: 20, key: ipKey }))
 app.use('/auth/change-password', rateLimit({ capacity: 10, refillPerMin: 10, key: ipKey }))
 app.use('/auth/2fa/disable',     rateLimit({ capacity: 10, refillPerMin: 10, key: ipKey }))
+
+// ─── Audit middleware — log automatique des mutations ────────────────────────
+// Log POST/PUT/PATCH/DELETE sur tous les endpoints /api/* — après execution,
+// si auth réussie (user attaché par requireAuth) et statut 2xx/4xx.
+// On exclut /auth/* (login/logout gérés séparément) pour éviter de logger les mots de passe.
+const SKIP_AUDIT_PREFIXES = ['/auth/login', '/auth/check-email', '/auth/forgot-password', '/auth/verify-otp', '/auth/reset-password']
+app.use('*', async (c, next) => {
+  await next()
+  const method = c.req.method
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return
+  // basePath '/api' déjà retiré par Hono — c.req.path donne le chemin relatif ex "/users/3"
+  const path = c.req.path.replace(/^\/api/, '') || '/'
+  if (SKIP_AUDIT_PREFIXES.some(p => path.startsWith(p))) return
+  const user = c.get('user') as any
+  if (!user) return // non authentifié : pas de log (ou auth échouée)
+  const status = c.res.status
+  if (status >= 500) return // erreurs serveur non loggées ici (onError s'en charge)
+  // Parse entity & entity_id depuis /segment/:id ou /segment
+  const segs = path.split('/').filter(Boolean)
+  const entity = segs[0] || 'unknown'
+  const entity_id = segs[1] && /^[\w-]+$/.test(segs[1]) ? segs[1] : null
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    || c.req.header('x-real-ip')
+    || null
+  const ua = c.req.header('user-agent')?.slice(0, 500) || null
+  // Fire-and-forget — ne jamais bloquer la réponse sur une erreur de log
+  pool.query(
+    `INSERT INTO activity_logs (user_id, user_role, action, entity, entity_id, path, status_code, ip, user_agent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [user.id, user.role, method, entity, entity_id, path.slice(0, 255), status, ip, ua]
+  ).catch(() => {})
+})
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 const requireAuth: MiddlewareHandler<Env> = async (c, next) => {
@@ -12095,6 +12166,290 @@ app.post('/user-notifications/:id/read', requireAuth, async (c) => {
     [c.req.param('id'), userId]
   )
   return c.json({ ok: true })
+})
+
+// ─── MON EQUIPE — dashboard productivité consolidé (DG) ─────────────────────
+app.get('/mon-equipe', requireAuth, role('dg'), async (c) => {
+  const monthStr = new Date().toISOString().slice(0, 7) // 'YYYY-MM'
+  // Agrégation en une requête : users non-étudiants + joint tâches, vacations, seances, activity
+  const { rows } = await pool.query(`
+    WITH task_stats AS (
+      SELECT assignee_id AS user_id,
+        COUNT(*) FILTER (WHERE statut = 'a_faire')::int  AS t_a_faire,
+        COUNT(*) FILTER (WHERE statut = 'en_cours')::int AS t_en_cours,
+        COUNT(*) FILTER (WHERE statut = 'en_revue')::int AS t_en_revue,
+        COUNT(*) FILTER (WHERE statut = 'termine')::int  AS t_termine,
+        COUNT(*) FILTER (WHERE statut <> 'termine' AND deadline IS NOT NULL AND deadline < CURRENT_DATE)::int AS t_en_retard,
+        COUNT(*) FILTER (WHERE statut = 'termine' AND completed_at >= NOW() - INTERVAL '30 days')::int AS t_termines_30j
+      FROM taches WHERE assignee_id IS NOT NULL GROUP BY assignee_id
+    ),
+    vac_stats AS (
+      SELECT e.user_id,
+        COALESCE(SUM(v.nb_heures), 0)::float AS v_heures_mois,
+        COALESCE(SUM(v.montant), 0)::float   AS v_montant_mois
+      FROM enseignants e
+      LEFT JOIN vacations v ON v.enseignant_id = e.id AND v.mois = $1
+      WHERE e.user_id IS NOT NULL GROUP BY e.user_id
+    ),
+    seance_stats AS (
+      SELECT e.user_id,
+        COUNT(s.id) FILTER (WHERE s.statut = 'effectue' AND s.signe_enseignant_at IS NOT NULL
+          AND to_char(s.date_debut, 'YYYY-MM') = $1)::int AS s_emargees_mois,
+        COUNT(s.id) FILTER (WHERE s.statut = 'effectue'
+          AND to_char(s.date_debut, 'YYYY-MM') = $1)::int AS s_total_mois
+      FROM enseignants e
+      LEFT JOIN seances s ON s.enseignant_id = e.id
+      WHERE e.user_id IS NOT NULL GROUP BY e.user_id
+    ),
+    activity_stats AS (
+      SELECT user_id,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int  AS a_7j,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')::int AS a_30j,
+        MAX(created_at) AS derniere_action_at
+      FROM activity_logs WHERE user_id IS NOT NULL GROUP BY user_id
+    )
+    SELECT u.id, u.nom, u.prenom, u.role, u.email, u.statut, u.last_login_at,
+      COALESCE(ts.t_a_faire, 0)       AS taches_a_faire,
+      COALESCE(ts.t_en_cours, 0)      AS taches_en_cours,
+      COALESCE(ts.t_en_revue, 0)      AS taches_en_revue,
+      COALESCE(ts.t_termine, 0)       AS taches_termine,
+      COALESCE(ts.t_en_retard, 0)     AS taches_en_retard,
+      COALESCE(ts.t_termines_30j, 0)  AS taches_termines_30j,
+      COALESCE(vs.v_heures_mois, 0)   AS vac_heures_mois,
+      COALESCE(vs.v_montant_mois, 0)  AS vac_montant_mois,
+      COALESCE(ss.s_emargees_mois, 0) AS seances_emargees_mois,
+      COALESCE(ss.s_total_mois, 0)    AS seances_total_mois,
+      COALESCE(acs.a_7j, 0)           AS activite_7j,
+      COALESCE(acs.a_30j, 0)          AS activite_30j,
+      acs.derniere_action_at
+    FROM users u
+    LEFT JOIN task_stats ts    ON ts.user_id = u.id
+    LEFT JOIN vac_stats vs     ON vs.user_id = u.id
+    LEFT JOIN seance_stats ss  ON ss.user_id = u.id
+    LEFT JOIN activity_stats acs ON acs.user_id = u.id
+    WHERE u.role IN ('dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant')
+    ORDER BY
+      CASE u.statut WHEN 'actif' THEN 0 ELSE 1 END,
+      u.role, u.nom, u.prenom
+  `, [monthStr])
+  return c.json({ mois: monthStr, membres: rows })
+})
+
+// ─── ACTIVITY LOGS — journal d'activité (DG uniquement) ─────────────────────
+app.get('/activity-logs', requireAuth, role('dg'), async (c) => {
+  const limit = Math.min(Number(c.req.query('limit') || 200), 1000)
+  const offset = Math.max(Number(c.req.query('offset') || 0), 0)
+  const userId = c.req.query('user_id')
+  const entity = c.req.query('entity')
+  const action = c.req.query('action')
+  const from = c.req.query('from')
+  const to = c.req.query('to')
+
+  const conds: string[] = []
+  const params: any[] = []
+  if (userId) { params.push(Number(userId)); conds.push(`l.user_id = $${params.length}`) }
+  if (entity) { params.push(entity); conds.push(`l.entity = $${params.length}`) }
+  if (action) { params.push(action.toUpperCase()); conds.push(`l.action = $${params.length}`) }
+  if (from)   { params.push(from); conds.push(`l.created_at >= $${params.length}`) }
+  if (to)     { params.push(to);   conds.push(`l.created_at <= ($${params.length}::date + INTERVAL '1 day')`) }
+
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  params.push(limit, offset)
+  const { rows } = await pool.query(
+    `SELECT l.*, u.nom AS user_nom, u.prenom AS user_prenom
+     FROM activity_logs l
+     LEFT JOIN users u ON u.id = l.user_id
+     ${where}
+     ORDER BY l.created_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  )
+  const countParams = params.slice(0, params.length - 2)
+  const { rows: totalRows } = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM activity_logs l ${where}`,
+    countParams
+  )
+  return c.json({ logs: rows, total: totalRows[0].total })
+})
+
+// Liste des entités distinctes (pour le filtre UI)
+app.get('/activity-logs/entities', requireAuth, role('dg'), async (c) => {
+  const { rows } = await pool.query(
+    `SELECT entity, COUNT(*)::int AS cnt FROM activity_logs GROUP BY entity ORDER BY cnt DESC`
+  )
+  return c.json(rows)
+})
+
+// ─── TACHES (productivité équipe) ────────────────────────────────────────────
+// Rôles autorisés à voir et gérer des tâches (personnel interne, pas les étudiants)
+const TACHES_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant']
+// Rôles autorisés à CRÉER / ASSIGNER des tâches (managers)
+const TACHES_MANAGER_ROLES = ['dg','dir_peda','resp_fin','coordinateur']
+
+// GET /taches — liste avec filtres (assignee, statut, priorite, mine)
+app.get('/taches', requireAuth, role(...TACHES_ROLES), async (c) => {
+  const user = u(c) as any
+  const assigneeFilter = c.req.query('assignee_id')
+  const statutFilter = c.req.query('statut')
+  const prioriteFilter = c.req.query('priorite')
+  const mine = c.req.query('mine') === '1'
+
+  const conds: string[] = []
+  const params: any[] = []
+
+  // Les rôles non-manager ne voient que leurs propres tâches (assignées ou créées)
+  if (!TACHES_MANAGER_ROLES.includes(user.role)) {
+    params.push(user.id)
+    conds.push(`(t.assignee_id = $${params.length} OR t.created_by = $${params.length})`)
+  } else if (mine) {
+    params.push(user.id)
+    conds.push(`t.assignee_id = $${params.length}`)
+  } else if (assigneeFilter) {
+    params.push(Number(assigneeFilter))
+    conds.push(`t.assignee_id = $${params.length}`)
+  }
+
+  if (statutFilter) {
+    params.push(statutFilter)
+    conds.push(`t.statut = $${params.length}`)
+  }
+  if (prioriteFilter) {
+    params.push(prioriteFilter)
+    conds.push(`t.priorite = $${params.length}`)
+  }
+
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  const { rows } = await pool.query(
+    `SELECT t.*,
+            a.nom AS assignee_nom, a.prenom AS assignee_prenom, a.role AS assignee_role,
+            cb.nom AS createur_nom, cb.prenom AS createur_prenom
+     FROM taches t
+     LEFT JOIN users a ON a.id = t.assignee_id
+     LEFT JOIN users cb ON cb.id = t.created_by
+     ${where}
+     ORDER BY
+       CASE t.statut WHEN 'a_faire' THEN 0 WHEN 'en_cours' THEN 1 WHEN 'en_revue' THEN 2 ELSE 3 END,
+       CASE t.priorite WHEN 'urgente' THEN 0 WHEN 'haute' THEN 1 WHEN 'normale' THEN 2 ELSE 3 END,
+       t.deadline NULLS LAST, t.created_at DESC`,
+    params
+  )
+  return c.json(rows)
+})
+
+// POST /taches — créer (managers uniquement)
+app.post('/taches', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) => {
+  const body = await c.req.json()
+  if (!body.titre || !String(body.titre).trim()) {
+    return c.json({ message: 'Le titre est requis.' }, 422)
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO taches (titre, description, assignee_id, created_by, priorite, statut, deadline)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [
+      String(body.titre).trim(),
+      body.description || null,
+      body.assignee_id || null,
+      u(c).id,
+      body.priorite || 'normale',
+      body.statut || 'a_faire',
+      body.deadline || null,
+    ]
+  )
+  return c.json(rows[0], 201)
+})
+
+// PUT /taches/:id — édition complète (manager, ou créateur, ou assigné pour certains champs)
+app.put('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
+  const user = u(c) as any
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { rows: existing } = await pool.query('SELECT * FROM taches WHERE id=$1', [id])
+  if (!existing[0]) return c.json({ message: 'Tâche introuvable.' }, 404)
+  const tache = existing[0]
+  const isManager = TACHES_MANAGER_ROLES.includes(user.role)
+  const isOwner = tache.created_by === user.id
+  const isAssignee = tache.assignee_id === user.id
+
+  if (!isManager && !isOwner && !isAssignee) {
+    return c.json({ message: 'Accès refusé.' }, 403)
+  }
+
+  // Seuls les managers/créateurs peuvent réassigner ou changer priorité/deadline/titre
+  const canFullEdit = isManager || isOwner
+  const titre = canFullEdit && body.titre ? String(body.titre).trim() : tache.titre
+  const description = canFullEdit && body.description !== undefined ? body.description : tache.description
+  const assignee_id = canFullEdit && body.assignee_id !== undefined ? body.assignee_id : tache.assignee_id
+  const priorite = canFullEdit && body.priorite ? body.priorite : tache.priorite
+  const deadline = canFullEdit && body.deadline !== undefined ? body.deadline : tache.deadline
+  const statut = body.statut || tache.statut
+  const completed_at = statut === 'termine' ? (tache.completed_at || new Date()) : null
+
+  const { rows } = await pool.query(
+    `UPDATE taches SET titre=$1, description=$2, assignee_id=$3, priorite=$4, statut=$5,
+       deadline=$6, completed_at=$7, updated_at=NOW()
+     WHERE id=$8 RETURNING *`,
+    [titre, description, assignee_id, priorite, statut, deadline, completed_at, id]
+  )
+  return c.json(rows[0])
+})
+
+// PATCH /taches/:id/statut — changement rapide de statut (Kanban drag)
+app.put('/taches/:id/statut', requireAuth, role(...TACHES_ROLES), async (c) => {
+  const user = u(c) as any
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const statut = body.statut
+  if (!['a_faire','en_cours','en_revue','termine'].includes(statut)) {
+    return c.json({ message: 'Statut invalide.' }, 422)
+  }
+  const { rows: existing } = await pool.query('SELECT assignee_id, created_by FROM taches WHERE id=$1', [id])
+  if (!existing[0]) return c.json({ message: 'Tâche introuvable.' }, 404)
+  const isManager = TACHES_MANAGER_ROLES.includes(user.role)
+  if (!isManager && existing[0].assignee_id !== user.id && existing[0].created_by !== user.id) {
+    return c.json({ message: 'Accès refusé.' }, 403)
+  }
+  const completedSql = statut === 'termine' ? 'COALESCE(completed_at, NOW())' : 'NULL'
+  const { rows } = await pool.query(
+    `UPDATE taches SET statut=$1, completed_at=${completedSql}, updated_at=NOW() WHERE id=$2 RETURNING *`,
+    [statut, id]
+  )
+  return c.json(rows[0])
+})
+
+// DELETE /taches/:id — manager ou créateur
+app.delete('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
+  const user = u(c) as any
+  const id = c.req.param('id')
+  const { rows } = await pool.query('SELECT created_by FROM taches WHERE id=$1', [id])
+  if (!rows[0]) return c.body(null, 204)
+  const isManager = TACHES_MANAGER_ROLES.includes(user.role)
+  if (!isManager && rows[0].created_by !== user.id) {
+    return c.json({ message: 'Accès refusé.' }, 403)
+  }
+  await pool.query('DELETE FROM taches WHERE id=$1', [id])
+  return c.body(null, 204)
+})
+
+// GET /taches/stats — KPIs productivité par agent (managers uniquement)
+app.get('/taches/stats', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) => {
+  const { rows } = await pool.query(`
+    SELECT
+      u.id, u.nom, u.prenom, u.role,
+      COUNT(t.id) FILTER (WHERE t.statut = 'a_faire')::int  AS a_faire,
+      COUNT(t.id) FILTER (WHERE t.statut = 'en_cours')::int AS en_cours,
+      COUNT(t.id) FILTER (WHERE t.statut = 'en_revue')::int AS en_revue,
+      COUNT(t.id) FILTER (WHERE t.statut = 'termine')::int  AS termine,
+      COUNT(t.id) FILTER (WHERE t.statut <> 'termine' AND t.deadline IS NOT NULL AND t.deadline < CURRENT_DATE)::int AS en_retard,
+      COUNT(t.id)::int AS total,
+      COUNT(t.id) FILTER (WHERE t.statut = 'termine' AND t.completed_at >= NOW() - INTERVAL '30 days')::int AS termines_30j
+    FROM users u
+    LEFT JOIN taches t ON t.assignee_id = u.id
+    WHERE u.role IN ('dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant')
+      AND u.statut = 'actif'
+    GROUP BY u.id, u.nom, u.prenom, u.role
+    ORDER BY termines_30j DESC, u.nom
+  `)
+  return c.json(rows)
 })
 
 // ─── Vercel handler ───────────────────────────────────────────────────────────
