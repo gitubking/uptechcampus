@@ -647,6 +647,7 @@ const ROLE_PERMS_DEFAULTS: { path: string; roles: string[] }[] = [
   // Productivité équipe
   { path: '/taches',                  roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant'] },
   { path: '/journal-activite',        roles: ['dg'] },
+  { path: '/mon-equipe',              roles: ['dg'] },
 ]
 
 let rolePermsReady: Promise<void> | null = null
@@ -10562,6 +10563,73 @@ app.post('/user-notifications/:id/read', requireAuth, async (c) => {
     [c.req.param('id'), userId]
   )
   return c.json({ ok: true })
+})
+
+// ─── MON EQUIPE — dashboard productivité consolidé (DG) ─────────────────────
+app.get('/mon-equipe', requireAuth, role('dg'), async (c) => {
+  const monthStr = new Date().toISOString().slice(0, 7) // 'YYYY-MM'
+  // Agrégation en une requête : users non-étudiants + joint tâches, vacations, seances, activity
+  const { rows } = await pool.query(`
+    WITH task_stats AS (
+      SELECT assignee_id AS user_id,
+        COUNT(*) FILTER (WHERE statut = 'a_faire')::int  AS t_a_faire,
+        COUNT(*) FILTER (WHERE statut = 'en_cours')::int AS t_en_cours,
+        COUNT(*) FILTER (WHERE statut = 'en_revue')::int AS t_en_revue,
+        COUNT(*) FILTER (WHERE statut = 'termine')::int  AS t_termine,
+        COUNT(*) FILTER (WHERE statut <> 'termine' AND deadline IS NOT NULL AND deadline < CURRENT_DATE)::int AS t_en_retard,
+        COUNT(*) FILTER (WHERE statut = 'termine' AND completed_at >= NOW() - INTERVAL '30 days')::int AS t_termines_30j
+      FROM taches WHERE assignee_id IS NOT NULL GROUP BY assignee_id
+    ),
+    vac_stats AS (
+      SELECT e.user_id,
+        COALESCE(SUM(v.nb_heures), 0)::float AS v_heures_mois,
+        COALESCE(SUM(v.montant), 0)::float   AS v_montant_mois
+      FROM enseignants e
+      LEFT JOIN vacations v ON v.enseignant_id = e.id AND v.mois = $1
+      WHERE e.user_id IS NOT NULL GROUP BY e.user_id
+    ),
+    seance_stats AS (
+      SELECT e.user_id,
+        COUNT(s.id) FILTER (WHERE s.statut = 'effectue' AND s.signe_enseignant_at IS NOT NULL
+          AND to_char(s.date_debut, 'YYYY-MM') = $1)::int AS s_emargees_mois,
+        COUNT(s.id) FILTER (WHERE s.statut = 'effectue'
+          AND to_char(s.date_debut, 'YYYY-MM') = $1)::int AS s_total_mois
+      FROM enseignants e
+      LEFT JOIN seances s ON s.enseignant_id = e.id
+      WHERE e.user_id IS NOT NULL GROUP BY e.user_id
+    ),
+    activity_stats AS (
+      SELECT user_id,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int  AS a_7j,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')::int AS a_30j,
+        MAX(created_at) AS derniere_action_at
+      FROM activity_logs WHERE user_id IS NOT NULL GROUP BY user_id
+    )
+    SELECT u.id, u.nom, u.prenom, u.role, u.email, u.statut, u.last_login_at,
+      COALESCE(ts.t_a_faire, 0)       AS taches_a_faire,
+      COALESCE(ts.t_en_cours, 0)      AS taches_en_cours,
+      COALESCE(ts.t_en_revue, 0)      AS taches_en_revue,
+      COALESCE(ts.t_termine, 0)       AS taches_termine,
+      COALESCE(ts.t_en_retard, 0)     AS taches_en_retard,
+      COALESCE(ts.t_termines_30j, 0)  AS taches_termines_30j,
+      COALESCE(vs.v_heures_mois, 0)   AS vac_heures_mois,
+      COALESCE(vs.v_montant_mois, 0)  AS vac_montant_mois,
+      COALESCE(ss.s_emargees_mois, 0) AS seances_emargees_mois,
+      COALESCE(ss.s_total_mois, 0)    AS seances_total_mois,
+      COALESCE(acs.a_7j, 0)           AS activite_7j,
+      COALESCE(acs.a_30j, 0)          AS activite_30j,
+      acs.derniere_action_at
+    FROM users u
+    LEFT JOIN task_stats ts    ON ts.user_id = u.id
+    LEFT JOIN vac_stats vs     ON vs.user_id = u.id
+    LEFT JOIN seance_stats ss  ON ss.user_id = u.id
+    LEFT JOIN activity_stats acs ON acs.user_id = u.id
+    WHERE u.role IN ('dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant')
+    ORDER BY
+      CASE u.statut WHEN 'actif' THEN 0 ELSE 1 END,
+      u.role, u.nom, u.prenom
+  `, [monthStr])
+  return c.json({ mois: monthStr, membres: rows })
 })
 
 // ─── ACTIVITY LOGS — journal d'activité (DG uniquement) ─────────────────────
