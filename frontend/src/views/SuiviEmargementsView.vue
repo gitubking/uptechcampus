@@ -3,6 +3,9 @@ import { ref, computed, onMounted, watch } from 'vue'
 import api from '@/services/api'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 import { openPrintWindow, uptechHeaderHTML, uptechFooterHTML, uptechPrintCSS } from '@/utils/uptechPrint'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 // ── State ──
 const loading = ref(true)
