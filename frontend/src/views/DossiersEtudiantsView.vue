@@ -27,9 +27,9 @@ interface EtudiantRow {
   total: number
 }
 
-interface RefTypeFormation { id: number; nom: string }
-interface RefFiliere { id: number; nom: string; code: string | null; type_formation_id: number | null }
-interface RefClasse { id: number; nom: string; filiere_id: number | null }
+interface RefTypeFormation { id: number; nom: string; nb_etudiants?: number }
+interface RefFiliere { id: number; nom: string; code: string | null; type_formation_id: number | null; nb_etudiants?: number }
+interface RefClasse { id: number; nom: string; filiere_id: number | null; nb_etudiants?: number }
 
 const types = ref<DocType[]>([])
 const etudiants = ref<EtudiantRow[]>([])
@@ -145,6 +145,10 @@ function resetFiltres() {
   selectAllTypes()
 }
 
+const hasActiveFilters = computed(() =>
+  !!(search.value || filtreStatut.value || filtreClasse.value || filtreTypeFormation.value || filtreFiliere.value)
+)
+
 // Statistiques globales calculées sur les étudiants filtrés et les colonnes visibles
 const statsGlobal = computed(() => {
   const listeEtudiants = etudiantsFiltres.value
@@ -247,15 +251,21 @@ onMounted(load)
       </div>
       <select v-model="filtreTypeFormation" class="dos-select" title="Filtrer par type de formation">
         <option value="">Tous types de formation</option>
-        <option v-for="tf in typesFormationOptions" :key="tf.id" :value="String(tf.id)">{{ tf.nom }}</option>
+        <option v-for="tf in typesFormationOptions" :key="tf.id" :value="String(tf.id)">
+          {{ tf.nom }}{{ tf.nb_etudiants !== undefined ? ` (${tf.nb_etudiants})` : '' }}
+        </option>
       </select>
       <select v-model="filtreFiliere" class="dos-select" title="Filtrer par filière">
         <option value="">Toutes filières</option>
-        <option v-for="f in filieresOptions" :key="f.id" :value="String(f.id)">{{ f.nom }}</option>
+        <option v-for="f in filieresOptions" :key="f.id" :value="String(f.id)">
+          {{ f.nom }}{{ f.nb_etudiants !== undefined ? ` (${f.nb_etudiants})` : '' }}
+        </option>
       </select>
       <select v-model="filtreClasse" class="dos-select" title="Filtrer par classe">
         <option value="">Toutes classes</option>
-        <option v-for="c in classesOptions" :key="c.id" :value="String(c.id)">{{ c.nom }}</option>
+        <option v-for="c in classesOptions" :key="c.id" :value="String(c.id)">
+          {{ c.nom }}{{ c.nb_etudiants !== undefined ? ` (${c.nb_etudiants})` : '' }}
+        </option>
       </select>
       <select v-model="filtreStatut" class="dos-select" title="Filtrer par statut d'inscription">
         <option v-for="s in statutOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
@@ -316,7 +326,16 @@ onMounted(load)
         </thead>
         <tbody>
           <tr v-if="!etudiantsFiltres.length">
-            <td :colspan="4 + visibleTypes.length" class="dos-td-empty">Aucun étudiant trouvé</td>
+            <td :colspan="4 + visibleTypes.length" class="dos-td-empty">
+              <div v-if="hasActiveFilters">
+                Aucun étudiant ne correspond à ces filtres.
+                <button type="button" class="dos-link-btn" @click="resetFiltres">Réinitialiser les filtres</button>
+                <div class="dos-empty-hint">
+                  Astuce : si un étudiant devrait apparaître, vérifiez que son inscription en cours a bien une filière et une classe renseignées.
+                </div>
+              </div>
+              <div v-else>Aucun étudiant.</div>
+            </td>
           </tr>
           <tr
             v-for="etudiant in etudiantsFiltres"
@@ -601,6 +620,12 @@ onMounted(load)
 .dos-td--doc { text-align: center; padding: 8px 4px; }
 .dos-td--score { text-align: center; border-left: 2px solid #f0f0f0; }
 .dos-td-empty { text-align: center; color: #aaa; padding: 32px; font-size: 13px; }
+.dos-link-btn {
+  background: none; border: none; color: #E30613; font-weight: 600; cursor: pointer;
+  padding: 0 4px; margin-left: 6px; text-decoration: underline;
+}
+.dos-link-btn:hover { color: #b20510; }
+.dos-empty-hint { margin-top: 10px; font-size: 12px; color: #888; font-style: italic; }
 
 /* ── Cellules étudiant ───────────────────────────────────────────── */
 .dos-link-num {

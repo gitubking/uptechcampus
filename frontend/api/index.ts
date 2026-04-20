@@ -4160,6 +4160,8 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
      WHERE td.actif = TRUE ORDER BY td.ordre, td.label`
   )
   // Étudiants avec leur type de formation via : inscription → filière → type_formation
+  // On préfère l'inscription avec le plus d'infos remplies (filière puis classe)
+  // pour éviter qu'une inscription "vide" récente masque une vraie inscription antérieure.
   const { rows: etudiants } = await pool.query(`
     SELECT e.id, e.nom, e.prenom, e.numero_etudiant,
            f.id AS filiere_id, f.nom AS filiere_nom, f.code AS filiere_code,
@@ -4169,7 +4171,13 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
            i.statut AS inscription_statut
     FROM etudiants e
     LEFT JOIN inscriptions i ON i.id = (
-      SELECT id FROM inscriptions WHERE etudiant_id = e.id ORDER BY created_at DESC LIMIT 1
+      SELECT id FROM inscriptions
+      WHERE etudiant_id = e.id
+      ORDER BY
+        CASE WHEN filiere_id IS NOT NULL THEN 0 ELSE 1 END,
+        CASE WHEN classe_id IS NOT NULL THEN 0 ELSE 1 END,
+        created_at DESC
+      LIMIT 1
     )
     LEFT JOIN filieres f ON f.id = i.filiere_id
     LEFT JOIN types_formation tf ON tf.id = f.type_formation_id
@@ -4199,10 +4207,36 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
   // Listes de référence pour alimenter les filtres UI (indépendamment des
   // rattachements actuels des étudiants — évite des dropdowns vides si les
   // filières ne sont pas encore liées à un type de formation, etc.).
+  // On joint un compteur d'étudiants par entité pour que le DG voie tout de
+  // suite si une catégorie est vide (et que ses filtres ne font donc rien).
   const [typesFormationRows, filieresRows, classesRows] = await Promise.all([
-    pool.query(`SELECT id, nom FROM types_formation ORDER BY nom`),
-    pool.query(`SELECT id, nom, code, type_formation_id FROM filieres ORDER BY nom`),
-    pool.query(`SELECT id, nom, filiere_id FROM classes ORDER BY nom`),
+    pool.query(`
+      SELECT tf.id, tf.nom, COUNT(DISTINCT e.id)::int AS nb_etudiants
+      FROM types_formation tf
+      LEFT JOIN filieres f ON f.type_formation_id = tf.id
+      LEFT JOIN inscriptions i ON i.filiere_id = f.id
+      LEFT JOIN etudiants e ON e.id = i.etudiant_id
+      GROUP BY tf.id, tf.nom
+      ORDER BY tf.nom
+    `),
+    pool.query(`
+      SELECT f.id, f.nom, f.code, f.type_formation_id,
+             COUNT(DISTINCT e.id)::int AS nb_etudiants
+      FROM filieres f
+      LEFT JOIN inscriptions i ON i.filiere_id = f.id
+      LEFT JOIN etudiants e ON e.id = i.etudiant_id
+      GROUP BY f.id, f.nom, f.code, f.type_formation_id
+      ORDER BY f.nom
+    `),
+    pool.query(`
+      SELECT c.id, c.nom, c.filiere_id,
+             COUNT(DISTINCT e.id)::int AS nb_etudiants
+      FROM classes c
+      LEFT JOIN inscriptions i ON i.classe_id = c.id
+      LEFT JOIN etudiants e ON e.id = i.etudiant_id
+      GROUP BY c.id, c.nom, c.filiere_id
+      ORDER BY c.nom
+    `),
   ])
   return c.json({
     types,
