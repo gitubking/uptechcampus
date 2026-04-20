@@ -905,6 +905,22 @@ async function ensureRolePermissionsReady(): Promise<void> {
       `UPDATE role_permissions SET has_access=false
        WHERE role='enseignant' AND page_path='/taches' AND has_access=true`
     )
+    // 4. Migration one-shot : assurer l'accès à /demandes-absence pour toute
+    //    l'équipe admin. Utile quand une instance chaude avait déjà seedé la
+    //    table avant l'ajout de ce path : ON CONFLICT DO NOTHING précédent
+    //    aurait pu être sauté, laissant la sidebar vide pour les non-DG.
+    for (const r of ['dg','dir_peda','resp_fin','coordinateur','secretariat']) {
+      await pool.query(
+        `INSERT INTO role_permissions(role,page_path,has_access) VALUES($1,'/demandes-absence',true)
+         ON CONFLICT(role,page_path) DO UPDATE SET has_access=true
+         WHERE role_permissions.has_access = false`,
+        [r]
+      )
+    }
+    await pool.query(
+      `INSERT INTO role_permissions(role,page_path,has_access) VALUES('enseignant','/demandes-absence',false)
+       ON CONFLICT(role,page_path) DO NOTHING`
+    )
   })().catch((err) => {
     // Reset so a later request can retry
     rolePermsReady = null
