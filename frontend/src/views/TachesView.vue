@@ -204,11 +204,11 @@ async function save() {
   }
 }
 
-function canChangeStatut(t: Tache, statut: Tache['statut']): boolean {
-  if (isManager.value) return true
-  // Un assigné non-manager ne peut que passer à "terminé".
-  if (t.assignee_id === auth.user?.id && statut === 'termine') return true
-  return false
+function canChangeStatut(_t: Tache, _statut: Tache['statut']): boolean {
+  // Tout rôle administratif qui accède à la page peut changer le statut de
+  // n'importe quelle tâche. L'accès à la page est déjà verrouillé côté back
+  // (TACHES_ROLES), donc inutile de re-filtrer ici.
+  return true
 }
 
 async function changeStatut(t: Tache, statut: Tache['statut']) {
@@ -266,7 +266,7 @@ onMounted(loadAll)
       <div>
         <h1 class="text-xl font-bold text-gray-900">Tâches & productivité</h1>
         <p class="text-sm text-gray-500 mt-0.5">
-          {{ isManager ? 'Suivi du travail de l\'équipe administrative' : 'Vos tâches assignées' }}
+          Suivi du travail de l'équipe administrative
         </p>
       </div>
       <button v-if="isManager" @click="openCreate"
