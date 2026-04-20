@@ -967,6 +967,45 @@ async function ensureTachesReady(): Promise<void> {
   return tachesReady
 }
 
+// ─── Table Demandes d'absence (RH) — lazy init ──────────────────────────────
+// Dossier d'autorisation d'absence : chaque ligne est une trace immuable
+// (on n'efface pas, on annule). Les décisions sont auditées via le champ
+// décideur + decision_at + decision_commentaire et via activity_logs.
+let demandesAbsenceReady: Promise<void> | null = null
+async function ensureDemandesAbsenceReady(): Promise<void> {
+  if (demandesAbsenceReady) return demandesAbsenceReady
+  demandesAbsenceReady = (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS demandes_absence (
+      id SERIAL PRIMARY KEY,
+      demandeur_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type_absence VARCHAR(30) NOT NULL CHECK (type_absence IN (
+        'conge_annuel','maladie','exceptionnel','formation','mission','sans_solde','autre'
+      )),
+      date_debut DATE NOT NULL,
+      date_fin DATE NOT NULL,
+      nb_jours_ouvrables INTEGER NOT NULL DEFAULT 0 CHECK (nb_jours_ouvrables >= 0),
+      motif TEXT,
+      justificatif_url TEXT,
+      statut VARCHAR(20) NOT NULL DEFAULT 'en_attente' CHECK (statut IN (
+        'en_attente','approuvee','refusee','annulee'
+      )),
+      decideur_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      decision_at TIMESTAMP,
+      decision_commentaire TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT ck_absence_dates CHECK (date_fin >= date_debut)
+    )`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_absence_demandeur ON demandes_absence(demandeur_id, created_at DESC)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_absence_statut ON demandes_absence(statut, created_at DESC)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_absence_periode ON demandes_absence(date_debut, date_fin)`)
+  })().catch((err) => {
+    demandesAbsenceReady = null
+    throw err
+  })
+  return demandesAbsenceReady
+}
+
 // ─── Tables Jury ─────────────────────────────────────────────────────────────
 pool.query(`CREATE TABLE IF NOT EXISTS jurys (
   id SERIAL PRIMARY KEY,
@@ -12585,6 +12624,181 @@ app.get('/taches/stats', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) =
     ORDER BY termines_30j DESC, u.nom
   `)
   return c.json(rows)
+})
+
+// ─── DEMANDES D'ABSENCE (RH — autorisations) ─────────────────────────────────
+// Rôles autorisés à déposer une demande : équipe admin uniquement (pas les
+// enseignants). Ils ont leur propre flux via les vacations / émargement.
+const ABSENCE_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat']
+// Rôles autorisés à valider/refuser : DG uniquement pour l'instant.
+const ABSENCE_DECIDEUR_ROLES = ['dg']
+// Solde annuel standard (jours ouvrables de congé annuel par agent).
+const ABSENCE_CONGE_ANNUEL_PAR_DEFAUT = 30
+
+const TYPES_ABSENCE_VALIDES = [
+  'conge_annuel','maladie','exceptionnel','formation','mission','sans_solde','autre',
+] as const
+
+// Compte les jours ouvrables (lundi-vendredi) entre deux dates inclusives.
+// Les jours fériés ne sont pas retirés automatiquement (catalogue local variable) :
+// l'agent peut rectifier dans le motif si nécessaire, et le décideur tranche.
+function compterJoursOuvrables(debutISO: string, finISO: string): number {
+  const d = new Date(debutISO + 'T00:00:00Z')
+  const f = new Date(finISO + 'T00:00:00Z')
+  if (isNaN(d.getTime()) || isNaN(f.getTime()) || f < d) return 0
+  let n = 0
+  for (let cur = new Date(d); cur <= f; cur.setUTCDate(cur.getUTCDate() + 1)) {
+    const jour = cur.getUTCDay() // 0=dim, 6=sam
+    if (jour !== 0 && jour !== 6) n++
+  }
+  return n
+}
+
+// GET /demandes-absence — liste
+// - `?mine=1`  : uniquement mes demandes
+// - `?statut=` : filtre statut
+// - Sans filtre : décideurs voient tout, les autres voient uniquement les leurs
+app.get('/demandes-absence', requireAuth, role(...ABSENCE_ROLES), async (c) => {
+  await ensureDemandesAbsenceReady()
+  const user = u(c) as any
+  const isDecideur = ABSENCE_DECIDEUR_ROLES.includes(user.role)
+  const mine = c.req.query('mine') === '1'
+  const statutFilter = c.req.query('statut')
+
+  const conds: string[] = []
+  const params: any[] = []
+  if (mine || !isDecideur) {
+    params.push(user.id)
+    conds.push(`da.demandeur_id = $${params.length}`)
+  }
+  if (statutFilter) {
+    params.push(statutFilter)
+    conds.push(`da.statut = $${params.length}`)
+  }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  const { rows } = await pool.query(
+    `SELECT da.*,
+            d.nom AS demandeur_nom, d.prenom AS demandeur_prenom, d.role AS demandeur_role, d.email AS demandeur_email,
+            de.nom AS decideur_nom, de.prenom AS decideur_prenom, de.role AS decideur_role
+     FROM demandes_absence da
+     LEFT JOIN users d ON d.id = da.demandeur_id
+     LEFT JOIN users de ON de.id = da.decideur_id
+     ${where}
+     ORDER BY
+       CASE da.statut WHEN 'en_attente' THEN 0 WHEN 'approuvee' THEN 1 WHEN 'refusee' THEN 2 ELSE 3 END,
+       da.date_debut DESC, da.created_at DESC`,
+    params
+  )
+  return c.json(rows)
+})
+
+// GET /demandes-absence/solde — solde annuel de l'utilisateur courant (ou d'un agent précis)
+app.get('/demandes-absence/solde', requireAuth, role(...ABSENCE_ROLES), async (c) => {
+  await ensureDemandesAbsenceReady()
+  const user = u(c) as any
+  const isDecideur = ABSENCE_DECIDEUR_ROLES.includes(user.role)
+  const paramUserId = c.req.query('user_id')
+  const targetId = paramUserId && isDecideur ? Number(paramUserId) : user.id
+  const annee = Number(c.req.query('annee')) || new Date().getFullYear()
+  const { rows } = await pool.query(
+    `SELECT COALESCE(SUM(nb_jours_ouvrables), 0)::int AS jours_pris
+     FROM demandes_absence
+     WHERE demandeur_id = $1
+       AND type_absence = 'conge_annuel'
+       AND statut = 'approuvee'
+       AND EXTRACT(YEAR FROM date_debut) = $2`,
+    [targetId, annee]
+  )
+  const jours_pris = Number(rows[0]?.jours_pris ?? 0)
+  return c.json({
+    user_id: targetId,
+    annee,
+    solde_initial: ABSENCE_CONGE_ANNUEL_PAR_DEFAUT,
+    jours_pris,
+    solde_restant: Math.max(0, ABSENCE_CONGE_ANNUEL_PAR_DEFAUT - jours_pris),
+  })
+})
+
+// POST /demandes-absence — déposer une nouvelle demande
+app.post('/demandes-absence', requireAuth, role(...ABSENCE_ROLES), async (c) => {
+  await ensureDemandesAbsenceReady()
+  const user = u(c) as any
+  const body = await c.req.json()
+  const type = String(body.type_absence || '').trim()
+  if (!TYPES_ABSENCE_VALIDES.includes(type as any)) {
+    return c.json({ message: 'Type d\'absence invalide.' }, 422)
+  }
+  const dd = String(body.date_debut || '').slice(0, 10)
+  const df = String(body.date_fin || body.date_debut || '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dd) || !/^\d{4}-\d{2}-\d{2}$/.test(df)) {
+    return c.json({ message: 'Dates invalides.' }, 422)
+  }
+  if (df < dd) {
+    return c.json({ message: 'La date de fin doit être postérieure ou égale à la date de début.' }, 422)
+  }
+  const nb = compterJoursOuvrables(dd, df)
+  const motif = body.motif ? String(body.motif).trim().slice(0, 2000) : null
+  const justif = body.justificatif_url ? String(body.justificatif_url).trim().slice(0, 500) : null
+  const { rows } = await pool.query(
+    `INSERT INTO demandes_absence
+       (demandeur_id, type_absence, date_debut, date_fin, nb_jours_ouvrables, motif, justificatif_url)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [user.id, type, dd, df, nb, motif, justif]
+  )
+  return c.json(rows[0], 201)
+})
+
+// PUT /demandes-absence/:id/decision — approuver / refuser (décideur)
+app.put('/demandes-absence/:id/decision', requireAuth, role(...ABSENCE_DECIDEUR_ROLES), async (c) => {
+  await ensureDemandesAbsenceReady()
+  const user = u(c) as any
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const decision = body.statut
+  if (!['approuvee','refusee'].includes(decision)) {
+    return c.json({ message: 'Décision invalide.' }, 422)
+  }
+  const commentaire = body.commentaire ? String(body.commentaire).trim().slice(0, 1000) : null
+  const { rows: existing } = await pool.query(
+    'SELECT statut, demandeur_id FROM demandes_absence WHERE id=$1', [id]
+  )
+  if (!existing[0]) return c.json({ message: 'Demande introuvable.' }, 404)
+  if (existing[0].statut !== 'en_attente') {
+    return c.json({ message: `Demande déjà ${existing[0].statut}, décision impossible.` }, 409)
+  }
+  if (existing[0].demandeur_id === user.id) {
+    return c.json({ message: 'Vous ne pouvez pas valider votre propre demande.' }, 403)
+  }
+  const { rows } = await pool.query(
+    `UPDATE demandes_absence
+        SET statut=$1, decideur_id=$2, decision_at=NOW(), decision_commentaire=$3, updated_at=NOW()
+      WHERE id=$4
+      RETURNING *`,
+    [decision, user.id, commentaire, id]
+  )
+  return c.json(rows[0])
+})
+
+// PUT /demandes-absence/:id/annuler — annuler sa propre demande (si en attente)
+app.put('/demandes-absence/:id/annuler', requireAuth, role(...ABSENCE_ROLES), async (c) => {
+  await ensureDemandesAbsenceReady()
+  const user = u(c) as any
+  const id = c.req.param('id')
+  const { rows: existing } = await pool.query(
+    'SELECT statut, demandeur_id FROM demandes_absence WHERE id=$1', [id]
+  )
+  if (!existing[0]) return c.json({ message: 'Demande introuvable.' }, 404)
+  if (existing[0].demandeur_id !== user.id && !ABSENCE_DECIDEUR_ROLES.includes(user.role)) {
+    return c.json({ message: 'Accès refusé.' }, 403)
+  }
+  if (existing[0].statut !== 'en_attente') {
+    return c.json({ message: 'Seule une demande en attente peut être annulée.' }, 409)
+  }
+  const { rows } = await pool.query(
+    `UPDATE demandes_absence SET statut='annulee', updated_at=NOW() WHERE id=$1 RETURNING *`,
+    [id]
+  )
+  return c.json(rows[0])
 })
 
 // ─── Vercel handler ───────────────────────────────────────────────────────────
