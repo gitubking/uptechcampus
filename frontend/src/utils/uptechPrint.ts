@@ -99,8 +99,7 @@ export function uptechPrintCSS(): string {
     .sign-area{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:18px;padding-top:8px;border-top:1px dashed #ddd}
     .sign-box{text-align:center}
     .sign-box .sign-title{font-size:9px;font-weight:700;color:#333;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px}
-    .sign-line{position:relative;border-bottom:1px solid #ccc;height:140px;margin-bottom:4px;display:flex;align-items:center;justify-content:center;overflow:hidden}
-    .sign-line .sign-img{max-width:100%;max-height:100%;object-fit:contain;display:block;image-rendering:-webkit-optimize-contrast}
+    .sign-line{border-bottom:1px solid #ccc;height:40px;margin-bottom:4px}
     .sign-box .sign-hint{font-size:7px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px}
 
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
@@ -108,96 +107,23 @@ export function uptechPrintCSS(): string {
 }
 
 /**
- * Génère un PDF téléchargeable à partir du HTML fourni, sans ouvrir de
- * boîte de dialogue d'impression. Rendu via html2canvas (capture visuelle
- * du DOM) + jsPDF (assemblage multi-pages A4/A3, portrait ou paysage).
- *
- * `options.filename` sans extension — ".pdf" est ajouté automatiquement.
- * L'orientation est déduite du CSS `@page` du HTML (landscape/portrait).
+ * Ouvre une fenêtre de navigation cachée avec le HTML fourni et déclenche
+ * l'impression automatiquement. Utilise un blob URL pour contourner les
+ * interceptions du Service Worker PWA.
  */
-export async function openPrintWindow(html: string, options?: { filename?: string }): Promise<void> {
-  const filename = (options?.filename ?? inferFilenameFromHtml(html) ?? 'document').replace(/\.pdf$/i, '') + '.pdf'
-
-  // 1. iframe caché qui sert de conteneur de rendu — largeur A4 portrait
-  //    par défaut (210 mm ≈ 794 px à 96 dpi), ou A4 paysage si détecté.
-  const landscape = /@page\s*\{[^}]*landscape/i.test(html)
-  const widthPx  = landscape ? 1123 : 794
-  const heightPx = landscape ? 794  : 1123
-
-  const iframe = document.createElement('iframe')
-  iframe.style.cssText = `position:fixed;left:-10000px;top:0;width:${widthPx}px;height:${heightPx}px;border:0;visibility:hidden;`
-  document.body.appendChild(iframe)
-
-  try {
-    const doc = iframe.contentDocument
-    if (!doc) throw new Error('iframe context indisponible')
-    doc.open(); doc.write(html); doc.close()
-
-    // Attendre que l'iframe charge (images/fonts inline base64 inclus)
-    await new Promise<void>((resolve) => {
-      if (doc.readyState === 'complete') resolve()
-      else iframe.addEventListener('load', () => resolve(), { once: true })
+export function openPrintWindow(html: string): void {
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const w = window.open(url, '_blank')
+  if (w) {
+    w.addEventListener('load', () => {
+      w.addEventListener('afterprint', () => {
+        try { w.close() } catch { /* ignore */ }
+        URL.revokeObjectURL(url)
+      })
+      setTimeout(() => { w.print() }, 300)
     })
-    await new Promise(r => setTimeout(r, 100))  // marge pour les <img>
-
-    const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-      import('html2canvas'),
-      import('jspdf'),
-    ])
-
-    const body = doc.body
-    // scale:2 → qualité rétina. Background blanc pour éviter la transparence PDF.
-    const canvas = await html2canvas(body, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: '#ffffff',
-      windowWidth: widthPx,
-      windowHeight: heightPx,
-    })
-
-    // Conversion en PDF multi-pages A4
-    const pdf = new jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' })
-    const pageW = pdf.internal.pageSize.getWidth()
-    const pageH = pdf.internal.pageSize.getHeight()
-    const imgWpx = canvas.width
-    const imgHpx = canvas.height
-    const mmPerPx = pageW / imgWpx
-    const totalHmm = imgHpx * mmPerPx
-
-    if (totalHmm <= pageH) {
-      // Une seule page
-      pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageW, totalHmm)
-    } else {
-      // Découpage en plusieurs pages — chaque tranche est redessinée sur un canvas temporaire
-      const pageHpx = Math.floor(pageH / mmPerPx)
-      const tmp = document.createElement('canvas')
-      tmp.width = imgWpx
-      tmp.height = pageHpx
-      const ctx = tmp.getContext('2d')!
-      let offsetY = 0
-      let first = true
-      while (offsetY < imgHpx) {
-        const sliceHpx = Math.min(pageHpx, imgHpx - offsetY)
-        tmp.height = sliceHpx
-        ctx.clearRect(0, 0, tmp.width, tmp.height)
-        ctx.drawImage(canvas, 0, offsetY, imgWpx, sliceHpx, 0, 0, imgWpx, sliceHpx)
-        if (!first) pdf.addPage()
-        first = false
-        pdf.addImage(tmp.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageW, sliceHpx * mmPerPx)
-        offsetY += sliceHpx
-      }
-    }
-
-    pdf.save(filename)
-  } finally {
-    document.body.removeChild(iframe)
+  } else {
+    URL.revokeObjectURL(url)
   }
-}
-
-/** Extrait un nom de fichier depuis la balise <title> du HTML (si présente). */
-function inferFilenameFromHtml(html: string): string | null {
-  const m = html.match(/<title>([^<]+)<\/title>/i)
-  if (!m || !m[1]) return null
-  return m[1].trim().replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
 }
