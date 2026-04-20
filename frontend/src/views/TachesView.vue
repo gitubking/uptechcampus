@@ -378,83 +378,81 @@ onMounted(loadAll)
       </div>
     </div>
 
-    <!-- Vue LISTE -->
-    <div v-else-if="tab === 'liste'" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div v-if="filteredTaches.length === 0" class="p-12 text-center">
+    <!-- Vue LISTE — groupée par statut (4 sections À faire / En cours / En revue / Terminé) -->
+    <div v-else-if="tab === 'liste'" class="space-y-4">
+      <div v-if="filteredTaches.length === 0" class="bg-white rounded-xl border border-gray-200 p-12 text-center">
         <p class="text-gray-500 text-sm">Aucune tâche</p>
       </div>
-      <table v-else class="w-full">
-        <thead class="bg-gray-50 border-b border-gray-200">
-          <tr>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Titre</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Assigné à</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Priorité</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Statut</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Jour programmé</th>
-            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-100">
-          <tr v-for="t in filteredTaches" :key="t.id" class="hover:bg-gray-50 transition">
-            <td class="px-4 py-3">
-              <div class="text-sm font-medium text-gray-900">{{ t.titre }}</div>
-              <div v-if="t.description" class="text-xs text-gray-500 line-clamp-1">{{ t.description }}</div>
-            </td>
-            <td class="px-4 py-3 text-sm text-gray-700">
-              <span v-if="t.assignee_id">{{ t.assignee_prenom }} {{ t.assignee_nom }}</span>
-              <span v-else class="text-gray-400 italic">—</span>
-            </td>
-            <td class="px-4 py-3">
-              <span :class="['text-xs font-medium px-2 py-0.5 rounded border', PRIORITE_CONF[t.priorite].color]">
-                {{ PRIORITE_CONF[t.priorite].label }}
-              </span>
-            </td>
-            <td class="px-4 py-3">
-              <select v-if="isManager" :value="t.statut" @change="changeStatut(t, ($event.target as HTMLSelectElement).value as Tache['statut'])"
-                :class="['text-xs font-medium px-2 py-1 rounded border-0 cursor-pointer', STATUT_CONF[t.statut].color]">
-                <option value="a_faire">À faire</option>
-                <option value="en_cours">En cours</option>
-                <option value="en_revue">En revue</option>
-                <option value="termine">Terminé</option>
-              </select>
-              <span v-else
-                :class="['text-xs font-medium px-2 py-1 rounded inline-block', STATUT_CONF[t.statut].color]">
-                {{ STATUT_CONF[t.statut].label }}
-              </span>
-            </td>
-            <td class="px-4 py-3 text-sm">
-              <span v-if="t.deadline" :class="isOverdue(t) ? 'text-red-600 font-medium' : 'text-gray-600'">
-                {{ formatDate(t.deadline) }}
-                <span v-if="isOverdue(t)" class="ml-1 text-xs">(en retard)</span>
-              </span>
-              <span v-else class="text-gray-400">—</span>
-            </td>
-            <td class="px-4 py-3 text-right">
-              <button
-                v-if="!isManager && t.assignee_id === auth.user?.id && t.statut !== 'termine'"
-                @click="markDone(t)"
-                class="inline-flex items-center gap-1 px-2 py-1 bg-green-600 text-white text-xs font-medium rounded hover:bg-green-700 transition mr-1"
-                title="Marquer terminé">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-                Terminer
-              </button>
-              <button v-if="isManager" @click="openEdit(t)" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition" title="Modifier">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-              </button>
-              <button v-if="isManager || t.created_by === auth.user?.id" @click="removeTache(t)"
-                class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition" title="Supprimer">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                </svg>
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div v-for="col in kanbanColumns" :key="col.key"
+        class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div :class="['flex items-center justify-between px-4 py-2.5 border-b border-gray-200', STATUT_CONF[col.key].color]">
+          <h3 class="text-sm font-semibold">{{ col.label }}</h3>
+          <span class="text-xs font-medium bg-white/70 px-2 py-0.5 rounded-full">
+            {{ tachesByStatut(col.key).length }}
+          </span>
+        </div>
+        <div v-if="tachesByStatut(col.key).length === 0" class="px-4 py-6 text-center text-xs text-gray-400 italic">
+          Aucune tâche dans cette catégorie
+        </div>
+        <table v-else class="w-full">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Titre</th>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Assigné à</th>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Priorité</th>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Statut</th>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Jour programmé</th>
+              <th class="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <tr v-for="t in tachesByStatut(col.key)" :key="t.id" class="hover:bg-gray-50 transition">
+              <td class="px-4 py-3">
+                <div class="text-sm font-medium text-gray-900">{{ t.titre }}</div>
+                <div v-if="t.description" class="text-xs text-gray-500 line-clamp-1">{{ t.description }}</div>
+              </td>
+              <td class="px-4 py-3 text-sm text-gray-700">
+                <span v-if="t.assignee_id">{{ t.assignee_prenom }} {{ t.assignee_nom }}</span>
+                <span v-else class="text-gray-400 italic">—</span>
+              </td>
+              <td class="px-4 py-3">
+                <span :class="['text-xs font-medium px-2 py-0.5 rounded border', PRIORITE_CONF[t.priorite].color]">
+                  {{ PRIORITE_CONF[t.priorite].label }}
+                </span>
+              </td>
+              <td class="px-4 py-3">
+                <select :value="t.statut" @change="changeStatut(t, ($event.target as HTMLSelectElement).value as Tache['statut'])"
+                  :class="['text-xs font-medium px-2 py-1 rounded border-0 cursor-pointer', STATUT_CONF[t.statut].color]">
+                  <option value="a_faire">À faire</option>
+                  <option value="en_cours">En cours</option>
+                  <option value="en_revue">En revue</option>
+                  <option value="termine">Terminé</option>
+                </select>
+              </td>
+              <td class="px-4 py-3 text-sm">
+                <span v-if="t.deadline" :class="isOverdue(t) ? 'text-red-600 font-medium' : 'text-gray-600'">
+                  {{ formatDate(t.deadline) }}
+                  <span v-if="isOverdue(t)" class="ml-1 text-xs">(en retard)</span>
+                </span>
+                <span v-else class="text-gray-400">—</span>
+              </td>
+              <td class="px-4 py-3 text-right">
+                <button v-if="isManager" @click="openEdit(t)" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition" title="Modifier">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
+                <button v-if="isManager || t.created_by === auth.user?.id" @click="removeTache(t)"
+                  class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition" title="Supprimer">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                  </svg>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Vue PRODUCTIVITE -->
