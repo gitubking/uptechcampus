@@ -4604,9 +4604,8 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
      LEFT JOIN types_formation tf ON tf.id = td.type_formation_id
      WHERE td.actif = TRUE ORDER BY td.ordre, td.label`
   )
-  // Étudiants avec leur type de formation via : inscription → filière → type_formation
-  // On préfère l'inscription avec le plus d'infos remplies (filière puis classe)
-  // pour éviter qu'une inscription "vide" récente masque une vraie inscription antérieure.
+  // Inscription "principale" (la plus complète) pour l'affichage de la ligne :
+  // filière affichée, classe affichée, statut, type de formation courant.
   const { rows: etudiants } = await pool.query(`
     SELECT e.id, e.nom, e.prenom, e.numero_etudiant,
            f.id AS filiere_id, f.nom AS filiere_nom, f.code AS filiere_code,
@@ -4629,6 +4628,28 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
     LEFT JOIN classes cl ON cl.id = i.classe_id
     ORDER BY e.nom, e.prenom
   `)
+  // Toutes les inscriptions : un étudiant est "rattaché" à une classe / filière /
+  // type de formation s'il a AU MOINS une inscription dans cette catégorie.
+  // Les filtres et les compteurs utilisent cette logique pour que les deux
+  // soient toujours cohérents entre eux.
+  const { rows: attachments } = await pool.query(`
+    SELECT i.etudiant_id, i.classe_id, i.filiere_id, f.type_formation_id
+    FROM inscriptions i
+    LEFT JOIN filieres f ON f.id = i.filiere_id
+  `)
+  const tfByEtu = new Map<number, Set<number>>()
+  const fiByEtu = new Map<number, Set<number>>()
+  const clByEtu = new Map<number, Set<number>>()
+  const add = (m: Map<number, Set<number>>, k: number, v: number | null) => {
+    if (v === null || v === undefined) return
+    let s = m.get(k); if (!s) { s = new Set(); m.set(k, s) }
+    s.add(v)
+  }
+  for (const a of attachments) {
+    add(tfByEtu, a.etudiant_id, a.type_formation_id)
+    add(fiByEtu, a.etudiant_id, a.filiere_id)
+    add(clByEtu, a.etudiant_id, a.classe_id)
+  }
   const { rows: checks } = await pool.query(
     `SELECT etudiant_id, code, recu FROM checklist_documents WHERE recu = TRUE`
   )
@@ -4639,56 +4660,48 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
   }
   const result = etudiants.map((e: any) => {
     const docs = checkMap[e.id] ?? {}
-    // Un type est applicable si type_formation_id IS NULL (commun) OU correspond au type de formation de l'étudiant
-    const applicables = types.filter((t: any) => t.type_formation_id === null || t.type_formation_id === e.type_formation_id)
+    const type_formation_ids = [...(tfByEtu.get(e.id) ?? [])]
+    const filiere_ids = [...(fiByEtu.get(e.id) ?? [])]
+    const classe_ids = [...(clByEtu.get(e.id) ?? [])]
+    // Un type de document est applicable si type_formation_id IS NULL (commun)
+    // OU correspond à l'un des types de formation dans lesquels l'étudiant est inscrit.
+    const applicables = types.filter((t: any) =>
+      t.type_formation_id === null || type_formation_ids.includes(t.type_formation_id)
+    )
     const recu_count = applicables.filter((t: any) => docs[t.code] === true).length
     return { id: e.id, nom: e.nom, prenom: e.prenom, numero_etudiant: e.numero_etudiant,
              filiere_id: e.filiere_id, filiere_nom: e.filiere_nom, filiere_code: e.filiere_code,
              type_formation_id: e.type_formation_id, type_formation_nom: e.type_formation_nom,
              classe_id: e.classe_id, classe_nom: e.classe_nom,
+             type_formation_ids, filiere_ids, classe_ids,
              inscription_statut: e.inscription_statut, checklist: docs,
              recu_count, total: applicables.length }
   })
-  // Listes de référence pour alimenter les filtres UI (indépendamment des
-  // rattachements actuels des étudiants — évite des dropdowns vides si les
-  // filières ne sont pas encore liées à un type de formation, etc.).
-  // On joint un compteur d'étudiants par entité pour que le DG voie tout de
-  // suite si une catégorie est vide (et que ses filtres ne font donc rien).
+  // Listes de référence pour alimenter les filtres UI. Les compteurs utilisent
+  // la même logique "au moins une inscription" que le filtre → jamais de
+  // dropdown affichant "N" alors que le filtre retourne 0.
   const [typesFormationRows, filieresRows, classesRows] = await Promise.all([
-    pool.query(`
-      SELECT tf.id, tf.nom, COUNT(DISTINCT e.id)::int AS nb_etudiants
-      FROM types_formation tf
-      LEFT JOIN filieres f ON f.type_formation_id = tf.id
-      LEFT JOIN inscriptions i ON i.filiere_id = f.id
-      LEFT JOIN etudiants e ON e.id = i.etudiant_id
-      GROUP BY tf.id, tf.nom
-      ORDER BY tf.nom
-    `),
-    pool.query(`
-      SELECT f.id, f.nom, f.code, f.type_formation_id,
-             COUNT(DISTINCT e.id)::int AS nb_etudiants
-      FROM filieres f
-      LEFT JOIN inscriptions i ON i.filiere_id = f.id
-      LEFT JOIN etudiants e ON e.id = i.etudiant_id
-      GROUP BY f.id, f.nom, f.code, f.type_formation_id
-      ORDER BY f.nom
-    `),
-    pool.query(`
-      SELECT c.id, c.nom, c.filiere_id,
-             COUNT(DISTINCT e.id)::int AS nb_etudiants
-      FROM classes c
-      LEFT JOIN inscriptions i ON i.classe_id = c.id
-      LEFT JOIN etudiants e ON e.id = i.etudiant_id
-      GROUP BY c.id, c.nom, c.filiere_id
-      ORDER BY c.nom
-    `),
+    pool.query(`SELECT id, nom FROM types_formation ORDER BY nom`),
+    pool.query(`SELECT id, nom, code, type_formation_id FROM filieres ORDER BY nom`),
+    pool.query(`SELECT id, nom, filiere_id FROM classes ORDER BY nom`),
   ])
+  const countByAttachment = (byEtu: Map<number, Set<number>>) => {
+    const counts = new Map<number, number>()
+    for (const [etuId, ids] of byEtu) {
+      void etuId
+      for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1)
+    }
+    return counts
+  }
+  const countTF = countByAttachment(tfByEtu)
+  const countFi = countByAttachment(fiByEtu)
+  const countCl = countByAttachment(clByEtu)
   return c.json({
     types,
     etudiants: result,
-    types_formation: typesFormationRows.rows,
-    filieres: filieresRows.rows,
-    classes: classesRows.rows,
+    types_formation: typesFormationRows.rows.map((r: any) => ({ ...r, nb_etudiants: countTF.get(r.id) ?? 0 })),
+    filieres: filieresRows.rows.map((r: any) => ({ ...r, nb_etudiants: countFi.get(r.id) ?? 0 })),
+    classes: classesRows.rows.map((r: any) => ({ ...r, nb_etudiants: countCl.get(r.id) ?? 0 })),
   })
 })
 

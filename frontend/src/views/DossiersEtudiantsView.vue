@@ -21,6 +21,11 @@ interface EtudiantRow {
   filiere_code: string | null
   classe_id: number | null
   classe_nom: string | null
+  // Toutes les inscriptions de l'étudiant — utilisées pour les filtres :
+  // un étudiant "appartient" à une catégorie s'il a au moins une inscription dedans.
+  type_formation_ids: number[]
+  filiere_ids: number[]
+  classe_ids: number[]
   inscription_statut: string | null
   checklist: Record<string, boolean>
   recu_count: number
@@ -117,9 +122,9 @@ const etudiantsFiltres = computed(() => {
       (e.filiere_nom ?? '').toLowerCase().includes(q) ||
       (e.classe_nom ?? '').toLowerCase().includes(q)
     const matchStatut = !filtreStatut.value || e.inscription_statut === filtreStatut.value
-    const matchClasse = !classeId || e.classe_id === classeId
-    const matchTF = !tfId || e.type_formation_id === tfId
-    const matchFiliere = !filiereId || e.filiere_id === filiereId
+    const matchClasse = !classeId || (e.classe_ids ?? []).includes(classeId)
+    const matchTF = !tfId || (e.type_formation_ids ?? []).includes(tfId)
+    const matchFiliere = !filiereId || (e.filiere_ids ?? []).includes(filiereId)
     return matchSearch && matchStatut && matchClasse && matchTF && matchFiliere
   })
 })
@@ -167,9 +172,11 @@ const statsGlobal = computed(() => {
   return { totalCases, totalRecus, complets, total: listeEtudiants.length }
 })
 
-// Un type est applicable si type_formation_id est null (commun) OU correspond au type de formation de l'étudiant
+// Un type est applicable si type_formation_id est null (commun) OU correspond
+// à l'un des types de formation dans lesquels l'étudiant est inscrit.
 function isApplicable(t: DocType, etudiant: EtudiantRow) {
-  return t.type_formation_id === null || t.type_formation_id === etudiant.type_formation_id
+  if (t.type_formation_id === null) return true
+  return (etudiant.type_formation_ids ?? []).includes(t.type_formation_id)
 }
 
 async function toggle(etudiant: EtudiantRow, code: string) {
