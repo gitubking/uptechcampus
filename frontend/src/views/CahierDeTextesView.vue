@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
+import { openPrintWindow, uptechHeaderHTML, uptechFooterHTML, uptechPrintCSS } from '@/utils/uptechPrint'
 
 const auth = useAuthStore()
 
@@ -94,48 +95,88 @@ function formatHeures(h: number) {
   return mm > 0 ? `${hh}h${String(mm).padStart(2, '0')}` : `${hh}h`
 }
 
-async function exportPDF() {
-  const { default: jsPDF } = await import('jspdf')
-  const { default: autoTable } = await import('jspdf-autotable')
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+// Sécurise les chaînes utilisateur injectées dans le HTML imprimable.
+function escapeHtml(s: string): string {
+  return (s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string))
+}
 
+// Export impression — document officiel A4 paysage reprenant l'en-tête
+// UPTECH partagé (uptechPrint.ts), pour uniformisation avec les autres
+// documents institutionnels (reçus, autorisations d'absence, etc.).
+function exportPDF() {
   const ensNom = filterEnseignant.value
     ? (() => { const e = enseignants.value.find(e => String(e.id) === filterEnseignant.value); return e ? `${e.prenom} ${e.nom}` : '' })()
     : 'Tous les enseignants'
+  const emitDate = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
 
-  doc.setFontSize(16)
-  doc.setTextColor(100, 20, 20)
-  doc.text('CAHIER DE TEXTES', 105, 18, { align: 'center' })
-  doc.setFontSize(10)
-  doc.setTextColor(80, 80, 80)
-  doc.text(ensNom, 105, 25, { align: 'center' })
-  if (filterMatiere.value) doc.text(`Matière : ${filterMatiere.value}`, 105, 31, { align: 'center' })
-  doc.text(`Exporté le ${new Date().toLocaleDateString('fr-FR')}`, 105, 37, { align: 'center' })
+  const rows = seances.value.map(s => {
+    const objLabel = s.objectifs_atteints === 'oui' ? 'Oui'
+                   : s.objectifs_atteints === 'partiel' ? 'Partiel'
+                   : s.objectifs_atteints === 'non' ? 'Non' : '—'
+    const objColor = s.objectifs_atteints === 'oui' ? '#047857'
+                   : s.objectifs_atteints === 'partiel' ? '#a16207'
+                   : s.objectifs_atteints === 'non' ? '#b91c1c' : '#999'
+    return `
+      <tr>
+        <td>${formatDate(s.date_debut)}</td>
+        <td style="white-space:nowrap">${formatHeure(s.date_debut)}–${formatHeure(s.date_fin)}</td>
+        <td>${escapeHtml(s.enseignant ? `${s.enseignant.prenom} ${s.enseignant.nom}` : '—')}</td>
+        <td>${escapeHtml(s.matiere)}</td>
+        <td>${escapeHtml(s.classe?.nom ?? '—')}</td>
+        <td>${escapeHtml(s.chapitre ?? '—')}</td>
+        <td style="color:${objColor};font-weight:700;text-align:center">${objLabel}</td>
+        <td class="txt-content">${escapeHtml((s.contenu_seance ?? '').replace(/<[^>]*>/g, '') || '—')}</td>
+        <td class="txt-content">${escapeHtml(s.remarques ?? '—')}</td>
+      </tr>`
+  }).join('')
 
-  const rows = seances.value.map(s => [
-    formatDate(s.date_debut),
-    `${formatHeure(s.date_debut)}–${formatHeure(s.date_fin)}`,
-    s.enseignant ? `${s.enseignant.prenom} ${s.enseignant.nom}` : '—',
-    s.matiere,
-    s.classe?.nom ?? '—',
-    s.chapitre ?? '—',
-    s.objectifs_atteints === 'oui' ? 'Oui' : s.objectifs_atteints === 'partiel' ? 'Partiel' : s.objectifs_atteints === 'non' ? 'Non' : '—',
-    s.contenu_seance ? s.contenu_seance.replace(/<[^>]*>/g, '') : '—',
-    s.remarques ?? '—',
-  ])
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+  <title>Cahier de textes — ${escapeHtml(ensNom)}</title>
+  <style>
+    ${uptechPrintCSS()}
+    @page{size:A4 landscape;margin:8mm}
+    .abs-sub{display:flex;justify-content:space-between;align-items:center;padding:4px 16px;background:#fafafa;border-bottom:1px solid #eee;font-size:9px;color:#666}
+    .abs-sub .left{font-weight:600;color:#E30613;text-transform:uppercase;letter-spacing:1px}
+    .cdt-filter{padding:6px 16px 0;display:flex;gap:10px;font-size:10px;color:#333}
+    .cdt-filter strong{color:#111}
+    .cdt-table{width:calc(100% - 32px);margin:8px 16px 12px;border-collapse:collapse;font-size:9px}
+    .cdt-table thead th{background:#E30613;color:#fff;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:6px 4px;font-size:8px;border:1px solid #b40510}
+    .cdt-table tbody td{padding:5px 6px;border:1px solid #eee;vertical-align:top;line-height:1.4}
+    .cdt-table tbody tr:nth-child(even) td{background:#fafafa}
+    .cdt-table tbody tr{page-break-inside:avoid}
+    .cdt-table .txt-content{font-size:9px;color:#333;white-space:pre-wrap;word-wrap:break-word;max-width:240px}
+  </style></head>
+  <body>
+    ${uptechHeaderHTML()}
+    <div class="abs-sub">
+      <span class="left">Pédagogie — Cahier de textes</span>
+      <span>Émis le ${emitDate}</span>
+    </div>
+    <div class="cdt-filter">
+      <span><strong>Enseignant :</strong> ${escapeHtml(ensNom)}</span>
+      ${filterMatiere.value ? `<span><strong>Matière :</strong> ${escapeHtml(filterMatiere.value)}</span>` : ''}
+      <span style="margin-left:auto;color:#666">${seances.value.length} séance${seances.value.length > 1 ? 's' : ''}</span>
+    </div>
+    <table class="cdt-table">
+      <thead><tr>
+        <th style="width:62px">Date</th>
+        <th style="width:62px">Horaire</th>
+        <th style="width:100px">Enseignant</th>
+        <th style="width:90px">Matière</th>
+        <th style="width:60px">Classe</th>
+        <th>Chapitre</th>
+        <th style="width:52px">Obj. atteints</th>
+        <th>Contenu</th>
+        <th>Remarques</th>
+      </tr></thead>
+      <tbody>
+        ${rows || '<tr><td colspan="9" style="text-align:center;padding:20px;color:#888;font-style:italic">Aucune séance à imprimer</td></tr>'}
+      </tbody>
+    </table>
+    ${uptechFooterHTML('Document pédagogique — archivage officiel')}
+  </body></html>`
 
-  autoTable(doc, {
-    startY: 42,
-    head: [['Date', 'Horaire', 'Enseignant', 'Matière', 'Classe', 'Chapitre', 'Obj. atteints', 'Contenu', 'Remarques']],
-    body: rows,
-    styles: { fontSize: 7, cellPadding: 2 },
-    headStyles: { fillColor: [100, 20, 20], textColor: 255, fontStyle: 'bold' },
-    columnStyles: { 7: { cellWidth: 40 }, 8: { cellWidth: 30 } },
-    alternateRowStyles: { fillColor: [250, 245, 245] },
-  })
-
-  const ens = ensNom.replace(/\s+/g, '_')
-  doc.save(`cahier-textes-${ens}-${new Date().toISOString().slice(0, 10)}.pdf`)
+  openPrintWindow(html)
 }
 </script>
 
