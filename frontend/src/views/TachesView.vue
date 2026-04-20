@@ -11,6 +11,7 @@ interface Tache {
   created_by: number | null
   priorite: 'basse' | 'normale' | 'haute' | 'urgente'
   statut: 'a_faire' | 'en_cours' | 'en_revue' | 'termine'
+  date_debut: string | null
   deadline: string | null
   completed_at: string | null
   created_at: string
@@ -69,6 +70,7 @@ const form = ref({
   assignee_id: '' as string | number,
   priorite: 'normale',
   statut: 'a_faire',
+  date_debut: '',
   deadline: '',
 })
 
@@ -162,7 +164,7 @@ async function loadAll() {
 
 function openCreate() {
   editTarget.value = null
-  form.value = { titre: '', description: '', assignee_id: '', priorite: 'normale', statut: 'a_faire', deadline: '' }
+  form.value = { titre: '', description: '', assignee_id: '', priorite: 'normale', statut: 'a_faire', date_debut: '', deadline: '' }
   error.value = ''
   showForm.value = true
 }
@@ -175,6 +177,7 @@ function openEdit(t: Tache) {
     assignee_id: t.assignee_id ?? '',
     priorite: t.priorite,
     statut: t.statut,
+    date_debut: t.date_debut ? t.date_debut.slice(0, 10) : '',
     deadline: t.deadline ? t.deadline.slice(0, 10) : '',
   }
   error.value = ''
@@ -184,10 +187,17 @@ function openEdit(t: Tache) {
 async function save() {
   saving.value = true
   error.value = ''
+  // Validation locale : fin ≥ début si les deux sont renseignées.
+  if (form.value.date_debut && form.value.deadline && form.value.deadline < form.value.date_debut) {
+    error.value = 'La date de fin doit être postérieure ou égale à la date de début.'
+    saving.value = false
+    return
+  }
   try {
     const payload = {
       ...form.value,
       assignee_id: form.value.assignee_id === '' ? null : Number(form.value.assignee_id),
+      date_debut: form.value.date_debut || null,
       deadline: form.value.deadline || null,
     }
     if (editTarget.value) {
@@ -354,6 +364,17 @@ onMounted(loadAll)
             </div>
             <div class="text-sm font-medium text-gray-900 mb-1.5 leading-snug">{{ t.titre }}</div>
             <div v-if="t.description" class="text-xs text-gray-500 mb-2 line-clamp-2">{{ t.description }}</div>
+            <div v-if="t.date_debut || t.deadline" class="text-[11px] text-gray-500 mb-1">
+              <template v-if="t.date_debut && t.deadline">
+                <span>Du {{ formatDate(t.date_debut) }} au </span>
+                <span :class="isOverdue(t) ? 'text-red-600 font-medium' : ''">{{ formatDate(t.deadline) }}</span>
+              </template>
+              <template v-else-if="t.date_debut">Début : {{ formatDate(t.date_debut) }}</template>
+              <template v-else-if="t.deadline">
+                Fin :
+                <span :class="isOverdue(t) ? 'text-red-600 font-medium' : ''">{{ formatDate(t.deadline) }}</span>
+              </template>
+            </div>
             <div class="flex items-center justify-between gap-2 mt-2">
               <div v-if="t.assignee_id" class="flex items-center gap-1.5">
                 <div class="w-6 h-6 rounded-full bg-red-100 text-red-700 text-[10px] font-semibold flex items-center justify-center">
@@ -362,11 +383,6 @@ onMounted(loadAll)
                 <span class="text-xs text-gray-600 truncate max-w-[90px]">{{ t.assignee_prenom }} {{ t.assignee_nom }}</span>
               </div>
               <span v-else class="text-xs text-gray-400 italic">Non assignée</span>
-              <span v-if="t.deadline"
-                :class="['text-xs font-medium px-1.5 py-0.5 rounded',
-                  isOverdue(t) ? 'bg-red-50 text-red-700' : 'text-gray-500']">
-                {{ formatDate(t.deadline) }}
-              </span>
             </div>
           </div>
           <div v-if="tachesByStatut(col.key).length === 0" class="text-center py-8 text-xs text-gray-400 italic">
@@ -399,7 +415,8 @@ onMounted(loadAll)
               <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Assigné à</th>
               <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Priorité</th>
               <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Statut</th>
-              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Jour programmé</th>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Début</th>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Fin</th>
               <th class="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
@@ -426,6 +443,10 @@ onMounted(loadAll)
                   <option value="en_revue">En revue</option>
                   <option value="termine">Terminé</option>
                 </select>
+              </td>
+              <td class="px-4 py-3 text-sm">
+                <span v-if="t.date_debut" class="text-gray-600">{{ formatDate(t.date_debut) }}</span>
+                <span v-else class="text-gray-400">—</span>
               </td>
               <td class="px-4 py-3 text-sm">
                 <span v-if="t.deadline" :class="isOverdue(t) ? 'text-red-600 font-medium' : 'text-gray-600'">
@@ -542,14 +563,24 @@ onMounted(loadAll)
                   <option value="urgente">Urgente</option>
                 </select>
               </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-700 mb-1">Jour programmé</label>
-                <input v-model="form.deadline" type="date"
-                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
-                <p class="mt-1 text-[11px] text-gray-500 leading-snug">
-                  À 08:00 du jour programmé la tâche passe en « En cours ». Si la journée s'écoule sans être terminée, elle bascule automatiquement en « En revue ».
-                </p>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">Échéancier</label>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[11px] text-gray-500 mb-1">Date de début</label>
+                  <input v-model="form.date_debut" type="date"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
+                </div>
+                <div>
+                  <label class="block text-[11px] text-gray-500 mb-1">Date de fin</label>
+                  <input v-model="form.deadline" type="date" :min="form.date_debut || undefined"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
+                </div>
               </div>
+              <p class="mt-1 text-[11px] text-gray-500 leading-snug">
+                À 08:00 de la date de début, la tâche passe automatiquement en « En cours ». Après la date de fin, elle bascule en « En revue » tant qu'elle n'est pas terminée.
+              </p>
             </div>
             <div v-if="editTarget">
               <label class="block text-xs font-medium text-gray-700 mb-1">Statut</label>

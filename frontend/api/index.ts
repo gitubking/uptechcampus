@@ -977,6 +977,8 @@ async function ensureTachesReady(): Promise<void> {
     )`)
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_taches_assignee ON taches(assignee_id)`)
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_taches_statut ON taches(statut)`)
+    // Migration idempotente : ajoute date_debut si absent (bases pré-existantes)
+    await pool.query(`ALTER TABLE taches ADD COLUMN IF NOT EXISTS date_debut DATE`)
   })().catch((err) => {
     tachesReady = null
     throw err
@@ -12460,9 +12462,9 @@ const TACHES_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat']
 // Rôles autorisés à CRÉER / ASSIGNER / ÉDITER des tâches : uniquement le DG.
 const TACHES_MANAGER_ROLES = ['dg']
 
-// Auto-transition des statuts basée sur le jour programmé (champ `deadline`) :
-//   • à 08:00 du jour programmé : `a_faire` → `en_cours`
-//   • après le jour programmé : `a_faire` ou `en_cours` → `en_revue`
+// Auto-transition des statuts basée sur l'échéancier :
+//   • à 08:00 du `date_debut` (fallback `deadline`) : `a_faire` → `en_cours`
+//   • après `deadline` (date de fin) : `a_faire` ou `en_cours` → `en_revue`
 //   • `termine` n'est jamais modifié.
 async function autoAdvanceTachesStatuts(): Promise<void> {
   try {
@@ -12470,9 +12472,17 @@ async function autoAdvanceTachesStatuts(): Promise<void> {
       UPDATE taches
          SET statut = 'en_cours', updated_at = NOW()
        WHERE statut = 'a_faire'
-         AND deadline IS NOT NULL
-         AND deadline = CURRENT_DATE
-         AND NOW() >= (deadline::timestamp + TIME '08:00')
+         AND COALESCE(date_debut, deadline) IS NOT NULL
+         AND COALESCE(date_debut, deadline) = CURRENT_DATE
+         AND NOW() >= (COALESCE(date_debut, deadline)::timestamp + TIME '08:00')
+    `)
+    await pool.query(`
+      UPDATE taches
+         SET statut = 'en_cours', updated_at = NOW()
+       WHERE statut = 'a_faire'
+         AND COALESCE(date_debut, deadline) IS NOT NULL
+         AND COALESCE(date_debut, deadline) < CURRENT_DATE
+         AND (deadline IS NULL OR deadline >= CURRENT_DATE)
     `)
     await pool.query(`
       UPDATE taches
@@ -12542,9 +12552,15 @@ app.post('/taches', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) => {
   if (!body.titre || !String(body.titre).trim()) {
     return c.json({ message: 'Le titre est requis.' }, 422)
   }
+  // Validation échéancier : si les deux dates sont fournies, fin >= début.
+  const dateDebut = body.date_debut || null
+  const deadline = body.deadline || null
+  if (dateDebut && deadline && String(deadline) < String(dateDebut)) {
+    return c.json({ message: 'La date de fin doit être postérieure ou égale à la date de début.' }, 422)
+  }
   const { rows } = await pool.query(
-    `INSERT INTO taches (titre, description, assignee_id, created_by, priorite, statut, deadline)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    `INSERT INTO taches (titre, description, assignee_id, created_by, priorite, statut, date_debut, deadline)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
     [
       String(body.titre).trim(),
       body.description || null,
@@ -12552,7 +12568,8 @@ app.post('/taches', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) => {
       u(c).id,
       body.priorite || 'normale',
       body.statut || 'a_faire',
-      body.deadline || null,
+      dateDebut,
+      deadline,
     ]
   )
   return c.json(rows[0], 201)
@@ -12575,13 +12592,17 @@ app.put('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
     return c.json({ message: 'Accès refusé.' }, 403)
   }
 
-  // Seuls les managers/créateurs peuvent réassigner ou changer priorité/deadline/titre
+  // Seuls les managers/créateurs peuvent réassigner ou changer priorité/échéancier/titre
   const canFullEdit = isManager || isOwner
   const titre = canFullEdit && body.titre ? String(body.titre).trim() : tache.titre
   const description = canFullEdit && body.description !== undefined ? body.description : tache.description
   const assignee_id = canFullEdit && body.assignee_id !== undefined ? body.assignee_id : tache.assignee_id
   const priorite = canFullEdit && body.priorite ? body.priorite : tache.priorite
-  const deadline = canFullEdit && body.deadline !== undefined ? body.deadline : tache.deadline
+  const date_debut = canFullEdit && body.date_debut !== undefined ? (body.date_debut || null) : tache.date_debut
+  const deadline = canFullEdit && body.deadline !== undefined ? (body.deadline || null) : tache.deadline
+  if (date_debut && deadline && String(deadline) < String(date_debut)) {
+    return c.json({ message: 'La date de fin doit être postérieure ou égale à la date de début.' }, 422)
+  }
   // Tout rôle administratif peut changer le statut (y compris sur la tâche d'un
   // collègue). Seules les autres modifications restent verrouillées au manager
   // ou au créateur de la tâche.
@@ -12590,9 +12611,9 @@ app.put('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
 
   const { rows } = await pool.query(
     `UPDATE taches SET titre=$1, description=$2, assignee_id=$3, priorite=$4, statut=$5,
-       deadline=$6, completed_at=$7, updated_at=NOW()
-     WHERE id=$8 RETURNING *`,
-    [titre, description, assignee_id, priorite, statut, deadline, completed_at, id]
+       date_debut=$6, deadline=$7, completed_at=$8, updated_at=NOW()
+     WHERE id=$9 RETURNING *`,
+    [titre, description, assignee_id, priorite, statut, date_debut, deadline, completed_at, id]
   )
   return c.json(rows[0])
 })
