@@ -4,9 +4,8 @@ import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader } from '@/components/ui'
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
+import { openPrintWindow, uptechHeaderHTML, uptechFooterHTML, uptechPrintCSS } from '@/utils/uptechPrint'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -467,240 +466,213 @@ function exportExcel() {
   XLSX.writeFile(wb, `vacations_${moisSelectionne.value || 'tous'}.xlsx`)
 }
 
-// ── Chargement logo en base64 ─────────────────────────────────────────────────
-let logoCache: string | null = null
-async function getLogoBase64(): Promise<string | null> {
-  if (logoCache) return logoCache
-  try {
-    const resp = await fetch('/logo-normal.png')
-    const blob = await resp.blob()
-    return new Promise(resolve => {
-      const reader = new FileReader()
-      reader.onload = () => { logoCache = reader.result as string; resolve(logoCache) }
-      reader.onerror = () => resolve(null)
-      reader.readAsDataURL(blob)
-    })
-  } catch { return null }
+// Sécurise les chaînes utilisateur injectées dans le HTML imprimable.
+function escapeHtml(s: string | null | undefined): string {
+  return (s ?? '').toString().replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string))
 }
 
-function addPDFHeader(doc: jsPDF, logo: string | null, pageW: number, subtitle: string, dateGen: string) {
-  // Bandeau fond foncé
-  doc.setFillColor(30, 41, 59)
-  doc.rect(0, 0, pageW, 30, 'F')
-
-  if (logo) {
-    // Logo : ratio 339×107 → hauteur 16mm → largeur ~50mm
-    doc.addImage(logo, 'PNG', 12, 7, 50, 16)
-  } else {
-    doc.setFontSize(14); doc.setFont('helvetica', 'bold'); doc.setTextColor(255)
-    doc.text("UP'TECH", 14, 16)
-  }
-
-  // Dénomination officielle + sous-titre à droite
-  doc.setFontSize(6.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(200, 210, 230)
-  doc.text('Institut Supérieur de Formation aux Nouveaux Métiers', pageW - 14, 10, { align: 'right' })
-  doc.text("de l'Informatique et de la Communication", pageW - 14, 15, { align: 'right' })
-  doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(255)
-  doc.text(subtitle, pageW - 14, 23, { align: 'right' })
+// Formate un montant en FCFA sans caractère U+202F (espace fine insécable) qui
+// casse le rendu dans certaines polices. Utilise un espace normal à la place.
+function fmtMontantHTML(n: number | string): string {
+  const num = Math.round(Number(n) || 0)
+  return num.toLocaleString('fr-FR').replace(/\u202F|\u00A0/g, ' ') + ' FCFA'
 }
 
-// ── Bordereau global du mois ──────────────────────────────────────────────────
-async function exportPDF() {
+// ── Bordereau global du mois (HTML/print avec en-tête UPTECH partagé) ────────
+function exportPDF() {
   const list = vacationsFiltrees.value
   const r = resumeFiltre.value
-  const logo = await getLogoBase64()
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-  const pageW = doc.internal.pageSize.width
-  const pageH = doc.internal.pageSize.height
-  const now = new Date()
-  const dateGen = now.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+  const emitDate = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+  const moisLbl = moisSelectionne.value ? formatMois(moisSelectionne.value) : 'Tous les mois'
 
-  // ── En-tête ──
-  addPDFHeader(doc, logo, pageW, 'BORDEREAU DE PAIEMENT DES VACATIONS', dateGen)
-  doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(200, 210, 230)
-  doc.text(`Mois : ${(moisSelectionne.value ? formatMois(moisSelectionne.value) : 'Tous les mois').toUpperCase()}   |   Édité le ${dateGen}`, 65, 23)
+  const rowsHtml = list.map((v, idx) => {
+    const statut = v.statut
+    const rowClass = statut === 'payee' ? 'row-payee' : statut === 'validee' ? 'row-validee' : ''
+    const specialite = [v.specialite, v.grade].filter(Boolean).join(' · ') || '—'
+    return `
+      <tr class="${rowClass}">
+        <td style="text-align:center">${idx + 1}</td>
+        <td>${escapeHtml(`${v.enseignant_prenom} ${v.enseignant_nom}`)}</td>
+        <td>${escapeHtml(specialite)}</td>
+        <td style="text-align:center">${Number(v.nb_heures).toFixed(1)}h</td>
+        <td style="text-align:right">${fmtMontantHTML(v.tarif_horaire)}</td>
+        <td style="text-align:right;font-weight:700">${fmtMontantHTML(v.montant)}</td>
+        <td style="text-align:center"><span class="statut-chip statut-${statut}">${escapeHtml(statutLabels[statut] || statut)}</span></td>
+        <td>${escapeHtml(v.reference_paiement || '—')}</td>
+        <td></td>
+      </tr>`
+  }).join('')
 
-  // ── KPIs ──
-  const kpis: { label: string; val: string; color?: [number,number,number] }[] = [
-    { label: 'Nb enseignants', val: String(r.total) },
-    { label: 'Total heures', val: `${r.total_heures.toFixed(1)}h` },
-    { label: 'Montant payé', val: fmtPDF(r.montant_paye), color: [22, 163, 74] as [number,number,number] },
-    { label: 'Montant validé', val: fmtPDF(r.montant_valide), color: [59, 130, 246] as [number,number,number] },
-    { label: 'En attente', val: fmtPDF(r.montant_en_attente), color: [245, 158, 11] as [number,number,number] },
-    { label: 'TOTAL GÉNÉRAL', val: fmtPDF(r.total_montant), color: [220, 38, 38] as [number,number,number] },
-  ]
-  const kpiW = (pageW - 28) / kpis.length
-  kpis.forEach((k, i) => {
-    const x = 14 + i * kpiW
-    doc.setFillColor(248, 250, 252)
-    doc.roundedRect(x, 34, kpiW - 2, 16, 2, 2, 'F')
-    doc.setFontSize(6.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(100)
-    doc.text(k.label, x + (kpiW - 2) / 2, 39, { align: 'center' })
-    doc.setFontSize(8.5); doc.setFont('helvetica', 'bold')
-    doc.setTextColor(...(k.color ?? ([30, 41, 59] as [number,number,number])))
-    doc.text(k.val, x + (kpiW - 2) / 2, 46, { align: 'center' })
-  })
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+  <title>Bordereau vacations — ${escapeHtml(moisLbl)}</title>
+  <style>
+    ${uptechPrintCSS()}
+    @page{size:A4 landscape;margin:8mm}
+    .abs-sub{display:flex;justify-content:space-between;align-items:center;padding:4px 16px;background:#fafafa;border-bottom:1px solid #eee;font-size:9px;color:#666}
+    .abs-sub .left{font-weight:600;color:#E30613;text-transform:uppercase;letter-spacing:1px}
+    .vac-title{text-align:center;padding:6px 16px;font-size:13px;font-weight:900;letter-spacing:1px;color:#111;text-transform:uppercase}
+    .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;padding:0 16px 8px}
+    .kpi{background:#f8fafc;border:1px solid #e5e7eb;border-radius:4px;padding:6px 8px;text-align:center}
+    .kpi .k-lbl{font-size:7px;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;margin-bottom:2px}
+    .kpi .k-val{font-size:11px;font-weight:800;color:#111}
+    .kpi.paye .k-val{color:#16a34a}
+    .kpi.valide .k-val{color:#2563eb}
+    .kpi.attente .k-val{color:#d97706}
+    .kpi.total{background:#fef2f2;border-color:#fecaca}
+    .kpi.total .k-val{color:#dc2626}
+    .vac-table{width:calc(100% - 32px);margin:4px 16px 10px;border-collapse:collapse;font-size:9px}
+    .vac-table thead th{background:#1e293b;color:#fff;font-weight:700;padding:6px 5px;font-size:8px;border:1px solid #0f172a;text-align:left}
+    .vac-table tbody td{padding:5px 6px;border:1px solid #e5e7eb;vertical-align:top;line-height:1.4}
+    .vac-table tbody tr.row-payee td{background:#f0fdf4}
+    .vac-table tbody tr.row-validee td{background:#eff6ff}
+    .vac-table tbody tr{page-break-inside:avoid}
+    .vac-table tfoot td{padding:6px;background:#f3f4f6;font-weight:800;font-size:9px;border:1px solid #e5e7eb}
+    .statut-chip{display:inline-block;padding:2px 6px;border-radius:999px;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px}
+    .statut-en_attente{background:#fef3c7;color:#92400e}
+    .statut-validee{background:#dbeafe;color:#1e40af}
+    .statut-payee{background:#dcfce7;color:#166534}
+    .vac-sig{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:14px 16px 8px;margin-top:4px;border-top:1px dashed #ddd}
+    .vac-sig-box{text-align:center}
+    .vac-sig-box .s-title{font-size:9px;font-weight:700;color:#111;text-transform:uppercase;letter-spacing:0.5px}
+    .vac-sig-box .s-line{border-bottom:1px solid #cbd5e1;height:30px;margin:6px 8px 0}
+    .vac-sig-box .s-hint{font-size:7px;color:#94a3b8;margin-top:2px;text-transform:uppercase;letter-spacing:0.3px}
+  </style></head>
+  <body>
+    ${uptechHeaderHTML()}
+    <div class="abs-sub">
+      <span class="left">Direction financière — Vacations</span>
+      <span>Édité le ${emitDate}</span>
+    </div>
+    <div class="vac-title">Bordereau de paiement des vacations — ${escapeHtml(moisLbl)}</div>
+    <div class="kpis">
+      <div class="kpi"><div class="k-lbl">Nb enseignants</div><div class="k-val">${r.total}</div></div>
+      <div class="kpi"><div class="k-lbl">Total heures</div><div class="k-val">${r.total_heures.toFixed(1)}h</div></div>
+      <div class="kpi paye"><div class="k-lbl">Montant payé</div><div class="k-val">${fmtMontantHTML(r.montant_paye)}</div></div>
+      <div class="kpi valide"><div class="k-lbl">Montant validé</div><div class="k-val">${fmtMontantHTML(r.montant_valide)}</div></div>
+      <div class="kpi attente"><div class="k-lbl">En attente</div><div class="k-val">${fmtMontantHTML(r.montant_en_attente)}</div></div>
+      <div class="kpi total"><div class="k-lbl">Total général</div><div class="k-val">${fmtMontantHTML(r.total_montant)}</div></div>
+    </div>
+    <table class="vac-table">
+      <thead><tr>
+        <th style="width:30px;text-align:center">N°</th>
+        <th>Enseignant</th>
+        <th>Spécialité / Grade</th>
+        <th style="width:55px;text-align:center">Heures</th>
+        <th style="width:95px;text-align:right">Taux/h</th>
+        <th style="width:110px;text-align:right">Montant</th>
+        <th style="width:80px;text-align:center">Statut</th>
+        <th style="width:110px">Réf. paiement</th>
+        <th style="width:110px">Signature</th>
+      </tr></thead>
+      <tbody>${rowsHtml || '<tr><td colspan="9" style="text-align:center;padding:20px;color:#888;font-style:italic">Aucune vacation à imprimer</td></tr>'}</tbody>
+      <tfoot><tr>
+        <td></td>
+        <td colspan="2">TOTAL (${list.length} enseignant${list.length > 1 ? 's' : ''})</td>
+        <td style="text-align:center">${r.total_heures.toFixed(1)}h</td>
+        <td></td>
+        <td style="text-align:right;color:#dc2626;font-weight:900;font-size:10px">${fmtMontantHTML(r.total_montant)}</td>
+        <td colspan="3"></td>
+      </tr></tfoot>
+    </table>
+    <div class="vac-sig">
+      <div class="vac-sig-box"><div class="s-title">Établi par</div><div class="s-line"></div><div class="s-hint">Nom &amp; signature</div></div>
+      <div class="vac-sig-box"><div class="s-title">Vérifié par (DAF)</div><div class="s-line"></div><div class="s-hint">Nom &amp; signature</div></div>
+      <div class="vac-sig-box"><div class="s-title">Approuvé par (DG)</div><div class="s-line"></div><div class="s-hint">Nom &amp; signature</div></div>
+    </div>
+    ${uptechFooterHTML(`Bordereau vacations · ${escapeHtml(moisLbl)}`)}
+  </body></html>`
 
-  // ── Tableau ──
-  let n = 1
-  autoTable(doc, {
-    startY: 54,
-    head: [['N°', 'Enseignant', 'Spécialité / Grade', 'Heures', 'Taux/h (FCFA)', 'Montant (FCFA)', 'Statut', 'Réf. paiement', 'Signature']],
-    body: list.map(v => [
-      String(n++),
-      `${v.enseignant_prenom} ${v.enseignant_nom}`,
-      [v.specialite, v.grade].filter(Boolean).join(' · ') || '—',
-      `${Number(v.nb_heures).toFixed(1)}h`,
-      fmtPDF(v.tarif_horaire),
-      fmtPDF(v.montant),
-      statutLabels[v.statut] || v.statut,
-      v.reference_paiement || '—',
-      '',
-    ]),
-    foot: [[
-      '', `TOTAL (${list.length} enseignant(s))`, '',
-      `${r.total_heures.toFixed(1)}h`, '', fmtPDF(r.total_montant), '', '', '',
-    ]],
-    theme: 'grid',
-    styles: { fontSize: 7, cellPadding: 2.5, font: 'helvetica', textColor: [30, 41, 59] },
-    headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold', fontSize: 7 },
-    footStyles: { fillColor: [240, 240, 240], textColor: [30, 41, 59], fontStyle: 'bold', fontSize: 7.5 },
-    columnStyles: {
-      0: { cellWidth: 10, halign: 'center' },
-      1: { cellWidth: 38 },
-      2: { cellWidth: 30 },
-      3: { cellWidth: 14, halign: 'center' },
-      4: { cellWidth: 24, halign: 'right' },
-      5: { cellWidth: 26, halign: 'right' },
-      6: { cellWidth: 20, halign: 'center' },
-      7: { cellWidth: 24 },
-      8: { cellWidth: 28 },
-    },
-    didParseCell: (data: any) => {
-      if (data.section === 'body') {
-        const statut = list[data.row.index]?.statut
-        if (statut === 'payee') data.cell.styles.fillColor = [240, 253, 244]
-        else if (statut === 'validee') data.cell.styles.fillColor = [239, 246, 255]
-      }
-    },
-    margin: { left: 14, right: 14 },
-  })
-
-  // ── Zone de signatures ──
-  const finalY = Math.min((doc as any).lastAutoTable.finalY + 12, pageH - 30)
-  const sigW = (pageW - 28) / 3
-  const sigs = ['Établi par', 'Vérifié par (DAF)', 'Approuvé par (DG)']
-  sigs.forEach((label, i) => {
-    const x = 14 + i * sigW
-    doc.setFontSize(7.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 41, 59)
-    doc.text(label, x + sigW / 2, finalY, { align: 'center' })
-    doc.setDrawColor(180); doc.line(x + 5, finalY + 14, x + sigW - 5, finalY + 14)
-    doc.setFontSize(6.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(160)
-    doc.text('Nom & Signature', x + sigW / 2, finalY + 19, { align: 'center' })
-  })
-
-  // ── Pied de page ──
-  doc.setFontSize(6); doc.setFont('helvetica', 'italic'); doc.setTextColor(160)
-  doc.text(`UP'TECH Campus — Bordereau généré automatiquement le ${dateGen}`, 14, pageH - 5)
-  doc.text(`Page 1`, pageW - 14, pageH - 5, { align: 'right' })
-
-  doc.save(`Bordereau_Vacations_${moisSelectionne.value}.pdf`)
+  openPrintWindow(html)
 }
 
-// ── Fiche individuelle de paiement ────────────────────────────────────────────
-async function fichePaiement(v: Vacation) {
-  const logo = await getLogoBase64()
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const pageW = doc.internal.pageSize.width
-  const pageH = doc.internal.pageSize.height
-  const now = new Date()
-  const dateGen = now.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+// ── Fiche individuelle de paiement (HTML/print) ──────────────────────────────
+function fichePaiement(v: Vacation) {
+  const emitDate = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
   const moisLabel = formatMois(v.mois).toUpperCase()
+  const details = [v.specialite, v.grade, v.type_contrat].filter(Boolean).join(' · ')
+  const isPaid = v.statut === 'payee'
 
-  // ── En-tête ──
-  addPDFHeader(doc, logo, pageW, 'FICHE DE PAIEMENT — VACATION', dateGen)
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+  <title>Fiche paiement — ${escapeHtml(`${v.enseignant_prenom} ${v.enseignant_nom}`)}</title>
+  <style>
+    ${uptechPrintCSS()}
+    .abs-sub{display:flex;justify-content:space-between;align-items:center;padding:4px 16px;background:#fafafa;border-bottom:1px solid #eee;font-size:9px;color:#666}
+    .abs-sub .left{font-weight:600;color:#E30613;text-transform:uppercase;letter-spacing:1px}
+    .benef{margin:10px 16px;padding:12px 14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+    .benef-lbl{font-size:7px;text-transform:uppercase;color:#64748b;letter-spacing:0.5px;font-weight:700}
+    .benef-name{font-size:16px;font-weight:900;color:#0f172a;margin-top:2px}
+    .benef-details{font-size:9px;color:#64748b;margin-top:2px}
+    .benef-right{text-align:right;font-size:9px;color:#0f172a}
+    .benef-right strong{font-size:10px}
+    .detail-table{width:calc(100% - 32px);margin:8px 16px;border-collapse:collapse;font-size:10px}
+    .detail-table th{background:#1e293b;color:#fff;padding:6px 10px;text-align:left;font-weight:700;font-size:9px}
+    .detail-table td{padding:7px 10px;border:1px solid #e5e7eb}
+    .detail-table td.label{background:#f9fafb;font-weight:700;color:#111}
+    .detail-table td.val{text-align:right;font-weight:600}
+    .montant-net{margin:10px 16px;padding:14px 18px;background:#1e293b;color:#fff;border-radius:6px;display:flex;justify-content:space-between;align-items:center}
+    .montant-net .lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px}
+    .montant-net .val{font-size:18px;font-weight:900}
+    .payee-box{margin:8px 16px;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:9px;color:#166534}
+    .payee-box .p-title{font-weight:800;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+    .fp-sig{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:18px 16px 4px;margin-top:16px;border-top:1px dashed #ddd}
+    .fp-sig-box{text-align:center}
+    .fp-sig-box .s-title{font-size:10px;font-weight:700;color:#111;margin-bottom:4px}
+    .fp-sig-box .s-sub{font-size:8px;font-style:italic;color:#64748b;margin-bottom:10px;line-height:1.5}
+    .fp-sig-box .s-line{border-bottom:1px solid #cbd5e1;height:36px;margin:0 16px}
+  </style></head>
+  <body>
+    ${uptechHeaderHTML()}
+    <div class="abs-sub">
+      <span class="left">Direction financière — Fiche de paiement (vacation)</span>
+      <span>Émis le ${emitDate} · Réf. #${v.id}</span>
+    </div>
+    <div class="doc-title">Fiche de paiement — Vacation</div>
+    <div class="benef">
+      <div>
+        <div class="benef-lbl">Bénéficiaire</div>
+        <div class="benef-name">${escapeHtml(`${v.enseignant_prenom} ${v.enseignant_nom}`)}</div>
+        ${details ? `<div class="benef-details">${escapeHtml(details)}</div>` : ''}
+      </div>
+      <div class="benef-right">
+        <div class="benef-lbl">Période</div>
+        <strong>${escapeHtml(moisLabel)}</strong>
+      </div>
+    </div>
+    <table class="detail-table">
+      <thead><tr><th style="width:55%">Détail</th><th style="text-align:right">Valeur</th></tr></thead>
+      <tbody>
+        <tr><td class="label">Mois de vacation</td><td class="val">${escapeHtml(moisLabel)}</td></tr>
+        <tr><td class="label">Nombre d'heures effectuées</td><td class="val">${Number(v.nb_heures).toFixed(1)} heures</td></tr>
+        <tr><td class="label">Taux horaire</td><td class="val">${fmtMontantHTML(v.tarif_horaire)} / heure</td></tr>
+        <tr><td class="label">Montant brut</td><td class="val">${fmtMontantHTML(v.montant)}</td></tr>
+      </tbody>
+    </table>
+    <div class="montant-net">
+      <span class="lbl">Montant net à payer</span>
+      <span class="val">${fmtMontantHTML(v.montant)}</span>
+    </div>
+    ${isPaid ? `
+      <div class="payee-box">
+        <div class="p-title">✓ Paiement effectué</div>
+        ${v.paye_at ? `Date de paiement : <strong>${new Date(v.paye_at).toLocaleDateString('fr-FR')}</strong>` : ''}
+        ${v.reference_paiement ? ` &nbsp;·&nbsp; Référence : <strong>${escapeHtml(v.reference_paiement)}</strong>` : ''}
+      </div>` : ''}
+    <div class="fp-sig">
+      <div class="fp-sig-box">
+        <div class="s-title">Signature de l'enseignant</div>
+        <div class="s-sub">Je soussigné(e) ${escapeHtml(`${v.enseignant_prenom} ${v.enseignant_nom}`)},<br>certifie avoir reçu la somme ci-dessus.</div>
+        <div class="s-line"></div>
+      </div>
+      <div class="fp-sig-box">
+        <div class="s-title">Cachet et signature DG</div>
+        <div class="s-sub">Approuvé et ordonnancé<br>par la Direction Générale</div>
+        <div class="s-line"></div>
+      </div>
+    </div>
+    ${uptechFooterHTML(`Fiche paiement #${v.id} · ${escapeHtml(moisLabel)}`)}
+  </body></html>`
 
-  // ── Bloc identité enseignant ──
-  doc.setFillColor(248, 250, 252)
-  doc.roundedRect(14, 38, pageW - 28, 36, 3, 3, 'F')
-  doc.setDrawColor(220); doc.roundedRect(14, 38, pageW - 28, 36, 3, 3, 'S')
-
-  doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 41, 59)
-  doc.text('BÉNÉFICIAIRE', 20, 45)
-  doc.setFontSize(13); doc.setFont('helvetica', 'bold')
-  doc.text(`${v.enseignant_prenom} ${v.enseignant_nom}`, 20, 54)
-  doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(100)
-  const details = [v.specialite, v.grade, v.type_contrat].filter(Boolean).join('  ·  ')
-  if (details) doc.text(details, 20, 61)
-  doc.setFontSize(8); doc.setTextColor(30, 41, 59)
-  doc.text(`Réf. vacation : #${v.id}`, pageW - 20, 45, { align: 'right' })
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
-  doc.text(`Période : ${moisLabel}`, pageW - 20, 54, { align: 'right' })
-
-  // ── Tableau de détail ──
-  autoTable(doc, {
-    startY: 82,
-    head: [['Détail', 'Valeur']],
-    body: [
-      ['Mois de vacation', moisLabel],
-      ['Nombre d\'heures effectuées', `${Number(v.nb_heures).toFixed(1)} heures`],
-      ['Taux horaire', `${fmtPDF(v.tarif_horaire)} / heure`],
-      ['Montant brut', fmtPDF(v.montant)],
-    ],
-    theme: 'grid',
-    styles: { fontSize: 9, cellPadding: 4, font: 'helvetica', textColor: [30, 41, 59] },
-    headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
-    columnStyles: {
-      0: { cellWidth: 100, fontStyle: 'bold' },
-      1: { cellWidth: 80, halign: 'right' },
-    },
-    margin: { left: 14, right: 14 },
-  })
-
-  // ── Montant total encadré ──
-  const afterTable = (doc as any).lastAutoTable.finalY + 8
-  doc.setFillColor(30, 41, 59)
-  doc.roundedRect(14, afterTable, pageW - 28, 18, 3, 3, 'F')
-  doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(255)
-  doc.text('MONTANT NET À PAYER', 20, afterTable + 11)
-  doc.setFontSize(13)
-  doc.text(fmtPDF(v.montant), pageW - 20, afterTable + 11, { align: 'right' })
-
-  // ── Infos paiement si payée ──
-  if (v.statut === 'payee') {
-    const yPay = afterTable + 26
-    doc.setFillColor(240, 253, 244)
-    doc.roundedRect(14, yPay, pageW - 28, 22, 3, 3, 'F')
-    doc.setDrawColor(187, 247, 208); doc.roundedRect(14, yPay, pageW - 28, 22, 3, 3, 'S')
-    doc.setFontSize(8.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(22, 101, 52)
-    doc.text('✓ PAIEMENT EFFECTUÉ', 20, yPay + 8)
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(30, 41, 59)
-    if (v.paye_at) doc.text(`Date de paiement : ${new Date(v.paye_at).toLocaleDateString('fr-FR')}`, 20, yPay + 15)
-    if (v.reference_paiement) doc.text(`Référence : ${v.reference_paiement}`, pageW - 20, yPay + 15, { align: 'right' })
-  }
-
-  // ── Signatures ──
-  const ySig = pageH - 55
-  doc.setDrawColor(220); doc.line(14, ySig - 2, pageW - 14, ySig - 2)
-  const sigW2 = (pageW - 28) / 2
-  const sigs2 = [
-    { label: "Signature de l'enseignant", sub: `Je soussigné(e) ${v.enseignant_prenom} ${v.enseignant_nom},\ncertifie avoir reçu la somme ci-dessus.` },
-    { label: 'Cachet et signature DG', sub: "Approuvé et ordonnancé\npar la Direction Générale" },
-  ]
-  sigs2.forEach((s, i) => {
-    const x = 14 + i * sigW2
-    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 41, 59)
-    doc.text(s.label, x + sigW2 / 2, ySig + 6, { align: 'center' })
-    doc.setFontSize(7); doc.setFont('helvetica', 'italic'); doc.setTextColor(120)
-    doc.text(s.sub, x + sigW2 / 2, ySig + 12, { align: 'center' })
-    doc.setDrawColor(180); doc.line(x + 10, ySig + 28, x + sigW2 - 10, ySig + 28)
-  })
-
-  // ── Pied de page ──
-  doc.setFontSize(6); doc.setFont('helvetica', 'italic'); doc.setTextColor(160)
-  doc.text(`UP'TECH Campus — Document officiel généré le ${dateGen}`, pageW / 2, pageH - 6, { align: 'center' })
-
-  doc.save(`Fiche_Paiement_${v.enseignant_prenom}_${v.enseignant_nom}_${v.mois}.pdf`)
+  openPrintWindow(html)
 }
 
 onMounted(load)
