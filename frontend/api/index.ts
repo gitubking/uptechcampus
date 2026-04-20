@@ -13967,11 +13967,10 @@ app.get('/taches', requireAuth, role(...TACHES_ROLES), async (c) => {
   const conds: string[] = []
   const params: any[] = []
 
-  // Les rôles non-manager ne voient que leurs propres tâches (assignées ou créées)
-  if (!TACHES_MANAGER_ROLES.includes(user.role)) {
-    params.push(user.id)
-    conds.push(`(t.assignee_id = $${params.length} OR t.created_by = $${params.length})`)
-  } else if (mine) {
+  // Tous les rôles administratifs voient l'ensemble des tâches de l'équipe.
+  // Le filtre `?mine=1` permet à un utilisateur (manager ou non) de se limiter
+  // à ses propres tâches, et `?assignee_id=…` de cibler un collègue précis.
+  if (mine) {
     params.push(user.id)
     conds.push(`t.assignee_id = $${params.length}`)
   } else if (assigneeFilter) {
@@ -14053,17 +14052,10 @@ app.put('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
   const assignee_id = canFullEdit && body.assignee_id !== undefined ? body.assignee_id : tache.assignee_id
   const priorite = canFullEdit && body.priorite ? body.priorite : tache.priorite
   const deadline = canFullEdit && body.deadline !== undefined ? body.deadline : tache.deadline
-  // Un assigné non-manager/non-créateur ne peut que passer la tâche à "termine".
-  let statut: string = tache.statut
-  if (body.statut && body.statut !== tache.statut) {
-    if (canFullEdit) {
-      statut = body.statut
-    } else if (isAssignee && body.statut === 'termine') {
-      statut = 'termine'
-    } else {
-      return c.json({ message: 'Vous ne pouvez que marquer la tâche comme terminée.' }, 403)
-    }
-  }
+  // Tout rôle administratif peut changer le statut (y compris sur la tâche d'un
+  // collègue). Seules les autres modifications restent verrouillées au manager
+  // ou au créateur de la tâche.
+  const statut: string = body.statut ?? tache.statut
   const completed_at = statut === 'termine' ? (tache.completed_at || new Date()) : null
 
   const { rows } = await pool.query(
@@ -14076,27 +14068,18 @@ app.put('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
 })
 
 // PATCH /taches/:id/statut — changement rapide de statut (Kanban drag)
+// Tout rôle administratif peut changer le statut de n'importe quelle tâche de
+// l'équipe. La création / suppression / réassignation reste au manager.
 app.put('/taches/:id/statut', requireAuth, role(...TACHES_ROLES), async (c) => {
   await ensureTachesReady()
-  const user = u(c) as any
   const id = c.req.param('id')
   const body = await c.req.json()
   const statut = body.statut
   if (!['a_faire','en_cours','en_revue','termine'].includes(statut)) {
     return c.json({ message: 'Statut invalide.' }, 422)
   }
-  const { rows: existing } = await pool.query('SELECT assignee_id, created_by FROM taches WHERE id=$1', [id])
+  const { rows: existing } = await pool.query('SELECT id FROM taches WHERE id=$1', [id])
   if (!existing[0]) return c.json({ message: 'Tâche introuvable.' }, 404)
-  const isManager = TACHES_MANAGER_ROLES.includes(user.role)
-  const isAssignee = existing[0].assignee_id === user.id
-  const isOwner = existing[0].created_by === user.id
-  if (!isManager && !isAssignee && !isOwner) {
-    return c.json({ message: 'Accès refusé.' }, 403)
-  }
-  // Un assigné non-manager ne peut que marquer la tâche comme terminée.
-  if (!isManager && !isOwner && statut !== 'termine') {
-    return c.json({ message: 'Vous ne pouvez que marquer la tâche comme terminée.' }, 403)
-  }
   const completedSql = statut === 'termine' ? 'COALESCE(completed_at, NOW())' : 'NULL'
   const { rows } = await pool.query(
     `UPDATE taches SET statut=$1, completed_at=${completedSql}, updated_at=NOW() WHERE id=$2 RETURNING *`,
