@@ -4165,6 +4165,7 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
            f.id AS filiere_id, f.nom AS filiere_nom, f.code AS filiere_code,
            f.type_formation_id,
            tf.nom AS type_formation_nom,
+           cl.id AS classe_id, cl.nom AS classe_nom,
            i.statut AS inscription_statut
     FROM etudiants e
     LEFT JOIN inscriptions i ON i.id = (
@@ -4172,6 +4173,7 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
     )
     LEFT JOIN filieres f ON f.id = i.filiere_id
     LEFT JOIN types_formation tf ON tf.id = f.type_formation_id
+    LEFT JOIN classes cl ON cl.id = i.classe_id
     ORDER BY e.nom, e.prenom
   `)
   const { rows: checks } = await pool.query(
@@ -4190,6 +4192,7 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
     return { id: e.id, nom: e.nom, prenom: e.prenom, numero_etudiant: e.numero_etudiant,
              filiere_id: e.filiere_id, filiere_nom: e.filiere_nom, filiere_code: e.filiere_code,
              type_formation_id: e.type_formation_id, type_formation_nom: e.type_formation_nom,
+             classe_id: e.classe_id, classe_nom: e.classe_nom,
              inscription_statut: e.inscription_statut, checklist: docs,
              recu_count, total: applicables.length }
   })
