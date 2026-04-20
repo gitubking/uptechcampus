@@ -938,6 +938,21 @@ async function ensureRolePermissionsReady(): Promise<void> {
         [r]
       )
     }
+    // 5. Migration one-shot : assurer l'accès à /demandes-absence pour toute
+    //    l'équipe admin. Utile quand une instance chaude avait déjà seedé la
+    //    table avant l'ajout de ce path.
+    for (const r of ['dg','dir_peda','resp_fin','coordinateur','secretariat']) {
+      await pool.query(
+        `INSERT INTO role_permissions(role,page_path,has_access) VALUES($1,'/demandes-absence',true)
+         ON CONFLICT(role,page_path) DO UPDATE SET has_access=true
+         WHERE role_permissions.has_access = false`,
+        [r]
+      )
+    }
+    await pool.query(
+      `INSERT INTO role_permissions(role,page_path,has_access) VALUES('enseignant','/demandes-absence',false)
+       ON CONFLICT(role,page_path) DO NOTHING`
+    )
   })().catch((err) => {
     // Reset so a later request can retry
     rolePermsReady = null
