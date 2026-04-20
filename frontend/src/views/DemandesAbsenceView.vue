@@ -321,146 +321,225 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 max-w-5xl mx-auto">
-    <!-- Header -->
-    <div class="flex items-start justify-between mb-4 flex-wrap gap-3">
+  <div class="mx-auto max-w-5xl px-6 py-8">
+    <!-- Header ───────────────────────────────────────────────────── -->
+    <header class="mb-6 flex items-end justify-between gap-4 flex-wrap">
       <div>
-        <h1 class="text-xl font-bold text-gray-900">Demandes d'absence</h1>
-        <p class="text-sm text-gray-500 mt-0.5">
-          Déposez et suivez vos demandes d'autorisation d'absence.
+        <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-red-600">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          Ressources humaines
+        </div>
+        <h1 class="mt-1 text-2xl font-bold tracking-tight text-gray-900">Demandes d'absence</h1>
+        <p class="mt-1 text-sm text-gray-500">
+          Déposez vos demandes d'autorisation d'absence et suivez leur traitement.
         </p>
       </div>
       <button @click="openForm"
-        class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
+        class="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 hover:shadow">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         Nouvelle demande
       </button>
-    </div>
+    </header>
 
-    <!-- Solde congés -->
-    <div v-if="solde" class="bg-gradient-to-r from-red-50 to-orange-50 border border-red-100 rounded-xl p-4 mb-5">
-      <div class="text-xs font-medium text-red-700 uppercase">Mon solde de congé annuel — {{ solde.annee }}</div>
-      <div class="text-2xl font-bold text-gray-900 mt-1">
-        {{ solde.solde_restant }} <span class="text-base font-normal text-gray-500">/ {{ solde.solde_initial }} jours ouvrables</span>
+    <!-- Solde congés — hero card ────────────────────────────────── -->
+    <div v-if="solde" class="mb-6 overflow-hidden rounded-2xl border border-red-100 bg-gradient-to-br from-red-50 via-orange-50 to-amber-50 shadow-sm">
+      <div class="p-5 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <div class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-red-700">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Solde de congé annuel · {{ solde.annee }}
+          </div>
+          <div class="mt-2 flex items-baseline gap-2">
+            <span class="text-4xl font-bold text-gray-900">{{ solde.solde_restant }}</span>
+            <span class="text-sm text-gray-600">sur {{ solde.solde_initial }} jours ouvrables restants</span>
+          </div>
+          <div class="mt-1 text-xs text-gray-600">
+            {{ solde.jours_pris }} jour{{ solde.jours_pris > 1 ? 's' : '' }} déjà approuvé{{ solde.jours_pris > 1 ? 's' : '' }} cette année
+          </div>
+        </div>
+        <!-- Jauge circulaire -->
+        <div class="relative h-24 w-24 flex-shrink-0">
+          <svg class="h-24 w-24 -rotate-90" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="40" stroke="#fde68a" stroke-width="10" fill="none"/>
+            <circle cx="50" cy="50" r="40"
+              :stroke="solde.solde_restant / solde.solde_initial > 0.3 ? '#10b981' : '#ef4444'"
+              stroke-width="10" fill="none"
+              :stroke-dasharray="251.2"
+              :stroke-dashoffset="251.2 - (251.2 * solde.solde_restant / solde.solde_initial)"
+              stroke-linecap="round"/>
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <span class="text-xl font-bold text-gray-900">{{ Math.round(100 * solde.solde_restant / solde.solde_initial) }}%</span>
+            <span class="text-[9px] uppercase tracking-wider text-gray-500">restant</span>
+          </div>
+        </div>
       </div>
-      <div class="text-xs text-gray-500 mt-0.5">{{ solde.jours_pris }} jour(s) déjà approuvé(s) cette année</div>
+      <!-- Barre de progression horizontale -->
+      <div class="h-1.5 bg-white/60">
+        <div class="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all"
+          :style="{ width: (100 * solde.solde_restant / solde.solde_initial) + '%' }"></div>
+      </div>
     </div>
 
-    <!-- Sous-onglets -->
-    <div class="flex gap-1 mb-4 flex-wrap items-center">
-      <button @click="sousTab = 'miennes'"
-        :class="['px-3 py-1.5 text-xs font-medium rounded-lg transition',
-          sousTab === 'miennes' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
-        Mes demandes
-      </button>
-      <button v-if="isDecideur" @click="sousTab = 'a_valider'"
-        :class="['px-3 py-1.5 text-xs font-medium rounded-lg transition',
-          sousTab === 'a_valider' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
-        À valider (tout le personnel)
-      </button>
+    <!-- Sous-onglets ────────────────────────────────────────────── -->
+    <div class="mb-5 flex flex-wrap items-center gap-2">
+      <div class="inline-flex rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+        <button @click="sousTab = 'miennes'"
+          :class="['inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition',
+            sousTab === 'miennes' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50']">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+          Mes demandes
+        </button>
+        <button v-if="isDecideur" @click="sousTab = 'a_valider'"
+          :class="['inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition',
+            sousTab === 'a_valider' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50']">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+          À valider
+          <span v-if="sousTab !== 'a_valider' && demandes.filter(d => d.statut === 'en_attente').length"
+            class="inline-flex min-w-[18px] items-center justify-center rounded-full bg-yellow-400 px-1 text-[10px] font-bold text-yellow-900">
+            {{ demandes.filter(d => d.statut === 'en_attente').length }}
+          </span>
+        </button>
+      </div>
       <select v-if="sousTab === 'a_valider'" v-model="filtreStatut"
-        class="ml-auto px-3 py-1.5 border border-gray-300 rounded-lg text-xs bg-white">
+        class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
         <option value="">Tous les statuts</option>
         <option value="en_attente">En attente</option>
         <option value="approuvee">Approuvée</option>
         <option value="refusee">Refusée</option>
         <option value="annulee">Annulée</option>
       </select>
+      <span class="ml-auto text-xs text-gray-500">
+        {{ demandes.length }} demande{{ demandes.length > 1 ? 's' : '' }}
+      </span>
       <button v-if="isDecideur && sousTab === 'a_valider' && demandes.length > 0"
         @click="resetToutesLesDemandes"
-        :class="[sousTab === 'a_valider' ? '' : 'ml-auto', 'px-3 py-1.5 bg-white border border-red-200 text-red-600 text-xs font-medium rounded-lg hover:bg-red-50 transition']"
+        class="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50"
         title="Effacer toutes les demandes (données de test)">
+        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/></svg>
         Effacer les données de test
       </button>
     </div>
 
     <!-- Erreur -->
-    <div v-if="error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+    <div v-if="error" class="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+      <svg class="h-4 w-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
       {{ error }}
     </div>
 
     <!-- Loading -->
-    <div v-if="loading" class="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400 text-sm">
-      Chargement…
+    <div v-if="loading" class="rounded-2xl border border-gray-200 bg-white p-16 text-center">
+      <div class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-red-200 border-t-red-600"></div>
+      <p class="mt-3 text-sm text-gray-500">Chargement des demandes…</p>
     </div>
 
     <!-- Liste vide -->
-    <div v-else-if="demandes.length === 0" class="bg-white rounded-xl border border-gray-200 p-12 text-center">
-      <p class="text-gray-500 text-sm">
+    <div v-else-if="demandes.length === 0"
+      class="rounded-2xl border border-dashed border-gray-300 bg-white p-16 text-center">
+      <svg class="mx-auto h-10 w-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      <p class="mt-3 text-sm font-medium text-gray-700">
         <template v-if="sousTab === 'miennes'">Vous n'avez aucune demande d'absence.</template>
         <template v-else>Aucune demande à valider pour l'instant.</template>
       </p>
+      <p v-if="sousTab === 'miennes'" class="mt-1 text-xs text-gray-500">Cliquez sur « Nouvelle demande » pour en déposer une.</p>
     </div>
 
-    <!-- Liste -->
+    <!-- Liste ──────────────────────────────────────────────────── -->
     <div v-else class="space-y-3">
-      <div v-for="d in demandes" :key="d.id"
-        class="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-4 flex-wrap">
-        <div class="w-10 h-10 rounded-full bg-red-100 text-red-700 text-xs font-semibold flex items-center justify-center flex-shrink-0">
-          {{ (d.demandeur_prenom?.[0] ?? '') + (d.demandeur_nom?.[0] ?? '') }}
-        </div>
-        <div class="flex-1 min-w-[250px]">
-          <div class="flex items-center gap-2 flex-wrap mb-1">
-            <span class="text-sm font-semibold text-gray-900">
-              {{ d.demandeur_prenom }} {{ d.demandeur_nom }}
-            </span>
-            <span :class="['text-xs font-medium px-2 py-0.5 rounded', TYPE_ABSENCE_COLOR[d.type_absence]]">
-              {{ TYPE_ABSENCE_LABEL[d.type_absence] }}
-            </span>
-            <span :class="['text-xs font-medium px-2 py-0.5 rounded', STATUT_ABSENCE_CONF[d.statut].color]">
-              {{ STATUT_ABSENCE_CONF[d.statut].label }}
-            </span>
+      <article v-for="d in demandes" :key="d.id"
+        class="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md">
+        <!-- Liseret gauche selon statut -->
+        <div :class="['absolute left-0 top-0 h-full w-1',
+          d.statut === 'en_attente' ? 'bg-yellow-400' :
+          d.statut === 'approuvee' ? 'bg-emerald-500' :
+          d.statut === 'refusee' ? 'bg-red-500' : 'bg-gray-300']"></div>
+
+        <div class="pl-5 pr-4 py-4 flex items-start gap-4 flex-wrap">
+          <div class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-red-700 text-xs font-bold text-white shadow-sm">
+            {{ (d.demandeur_prenom?.[0] ?? '') + (d.demandeur_nom?.[0] ?? '') }}
           </div>
-          <div class="text-sm text-gray-700 font-medium">
-            Du {{ formatDateFr(d.date_debut) }} au {{ formatDateFr(d.date_fin) }}
-            <span class="text-xs text-gray-500 font-normal">({{ d.nb_jours_ouvrables }} j ouvrables)</span>
-          </div>
-          <div v-if="d.motif" class="text-xs text-gray-600 mt-1 italic">« {{ d.motif }} »</div>
-          <div v-if="d.decideur_id" class="text-xs text-gray-500 mt-2 border-t border-gray-100 pt-2">
-            <template v-if="d.statut === 'approuvee'">Approuvée</template>
-            <template v-else-if="d.statut === 'refusee'">Refusée</template>
-            <template v-else>Décidée</template>
-            par {{ d.decideur_prenom }} {{ d.decideur_nom }} — {{ formatDateFr(d.decision_at || '') }}
-            <div v-if="d.decision_commentaire" class="mt-0.5 text-gray-600">
-              <strong>Commentaire :</strong> {{ d.decision_commentaire }}
+          <div class="flex-1 min-w-[260px]">
+            <div class="mb-1.5 flex items-center gap-2 flex-wrap">
+              <span class="text-sm font-semibold text-gray-900">
+                {{ d.demandeur_prenom }} {{ d.demandeur_nom }}
+              </span>
+              <span :class="['rounded-full px-2 py-0.5 text-[11px] font-semibold', TYPE_ABSENCE_COLOR[d.type_absence]]">
+                {{ TYPE_ABSENCE_LABEL[d.type_absence] }}
+              </span>
+              <span :class="['inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', STATUT_ABSENCE_CONF[d.statut].color]">
+                <span :class="['h-1.5 w-1.5 rounded-full',
+                  d.statut === 'en_attente' ? 'bg-yellow-500 animate-pulse' :
+                  d.statut === 'approuvee' ? 'bg-emerald-600' :
+                  d.statut === 'refusee' ? 'bg-red-600' : 'bg-gray-500']"></span>
+                {{ STATUT_ABSENCE_CONF[d.statut].label }}
+              </span>
+              <span class="ml-auto text-[10px] font-mono text-gray-400">ABS-{{ String(d.id).padStart(6, '0') }}</span>
+            </div>
+            <div class="flex items-center gap-2 text-sm text-gray-800">
+              <svg class="h-3.5 w-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              <span class="font-medium">{{ formatDateFr(d.date_debut) }}</span>
+              <svg class="h-3 w-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+              <span class="font-medium">{{ formatDateFr(d.date_fin) }}</span>
+              <span class="inline-flex rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold text-gray-700">
+                {{ d.nb_jours_ouvrables }} j ouvrables
+              </span>
+            </div>
+            <div v-if="d.motif" class="mt-1.5 text-xs italic text-gray-600 border-l-2 border-gray-200 pl-2">
+              {{ d.motif }}
+            </div>
+            <div v-if="d.decideur_id" class="mt-2.5 border-t border-gray-100 pt-2 text-[11px]">
+              <div class="flex items-center gap-1.5 text-gray-600">
+                <svg :class="['h-3 w-3', d.statut === 'approuvee' ? 'text-emerald-600' : d.statut === 'refusee' ? 'text-red-600' : 'text-gray-400']"
+                  fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path v-if="d.statut === 'approuvee'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                  <path v-else-if="d.statut === 'refusee'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+                  <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3"/>
+                </svg>
+                <span class="font-semibold">
+                  <template v-if="d.statut === 'approuvee'">Approuvée</template>
+                  <template v-else-if="d.statut === 'refusee'">Refusée</template>
+                  <template v-else>Décidée</template>
+                </span>
+                par <span class="font-medium text-gray-800">{{ d.decideur_prenom }} {{ d.decideur_nom }}</span>
+                · {{ formatDateFr(d.decision_at || '') }}
+              </div>
+              <div v-if="d.decision_commentaire" class="mt-1 rounded-md bg-gray-50 px-2 py-1 text-gray-600">
+                <strong class="text-gray-700">Commentaire :</strong> {{ d.decision_commentaire }}
+              </div>
             </div>
           </div>
-        </div>
-        <div class="flex flex-col gap-1.5 items-end flex-shrink-0">
-          <template v-if="isDecideur && d.statut === 'en_attente' && d.demandeur_id !== auth.user?.id">
-            <button @click="openDecision(d, 'approuvee')"
-              class="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition min-w-[90px]">
-              Approuver
+          <div class="flex flex-shrink-0 flex-col items-end gap-1.5">
+            <template v-if="isDecideur && d.statut === 'en_attente' && d.demandeur_id !== auth.user?.id">
+              <button @click="openDecision(d, 'approuvee')"
+                class="inline-flex min-w-[90px] items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                Approuver
+              </button>
+              <button @click="openDecision(d, 'refusee')"
+                class="inline-flex min-w-[90px] items-center justify-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-red-700">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+                Refuser
+              </button>
+            </template>
+            <button v-if="d.statut === 'en_attente' && d.demandeur_id === auth.user?.id"
+              @click="cancelDemande(d)"
+              class="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-200">
+              Annuler
             </button>
-            <button @click="openDecision(d, 'refusee')"
-              class="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 transition min-w-[90px]">
-              Refuser
+            <button v-if="d.statut !== 'en_attente'"
+              @click="exportPDF(d)"
+              class="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              PDF
             </button>
-          </template>
-          <button v-if="d.statut === 'en_attente' && d.demandeur_id === auth.user?.id"
-            @click="cancelDemande(d)"
-            class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-200 transition">
-            Annuler
-          </button>
-          <button v-if="d.statut !== 'en_attente'"
-            @click="exportPDF(d)"
-            class="inline-flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 transition">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-            </svg>
-            PDF
-          </button>
-          <button v-if="isDecideur" @click="deleteDemande(d)"
-            title="Supprimer cette demande (DG uniquement)"
-            class="inline-flex items-center justify-center p-1.5 bg-white border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 text-xs rounded-lg transition">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/>
-            </svg>
-          </button>
+            <button v-if="isDecideur" @click="deleteDemande(d)"
+              title="Supprimer cette demande (DG uniquement)"
+              class="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-400 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/></svg>
+            </button>
+          </div>
         </div>
-      </div>
+      </article>
     </div>
 
     <!-- Modal Nouvelle demande -->
