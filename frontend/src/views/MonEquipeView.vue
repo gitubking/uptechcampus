@@ -311,6 +311,117 @@ function formatDateFr(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+function formatDateLong(iso: string): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+// Export PDF — autorisation d'absence signée. Document officiel destiné à
+// l'archivage RH et à la remise à l'agent. Mise en page A4 sobre, lisible,
+// avec bloc signatures et référence unique de dossier.
+async function exportAbsencePDF(d: DemandeAbsence) {
+  const { default: jsPDF } = await import('jspdf')
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+
+  const red: [number, number, number] = [227, 6, 19]
+  const dark: [number, number, number] = [30, 30, 30]
+  const grey: [number, number, number] = [100, 100, 100]
+  const page = { w: 210, h: 297 }
+  const marge = 20
+  let y = marge
+
+  // En-tête UPTECH
+  doc.setFillColor(...red); doc.rect(0, 0, page.w, 4, 'F')
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...dark)
+  doc.text('UPTECH CAMPUS', marge, y + 10)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...grey)
+  doc.text('Ressources humaines — Gestion des absences', marge, y + 15)
+  doc.text(`Réf. : ABS-${String(d.id).padStart(6, '0')}`, page.w - marge, y + 10, { align: 'right' })
+  doc.text(`Émis le ${new Date().toLocaleDateString('fr-FR')}`, page.w - marge, y + 15, { align: 'right' })
+  y += 22
+
+  // Titre
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(...red)
+  const titre = d.statut === 'approuvee' ? "AUTORISATION D'ABSENCE"
+             : d.statut === 'refusee' ? "REFUS DE DEMANDE D'ABSENCE"
+             : d.statut === 'annulee' ? "DEMANDE D'ABSENCE (ANNULÉE)"
+             : "DEMANDE D'ABSENCE (EN ATTENTE)"
+  doc.text(titre, page.w / 2, y + 8, { align: 'center' })
+  y += 16
+
+  doc.setDrawColor(...red); doc.setLineWidth(0.5)
+  doc.line(marge, y, page.w - marge, y)
+  y += 8
+
+  // Bloc agent
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...dark)
+  doc.text('AGENT CONCERNÉ', marge, y); y += 6
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+  const ligne = (label: string, valeur: string) => {
+    doc.setTextColor(...grey); doc.text(label, marge, y)
+    doc.setTextColor(...dark); doc.text(valeur, marge + 55, y)
+    y += 6
+  }
+  ligne('Nom et prénom :', `${d.demandeur_prenom ?? ''} ${d.demandeur_nom ?? ''}`.trim() || '—')
+  ligne('Fonction / rôle :', d.demandeur_role ?? '—')
+  ligne('Email :', d.demandeur_email ?? '—')
+  y += 4
+
+  // Bloc absence
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...dark)
+  doc.text('ABSENCE DEMANDÉE', marge, y); y += 6
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+  ligne("Type d'absence :", TYPE_ABSENCE_LABEL[d.type_absence])
+  ligne('Date de début :', formatDateLong(d.date_debut))
+  ligne('Date de fin :', formatDateLong(d.date_fin))
+  ligne('Durée :', `${d.nb_jours_ouvrables} jour(s) ouvrable(s)`)
+  if (d.motif) {
+    doc.setTextColor(...grey); doc.text('Motif :', marge, y)
+    doc.setTextColor(...dark)
+    const lignes = doc.splitTextToSize(d.motif, page.w - marge * 2 - 55)
+    doc.text(lignes, marge + 55, y); y += 6 * lignes.length
+  }
+  y += 4
+
+  // Bloc décision
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...dark)
+  doc.text('DÉCISION', marge, y); y += 6
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+  const statutLabel = STATUT_ABSENCE_CONF[d.statut].label.toUpperCase()
+  ligne('Statut :', statutLabel)
+  if (d.decideur_id && d.decision_at) {
+    ligne('Décidée par :', `${d.decideur_prenom ?? ''} ${d.decideur_nom ?? ''}`.trim() || '—')
+    ligne('Date de décision :', formatDateLong(d.decision_at))
+    if (d.decision_commentaire) {
+      doc.setTextColor(...grey); doc.text('Commentaire :', marge, y)
+      doc.setTextColor(...dark)
+      const lignes = doc.splitTextToSize(d.decision_commentaire, page.w - marge * 2 - 55)
+      doc.text(lignes, marge + 55, y); y += 6 * lignes.length
+    }
+  }
+  y += 8
+
+  // Bloc signatures (pour document à archiver)
+  doc.setDrawColor(...grey); doc.setLineWidth(0.2)
+  const sigY = Math.max(y, page.h - 65)
+  const colW = (page.w - marge * 2 - 10) / 2
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...dark)
+  doc.text("Signature de l'agent", marge, sigY)
+  doc.text("Signature et cachet de la Direction", marge + colW + 10, sigY)
+  doc.rect(marge, sigY + 3, colW, 30)
+  doc.rect(marge + colW + 10, sigY + 3, colW, 30)
+
+  // Pied de page
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(...grey)
+  doc.text(
+    `Document généré automatiquement par UPTECH Campus — toute décision est tracée dans les journaux d'audit (réf. dossier ABS-${String(d.id).padStart(6, '0')}).`,
+    page.w / 2, page.h - 10, { align: 'center', maxWidth: page.w - marge * 2 }
+  )
+
+  const nomFichier = `absence_${(d.demandeur_nom ?? 'agent').toLowerCase().replace(/\s+/g, '_')}_${d.date_debut}.pdf`
+  doc.save(nomFichier)
+}
+
 watch([tab, absencesSousTab, absenceFiltreStatut], ([newTab]) => {
   if (newTab === 'absences') loadAbsences()
 })
@@ -613,6 +724,15 @@ onMounted(() => {
               @click="cancelDemande(d)"
               class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-200 transition">
               Annuler
+            </button>
+            <button v-if="d.statut !== 'en_attente'"
+              @click="exportAbsencePDF(d)"
+              :title="d.statut === 'approuvee' ? 'Télécharger l\'autorisation signée' : 'Télécharger le document'"
+              class="inline-flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 transition">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              PDF
             </button>
           </div>
         </div>
