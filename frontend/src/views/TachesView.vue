@@ -4,11 +4,19 @@ import api from '@/services/api'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 
+interface Assignee {
+  id: number
+  nom: string
+  prenom: string
+  role: string
+}
+
 interface Tache {
   id: number
   titre: string
   description: string | null
-  assignee_id: number | null
+  assignee_id: number | null  // legacy = premier assigné
+  assignees: Assignee[]        // source de vérité multi-agent
   created_by: number | null
   priorite: 'basse' | 'normale' | 'haute' | 'urgente'
   statut: 'a_faire' | 'en_cours' | 'en_revue' | 'termine'
@@ -17,9 +25,6 @@ interface Tache {
   completed_at: string | null
   created_at: string
   updated_at: string
-  assignee_nom?: string | null
-  assignee_prenom?: string | null
-  assignee_role?: string | null
   createur_nom?: string | null
   createur_prenom?: string | null
 }
@@ -69,7 +74,7 @@ const editTarget = ref<Tache | null>(null)
 const form = ref({
   titre: '',
   description: '',
-  assignee_id: '' as string | number,
+  assignee_ids: [] as number[],
   priorite: 'normale',
   statut: 'a_faire',
   date_debut: '',
@@ -104,7 +109,11 @@ const kanbanColumns: { key: Tache['statut']; label: string }[] = [
 
 const filteredTaches = computed(() => {
   return taches.value.filter(t => {
-    if (filterAssignee.value && String(t.assignee_id) !== filterAssignee.value) return false
+    if (filterAssignee.value) {
+      const targetId = Number(filterAssignee.value)
+      const match = (t.assignees ?? []).some(a => a.id === targetId)
+      if (!match) return false
+    }
     if (filterPriorite.value && t.priorite !== filterPriorite.value) return false
     if (searchQ.value) {
       const q = searchQ.value.toLowerCase()
@@ -166,7 +175,7 @@ async function loadAll() {
 
 function openCreate() {
   editTarget.value = null
-  form.value = { titre: '', description: '', assignee_id: '', priorite: 'normale', statut: 'a_faire', date_debut: '', deadline: '' }
+  form.value = { titre: '', description: '', assignee_ids: [], priorite: 'normale', statut: 'a_faire', date_debut: '', deadline: '' }
   error.value = ''
   showForm.value = true
 }
@@ -176,7 +185,7 @@ function openEdit(t: Tache) {
   form.value = {
     titre: t.titre,
     description: t.description ?? '',
-    assignee_id: t.assignee_id ?? '',
+    assignee_ids: (t.assignees ?? []).map(a => a.id),
     priorite: t.priorite,
     statut: t.statut,
     date_debut: t.date_debut ? t.date_debut.slice(0, 10) : '',
@@ -186,10 +195,15 @@ function openEdit(t: Tache) {
   showForm.value = true
 }
 
+function toggleAssignee(uid: number) {
+  const idx = form.value.assignee_ids.indexOf(uid)
+  if (idx === -1) form.value.assignee_ids.push(uid)
+  else form.value.assignee_ids.splice(idx, 1)
+}
+
 async function save() {
   saving.value = true
   error.value = ''
-  // Validation locale : fin ≥ début si les deux sont renseignées.
   if (form.value.date_debut && form.value.deadline && form.value.deadline < form.value.date_debut) {
     error.value = 'La date de fin doit être postérieure ou égale à la date de début.'
     saving.value = false
@@ -197,8 +211,11 @@ async function save() {
   }
   try {
     const payload = {
-      ...form.value,
-      assignee_id: form.value.assignee_id === '' ? null : Number(form.value.assignee_id),
+      titre: form.value.titre,
+      description: form.value.description,
+      priorite: form.value.priorite,
+      statut: form.value.statut,
+      assignee_ids: form.value.assignee_ids,
       date_debut: form.value.date_debut || null,
       deadline: form.value.deadline || null,
     }
@@ -354,7 +371,7 @@ onMounted(loadAll)
                   </svg>
                 </button>
                 <button
-                  v-if="!isManager && t.assignee_id === auth.user?.id && t.statut !== 'termine'"
+                  v-if="!isManager && (t.assignees ?? []).some(a => a.id === auth.user?.id) && t.statut !== 'termine'"
                   @click="markDone(t)"
                   class="p-1 text-green-500 hover:text-green-700 transition"
                   title="Marquer terminé">
@@ -378,11 +395,21 @@ onMounted(loadAll)
               </template>
             </div>
             <div class="flex items-center justify-between gap-2 mt-2">
-              <div v-if="t.assignee_id" class="flex items-center gap-1.5">
-                <div class="w-6 h-6 rounded-full bg-red-100 text-red-700 text-[10px] font-semibold flex items-center justify-center">
-                  {{ initials(t.assignee_prenom, t.assignee_nom) }}
+              <div v-if="(t.assignees ?? []).length" class="flex items-center">
+                <!-- Avatars empilés. Au-delà de 3, on affiche "+N" -->
+                <div v-for="(a, idx) in (t.assignees ?? []).slice(0, 3)" :key="a.id"
+                  :style="{ marginLeft: idx === 0 ? '0' : '-6px', zIndex: 3 - idx }"
+                  :title="`${a.prenom} ${a.nom}`"
+                  class="w-6 h-6 rounded-full bg-red-100 text-red-700 text-[10px] font-semibold flex items-center justify-center border-2 border-white">
+                  {{ initials(a.prenom, a.nom) }}
                 </div>
-                <span class="text-xs text-gray-600 truncate max-w-[90px]">{{ t.assignee_prenom }} {{ t.assignee_nom }}</span>
+                <span v-if="(t.assignees ?? []).length > 3" class="text-[10px] text-gray-500 ml-1">
+                  +{{ (t.assignees ?? []).length - 3 }}
+                </span>
+                <span v-else-if="(t.assignees ?? []).length === 1" class="text-xs text-gray-600 ml-1.5 truncate max-w-[90px]">
+                  {{ t.assignees?.[0]?.prenom }} {{ t.assignees?.[0]?.nom }}
+                </span>
+                <span v-else class="text-xs text-gray-500 ml-1.5">{{ (t.assignees ?? []).length }} assignés</span>
               </div>
               <span v-else class="text-xs text-gray-400 italic">Non assignée</span>
             </div>
@@ -429,7 +456,11 @@ onMounted(loadAll)
                 <div v-if="t.description" class="text-xs text-gray-500 line-clamp-1">{{ t.description }}</div>
               </td>
               <td class="px-4 py-3 text-sm text-gray-700">
-                <span v-if="t.assignee_id">{{ t.assignee_prenom }} {{ t.assignee_nom }}</span>
+                <template v-if="(t.assignees ?? []).length">
+                  <span v-for="(a, idx) in (t.assignees ?? [])" :key="a.id">
+                    {{ a.prenom }} {{ a.nom }}<span v-if="idx < (t.assignees ?? []).length - 1">, </span>
+                  </span>
+                </template>
                 <span v-else class="text-gray-400 italic">—</span>
               </td>
               <td class="px-4 py-3">
@@ -545,14 +576,30 @@ onMounted(loadAll)
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">Assigner à</label>
-              <select v-model="form.assignee_id"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
-                <option value="">— Non assignée —</option>
-                <option v-for="u in users" :key="u.id" :value="u.id">
-                  {{ u.prenom }} {{ u.nom }} ({{ ROLE_LABEL[u.role] || u.role }})
-                </option>
-              </select>
+              <label class="block text-xs font-medium text-gray-700 mb-1">
+                Assigner à
+                <span class="text-[11px] font-normal text-gray-500">(cochez un ou plusieurs agents)</span>
+              </label>
+              <div class="max-h-44 overflow-y-auto border border-gray-300 rounded-lg p-2 space-y-1">
+                <div v-if="users.length === 0" class="text-xs text-gray-400 italic text-center py-2">
+                  Aucun agent assignable.
+                </div>
+                <label v-for="u in users" :key="u.id"
+                  class="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                  <input type="checkbox"
+                    :checked="form.assignee_ids.includes(u.id)"
+                    @change="toggleAssignee(u.id)"
+                    class="accent-red-600" />
+                  <span class="text-gray-900 flex-1 truncate">{{ u.prenom }} {{ u.nom }}</span>
+                  <span class="text-xs text-gray-500">{{ ROLE_LABEL[u.role] || u.role }}</span>
+                </label>
+              </div>
+              <p v-if="form.assignee_ids.length" class="text-[11px] text-gray-500 mt-1">
+                {{ form.assignee_ids.length }} agent(s) sélectionné(s).
+              </p>
+              <p v-else class="text-[11px] text-gray-500 mt-1">
+                Aucun sélectionné → la tâche sera non assignée.
+              </p>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>

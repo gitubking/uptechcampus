@@ -1011,6 +1011,23 @@ async function ensureTachesReady(): Promise<void> {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_taches_statut ON taches(statut)`)
     // Migration idempotente : ajoute date_debut si absent (bases pré-existantes)
     await pool.query(`ALTER TABLE taches ADD COLUMN IF NOT EXISTS date_debut DATE`)
+    // Table de liaison pour assigner une tâche à plusieurs agents.
+    // assignee_id (colonne simple) est conservée pour compat rétro et comme
+    // "assigné principal / premier assigné" utilisé par anciennes requêtes.
+    await pool.query(`CREATE TABLE IF NOT EXISTS tache_assignees (
+      tache_id INTEGER NOT NULL REFERENCES taches(id) ON DELETE CASCADE,
+      user_id  INTEGER NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+      PRIMARY KEY(tache_id, user_id)
+    )`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_tache_assignees_user ON tache_assignees(user_id)`)
+    // Backfill : toute tâche existante avec assignee_id renseigné → ligne dans
+    // la table de liaison. DO NOTHING car le PK couple (tache_id,user_id) peut
+    // déjà exister si la migration tourne plusieurs fois.
+    await pool.query(`
+      INSERT INTO tache_assignees (tache_id, user_id)
+      SELECT id, assignee_id FROM taches WHERE assignee_id IS NOT NULL
+      ON CONFLICT DO NOTHING
+    `)
   })().catch((err) => {
     tachesReady = null
     throw err
@@ -13874,14 +13891,16 @@ app.get('/mon-equipe', requireAuth, role('dg'), async (c) => {
   // Agrégation en une requête : users non-étudiants + joint tâches, vacations, seances, activity
   const { rows } = await pool.query(`
     WITH task_stats AS (
-      SELECT assignee_id AS user_id,
-        COUNT(*) FILTER (WHERE statut = 'a_faire')::int  AS t_a_faire,
-        COUNT(*) FILTER (WHERE statut = 'en_cours')::int AS t_en_cours,
-        COUNT(*) FILTER (WHERE statut = 'en_revue')::int AS t_en_revue,
-        COUNT(*) FILTER (WHERE statut = 'termine')::int  AS t_termine,
-        COUNT(*) FILTER (WHERE statut <> 'termine' AND deadline IS NOT NULL AND deadline < CURRENT_DATE)::int AS t_en_retard,
-        COUNT(*) FILTER (WHERE statut = 'termine' AND completed_at >= NOW() - INTERVAL '30 days')::int AS t_termines_30j
-      FROM taches WHERE assignee_id IS NOT NULL GROUP BY assignee_id
+      SELECT ta.user_id,
+        COUNT(*) FILTER (WHERE t.statut = 'a_faire')::int  AS t_a_faire,
+        COUNT(*) FILTER (WHERE t.statut = 'en_cours')::int AS t_en_cours,
+        COUNT(*) FILTER (WHERE t.statut = 'en_revue')::int AS t_en_revue,
+        COUNT(*) FILTER (WHERE t.statut = 'termine')::int  AS t_termine,
+        COUNT(*) FILTER (WHERE t.statut <> 'termine' AND t.deadline IS NOT NULL AND t.deadline < CURRENT_DATE)::int AS t_en_retard,
+        COUNT(*) FILTER (WHERE t.statut = 'termine' AND t.completed_at >= NOW() - INTERVAL '30 days')::int AS t_termines_30j
+      FROM tache_assignees ta
+      JOIN taches t ON t.id = ta.tache_id
+      GROUP BY ta.user_id
     ),
     vac_stats AS (
       SELECT e.user_id,
@@ -14033,6 +14052,10 @@ async function autoAdvanceTachesStatuts(): Promise<void> {
 }
 
 // GET /taches — liste avec filtres (assignee, statut, priorite, mine)
+// L'assignation est désormais multi-agents (table tache_assignees) : une
+// tâche peut remonter dans les résultats dès qu'au moins un de ses assignés
+// correspond au filtre. `assignees` est retourné sous forme de tableau JSON
+// agrégé (id, nom, prenom, role).
 app.get('/taches', requireAuth, role(...TACHES_ROLES), async (c) => {
   await ensureTachesReady()
   await autoAdvanceTachesStatuts()
@@ -14044,18 +14067,13 @@ app.get('/taches', requireAuth, role(...TACHES_ROLES), async (c) => {
 
   const conds: string[] = []
   const params: any[] = []
-
-  // Tous les rôles administratifs voient l'ensemble des tâches de l'équipe.
-  // Le filtre `?mine=1` permet à un utilisateur (manager ou non) de se limiter
-  // à ses propres tâches, et `?assignee_id=…` de cibler un collègue précis.
   if (mine) {
     params.push(user.id)
-    conds.push(`t.assignee_id = $${params.length}`)
+    conds.push(`EXISTS (SELECT 1 FROM tache_assignees ta WHERE ta.tache_id = t.id AND ta.user_id = $${params.length})`)
   } else if (assigneeFilter) {
     params.push(Number(assigneeFilter))
-    conds.push(`t.assignee_id = $${params.length}`)
+    conds.push(`EXISTS (SELECT 1 FROM tache_assignees ta WHERE ta.tache_id = t.id AND ta.user_id = $${params.length})`)
   }
-
   if (statutFilter) {
     params.push(statutFilter)
     conds.push(`t.statut = $${params.length}`)
@@ -14064,14 +14082,20 @@ app.get('/taches', requireAuth, role(...TACHES_ROLES), async (c) => {
     params.push(prioriteFilter)
     conds.push(`t.priorite = $${params.length}`)
   }
-
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
   const { rows } = await pool.query(
     `SELECT t.*,
-            a.nom AS assignee_nom, a.prenom AS assignee_prenom, a.role AS assignee_role,
-            cb.nom AS createur_nom, cb.prenom AS createur_prenom
+            cb.nom AS createur_nom, cb.prenom AS createur_prenom,
+            COALESCE(
+              (SELECT json_agg(json_build_object(
+                 'id', u.id, 'nom', u.nom, 'prenom', u.prenom, 'role', u.role
+               ) ORDER BY u.nom, u.prenom)
+               FROM tache_assignees ta
+               JOIN users u ON u.id = ta.user_id
+               WHERE ta.tache_id = t.id),
+              '[]'::json
+            ) AS assignees
      FROM taches t
-     LEFT JOIN users a ON a.id = t.assignee_id
      LEFT JOIN users cb ON cb.id = t.created_by
      ${where}
      ORDER BY
@@ -14083,6 +14107,32 @@ app.get('/taches', requireAuth, role(...TACHES_ROLES), async (c) => {
   return c.json(rows)
 })
 
+// Normalise les assignés reçus (accepte soit un tableau `assignee_ids`, soit
+// un `assignee_id` unique pour compat rétro). Renvoie la liste d'IDs uniques,
+// entiers et > 0.
+function normalizeAssigneeIds(body: any): number[] {
+  const raw: any[] = Array.isArray(body.assignee_ids)
+    ? body.assignee_ids
+    : (body.assignee_id ? [body.assignee_id] : [])
+  const ids = raw
+    .map((x: any) => Number(x))
+    .filter((n: number) => Number.isInteger(n) && n > 0)
+  return Array.from(new Set(ids))
+}
+
+async function syncTacheAssignees(tacheId: number, ids: number[]): Promise<void> {
+  await pool.query('DELETE FROM tache_assignees WHERE tache_id=$1', [tacheId])
+  for (const uid of ids) {
+    await pool.query(
+      `INSERT INTO tache_assignees (tache_id, user_id) VALUES ($1,$2)
+       ON CONFLICT DO NOTHING`,
+      [tacheId, uid]
+    )
+  }
+  // assignee_id (colonne legacy) : premier assigné si présent, sinon NULL
+  await pool.query('UPDATE taches SET assignee_id=$1 WHERE id=$2', [ids[0] ?? null, tacheId])
+}
+
 // POST /taches — créer (managers uniquement)
 app.post('/taches', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) => {
   await ensureTachesReady()
@@ -14090,19 +14140,19 @@ app.post('/taches', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) => {
   if (!body.titre || !String(body.titre).trim()) {
     return c.json({ message: 'Le titre est requis.' }, 422)
   }
-  // Validation échéancier : si les deux dates sont fournies, fin >= début.
   const dateDebut = body.date_debut || null
   const deadline = body.deadline || null
   if (dateDebut && deadline && String(deadline) < String(dateDebut)) {
     return c.json({ message: 'La date de fin doit être postérieure ou égale à la date de début.' }, 422)
   }
+  const assigneeIds = normalizeAssigneeIds(body)
   const { rows } = await pool.query(
     `INSERT INTO taches (titre, description, assignee_id, created_by, priorite, statut, date_debut, deadline)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
     [
       String(body.titre).trim(),
       body.description || null,
-      body.assignee_id || null,
+      assigneeIds[0] ?? null,
       u(c).id,
       body.priorite || 'normale',
       body.statut || 'a_faire',
@@ -14110,6 +14160,7 @@ app.post('/taches', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) => {
       deadline,
     ]
   )
+  await syncTacheAssignees(rows[0].id, assigneeIds)
   return c.json(rows[0], 201)
 })
 
@@ -14134,13 +14185,17 @@ app.put('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
   const canFullEdit = isManager || isOwner
   const titre = canFullEdit && body.titre ? String(body.titre).trim() : tache.titre
   const description = canFullEdit && body.description !== undefined ? body.description : tache.description
-  const assignee_id = canFullEdit && body.assignee_id !== undefined ? body.assignee_id : tache.assignee_id
   const priorite = canFullEdit && body.priorite ? body.priorite : tache.priorite
   const date_debut = canFullEdit && body.date_debut !== undefined ? (body.date_debut || null) : tache.date_debut
   const deadline = canFullEdit && body.deadline !== undefined ? (body.deadline || null) : tache.deadline
   if (date_debut && deadline && String(deadline) < String(date_debut)) {
     return c.json({ message: 'La date de fin doit être postérieure ou égale à la date de début.' }, 422)
   }
+  // Assignation (multi) : on accepte aussi bien `assignee_ids` que l'ancien
+  // `assignee_id` unique. Si aucun des deux champs n'est présent, on conserve
+  // les assignations actuelles (pas de reset accidentel).
+  const assignationsTouched = Array.isArray(body.assignee_ids) || body.assignee_id !== undefined
+  const assigneeIds = assignationsTouched && canFullEdit ? normalizeAssigneeIds(body) : null
   // Tout rôle administratif peut changer le statut (y compris sur la tâche d'un
   // collègue). Seules les autres modifications restent verrouillées au manager
   // ou au créateur de la tâche.
@@ -14148,11 +14203,12 @@ app.put('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
   const completed_at = statut === 'termine' ? (tache.completed_at || new Date()) : null
 
   const { rows } = await pool.query(
-    `UPDATE taches SET titre=$1, description=$2, assignee_id=$3, priorite=$4, statut=$5,
-       date_debut=$6, deadline=$7, completed_at=$8, updated_at=NOW()
-     WHERE id=$9 RETURNING *`,
-    [titre, description, assignee_id, priorite, statut, date_debut, deadline, completed_at, id]
+    `UPDATE taches SET titre=$1, description=$2, priorite=$3, statut=$4,
+       date_debut=$5, deadline=$6, completed_at=$7, updated_at=NOW()
+     WHERE id=$8 RETURNING *`,
+    [titre, description, priorite, statut, date_debut, deadline, completed_at, id]
   )
+  if (assigneeIds !== null) await syncTacheAssignees(Number(id), assigneeIds)
   return c.json(rows[0])
 })
 
@@ -14193,6 +14249,8 @@ app.delete('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
 })
 
 // GET /taches/stats — KPIs productivité par agent (managers uniquement)
+// Passe par tache_assignees : une tâche assignée à 3 agents compte pour
+// chacun des 3 dans ses stats individuelles (coresponsabilité).
 app.get('/taches/stats', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) => {
   await ensureTachesReady()
   const { rows } = await pool.query(`
@@ -14206,7 +14264,8 @@ app.get('/taches/stats', requireAuth, role(...TACHES_MANAGER_ROLES), async (c) =
       COUNT(t.id)::int AS total,
       COUNT(t.id) FILTER (WHERE t.statut = 'termine' AND t.completed_at >= NOW() - INTERVAL '30 days')::int AS termines_30j
     FROM users u
-    LEFT JOIN taches t ON t.assignee_id = u.id
+    LEFT JOIN tache_assignees ta ON ta.user_id = u.id
+    LEFT JOIN taches t ON t.id = ta.tache_id
     WHERE u.role IN ('dg','dir_peda','resp_fin','coordinateur','secretariat')
       AND u.statut = 'actif'
     GROUP BY u.id, u.nom, u.prenom, u.role
