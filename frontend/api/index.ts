@@ -4196,7 +4196,21 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
              inscription_statut: e.inscription_statut, checklist: docs,
              recu_count, total: applicables.length }
   })
-  return c.json({ types, etudiants: result })
+  // Listes de référence pour alimenter les filtres UI (indépendamment des
+  // rattachements actuels des étudiants — évite des dropdowns vides si les
+  // filières ne sont pas encore liées à un type de formation, etc.).
+  const [typesFormationRows, filieresRows, classesRows] = await Promise.all([
+    pool.query(`SELECT id, nom FROM types_formation ORDER BY nom`),
+    pool.query(`SELECT id, nom, code, type_formation_id FROM filieres ORDER BY nom`),
+    pool.query(`SELECT id, nom, filiere_id FROM classes ORDER BY nom`),
+  ])
+  return c.json({
+    types,
+    etudiants: result,
+    types_formation: typesFormationRows.rows,
+    filieres: filieresRows.rows,
+    classes: classesRows.rows,
+  })
 })
 
 // ─── CHECKLIST DOCUMENTS ──────────────────────────────────────────────────────

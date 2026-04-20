@@ -27,8 +27,15 @@ interface EtudiantRow {
   total: number
 }
 
+interface RefTypeFormation { id: number; nom: string }
+interface RefFiliere { id: number; nom: string; code: string | null; type_formation_id: number | null }
+interface RefClasse { id: number; nom: string; filiere_id: number | null }
+
 const types = ref<DocType[]>([])
 const etudiants = ref<EtudiantRow[]>([])
+const refTypesFormation = ref<RefTypeFormation[]>([])
+const refFilieres = ref<RefFiliere[]>([])
+const refClasses = ref<RefClasse[]>([])
 const loading = ref(true)
 const toggling = ref<Record<string, boolean>>({})  // key = `${etudiantId}-${code}`
 const search = ref('')
@@ -46,6 +53,9 @@ async function load() {
     const { data } = await api.get('/dossiers-etudiants')
     types.value = data.types
     etudiants.value = data.etudiants
+    refTypesFormation.value = data.types_formation ?? []
+    refFilieres.value = data.filieres ?? []
+    refClasses.value = data.classes ?? []
     // Par défaut, tous les types sont visibles
     if (selectedTypeCodes.value.size === 0) {
       selectedTypeCodes.value = new Set(types.value.map(t => t.code))
@@ -55,37 +65,28 @@ async function load() {
   }
 }
 
-// Options de filtres extraites des étudiants (dédoublonnées)
-const classesOptions = computed(() => {
-  const map = new Map<number, string>()
-  for (const e of etudiants.value) {
-    if (e.classe_id && e.classe_nom) map.set(e.classe_id, e.classe_nom)
-  }
-  return Array.from(map, ([id, nom]) => ({ id, nom })).sort((a, b) => a.nom.localeCompare(b.nom))
-})
-const typesFormationOptions = computed(() => {
-  const map = new Map<number, string>()
-  for (const e of etudiants.value) {
-    if (e.type_formation_id && e.type_formation_nom) map.set(e.type_formation_id, e.type_formation_nom)
-  }
-  // Ajouter aussi les types référencés par un type de document (utile si aucun étudiant n'en a encore)
-  for (const t of types.value) {
-    if (t.type_formation_id && t.type_formation_nom) map.set(t.type_formation_id, t.type_formation_nom)
-  }
-  return Array.from(map, ([id, nom]) => ({ id, nom })).sort((a, b) => a.nom.localeCompare(b.nom))
-})
+// Options de filtres basées sur les listes de référence (toujours renseignées
+// par l'API, indépendamment des rattachements actuels des étudiants).
+const typesFormationOptions = computed(() =>
+  [...refTypesFormation.value].sort((a, b) => a.nom.localeCompare(b.nom))
+)
 const filieresOptions = computed(() => {
-  const map = new Map<number, { nom: string; type_formation_id: number | null }>()
-  for (const e of etudiants.value) {
-    if (e.filiere_id && e.filiere_nom) {
-      map.set(e.filiere_id, { nom: e.filiere_nom, type_formation_id: e.type_formation_id })
-    }
-  }
-  let list = Array.from(map, ([id, v]) => ({ id, nom: v.nom, type_formation_id: v.type_formation_id }))
-  // Si un type de formation est sélectionné, restreindre les filières à ce type
+  let list = [...refFilieres.value]
   if (filtreTypeFormation.value) {
     const tfId = Number(filtreTypeFormation.value)
     list = list.filter(f => f.type_formation_id === tfId)
+  }
+  return list.sort((a, b) => a.nom.localeCompare(b.nom))
+})
+const classesOptions = computed(() => {
+  let list = [...refClasses.value]
+  if (filtreFiliere.value) {
+    const fId = Number(filtreFiliere.value)
+    list = list.filter(c => c.filiere_id === fId)
+  } else if (filtreTypeFormation.value) {
+    const tfId = Number(filtreTypeFormation.value)
+    const filiereIds = new Set(refFilieres.value.filter(f => f.type_formation_id === tfId).map(f => f.id))
+    list = list.filter(c => c.filiere_id !== null && filiereIds.has(c.filiere_id))
   }
   return list.sort((a, b) => a.nom.localeCompare(b.nom))
 })
