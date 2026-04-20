@@ -219,6 +219,11 @@ const router = createRouter({
           component: () => import('@/views/MonEquipeView.vue'),
         },
         {
+          path: 'demandes-absence',
+          name: 'demandes-absence',
+          component: () => import('@/views/DemandesAbsenceView.vue'),
+        },
+        {
           path: 'journal-activite',
           name: 'journal-activite',
           component: () => import('@/views/JournalActiviteView.vue'),

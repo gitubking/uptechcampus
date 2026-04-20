@@ -872,6 +872,7 @@ const ROLE_PERMS_DEFAULTS: { path: string; roles: string[] }[] = [
   { path: '/taches',                  roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat'] },
   { path: '/journal-activite',        roles: ['dg'] },
   { path: '/mon-equipe',              roles: ['dg'] },
+  { path: '/demandes-absence',        roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat'] },
 ]
 
 let rolePermsReady: Promise<void> | null = null
