@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { openPrintWindow, uptechHeaderHTML, uptechFooterHTML, uptechPrintCSS } from '@/utils/uptechPrint'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -217,6 +218,169 @@ const statutOptions = [
   { value: 'abandonne', label: 'Abandonné' },
 ]
 
+function escapeHtml(s: string | null | undefined): string {
+  return (s ?? '').toString().replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string))
+}
+
+// Export état des dossiers (HTML/print A4 paysage, en-tête UPTECH officiel).
+// Respecte les filtres et la sélection de colonnes en cours → reflète
+// exactement la vue à l'écran. Chaque case = ✓ reçu / ✗ manquant / — N/A.
+function exportEtatDossiers() {
+  const liste = etudiantsFiltres.value
+  if (!liste.length) { alert('Aucun étudiant à exporter.'); return }
+  const cols = visibleTypes.value
+  if (!cols.length) { alert('Aucune colonne sélectionnée à exporter.'); return }
+
+  const emitDate = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+  const filtresActifs: string[] = []
+  if (filtreTypeFormation.value) {
+    const tf = refTypesFormation.value.find(x => String(x.id) === filtreTypeFormation.value)
+    if (tf) filtresActifs.push(`Formation : ${tf.nom}`)
+  }
+  if (filtreFiliere.value) {
+    const f = refFilieres.value.find(x => String(x.id) === filtreFiliere.value)
+    if (f) filtresActifs.push(`Filière : ${f.nom}`)
+  }
+  if (filtreClasse.value) {
+    const c = refClasses.value.find(x => String(x.id) === filtreClasse.value)
+    if (c) filtresActifs.push(`Classe : ${c.nom}`)
+  }
+  if (filtreStatut.value) {
+    const s = statutOptions.find(o => o.value === filtreStatut.value)
+    if (s) filtresActifs.push(`Statut : ${s.label}`)
+  }
+  if (search.value.trim()) filtresActifs.push(`Recherche : « ${search.value.trim()} »`)
+
+  // Agrégats globaux
+  let totalCases = 0, totalRecus = 0, complets = 0
+  for (const e of liste) {
+    const applicables = cols.filter(t => isApplicable(t, e))
+    totalCases += applicables.length
+    const recus = applicables.filter(t => !!e.checklist[t.code]).length
+    totalRecus += recus
+    if (applicables.length > 0 && recus === applicables.length) complets++
+  }
+  const manquants = totalCases - totalRecus
+  const tauxGlobal = totalCases > 0 ? Math.round((totalRecus / totalCases) * 100) : 0
+
+  const headerCols = cols.map(t => `
+    <th class="doc-th" title="${escapeHtml(t.label)}">
+      <div class="doc-th-label">${escapeHtml(t.label)}</div>
+      ${t.type_formation_nom ? `<div class="doc-th-sub">${escapeHtml(t.type_formation_nom)}</div>` : ''}
+    </th>`).join('')
+
+  const rows = liste.map(e => {
+    const applicables = cols.filter(t => isApplicable(t, e))
+    const recus = applicables.filter(t => !!e.checklist[t.code]).length
+    const total = applicables.length
+    const pct = total > 0 ? recus / total : 0
+    const scoreCls = total === 0 ? 'grey'
+      : pct === 1 ? 'green'
+      : pct >= 0.5 ? 'orange'
+      : pct > 0 ? 'yellow' : 'red'
+    const rowComplet = total > 0 && recus === total ? 'row-complet' : ''
+    const cells = cols.map(t => {
+      if (!isApplicable(t, e)) return '<td class="doc-cell doc-cell-na">—</td>'
+      return e.checklist[t.code]
+        ? '<td class="doc-cell doc-cell-ok">✓</td>'
+        : '<td class="doc-cell doc-cell-ko">✗</td>'
+    }).join('')
+    return `
+      <tr class="${rowComplet}">
+        <td class="doc-num">${escapeHtml(e.numero_etudiant ?? '—')}</td>
+        <td class="doc-name">${escapeHtml(`${e.prenom} ${e.nom}`)}</td>
+        <td class="doc-fil">${e.filiere_code ? `<span class="fil-badge">${escapeHtml(e.filiere_code)}</span>` : '<span class="fil-none">—</span>'}</td>
+        ${cells}
+        <td class="doc-score"><span class="score score-${scoreCls}">${recus}/${total}</span></td>
+      </tr>`
+  }).join('')
+
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+  <title>État des dossiers étudiants — ${emitDate}</title>
+  <style>
+    ${uptechPrintCSS()}
+    @page{size:A4 landscape;margin:8mm}
+    .abs-sub{display:flex;justify-content:space-between;align-items:center;padding:4px 16px;background:#fafafa;border-bottom:1px solid #eee;font-size:9px;color:#666}
+    .abs-sub .left{font-weight:600;color:#E30613;text-transform:uppercase;letter-spacing:1px}
+    .de-title{text-align:center;padding:6px 16px 4px;font-size:13px;font-weight:900;letter-spacing:1px;color:#111;text-transform:uppercase}
+    .de-filters{padding:2px 16px 6px;display:flex;flex-wrap:wrap;gap:8px;font-size:9px;color:#444}
+    .de-filters .chip{background:#f3f4f6;border:1px solid #e5e7eb;padding:2px 8px;border-radius:999px;font-weight:600}
+    .de-filters .chip strong{color:#111}
+    .de-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:0 16px 8px}
+    .kpi{background:#f8fafc;border:1px solid #e5e7eb;border-radius:4px;padding:6px 8px;text-align:center}
+    .kpi .k-lbl{font-size:7px;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;margin-bottom:2px}
+    .kpi .k-val{font-size:12px;font-weight:800;color:#111}
+    .kpi.ok{background:#ecfdf5;border-color:#bbf7d0}
+    .kpi.ok .k-val{color:#047857}
+    .kpi.ko{background:#fef2f2;border-color:#fecaca}
+    .kpi.ko .k-val{color:#b91c1c}
+    .kpi.ratio{background:#eff6ff;border-color:#bfdbfe}
+    .kpi.ratio .k-val{color:#1d4ed8}
+    .de-table{width:calc(100% - 32px);margin:4px 16px 8px;border-collapse:collapse;font-size:9px;table-layout:fixed}
+    .de-table thead{display:table-header-group}
+    .de-table thead th{background:#E30613;color:#fff;font-weight:700;padding:5px 4px;font-size:8px;border:1px solid #b40510;vertical-align:bottom}
+    .de-table thead th.doc-th{text-align:center;writing-mode:initial;max-width:70px;overflow:hidden}
+    .doc-th-label{font-size:8px;line-height:1.2;white-space:normal;word-break:break-word}
+    .doc-th-sub{font-size:6.5px;color:#fecaca;font-weight:500;margin-top:2px}
+    .de-table tbody td{padding:4px 5px;border:1px solid #e5e7eb;vertical-align:middle}
+    .de-table tbody tr.row-complet td{background:#f0fdf4}
+    .de-table tbody tr:nth-child(even):not(.row-complet) td{background:#fafafa}
+    .doc-num{font-family:monospace;font-size:8px;color:#555;width:60px}
+    .doc-name{font-weight:700;color:#111;width:140px}
+    .doc-fil{width:52px;text-align:center}
+    .fil-badge{display:inline-block;padding:1px 6px;border-radius:10px;background:#dbeafe;color:#1e40af;font-size:8px;font-weight:700}
+    .fil-none{color:#cbd5e1}
+    .doc-cell{text-align:center;font-weight:900;font-size:12px;width:30px}
+    .doc-cell-ok{color:#16a34a;background:#f0fdf4 !important}
+    .doc-cell-ko{color:#dc2626;background:#fef2f2 !important}
+    .doc-cell-na{color:#cbd5e1;background:#fafafa !important}
+    .doc-score{width:48px;text-align:center;border-left:2px solid #e5e7eb !important}
+    .score{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:800}
+    .score-green{background:#dcfce7;color:#166534}
+    .score-orange{background:#ffedd5;color:#9a3412}
+    .score-yellow{background:#fef9c3;color:#854d0e}
+    .score-red{background:#fee2e2;color:#991b1b}
+    .score-grey{background:#f3f4f6;color:#6b7280}
+    .de-legend{padding:6px 16px 2px;font-size:8px;color:#6b7280;display:flex;gap:12px;flex-wrap:wrap}
+    .de-legend span{display:inline-flex;align-items:center;gap:4px}
+    .de-legend i{font-style:normal;font-weight:900}
+  </style></head>
+  <body>
+    ${uptechHeaderHTML()}
+    <div class="abs-sub">
+      <span class="left">Secrétariat — État des dossiers étudiants</span>
+      <span>Émis le ${emitDate}</span>
+    </div>
+    <div class="de-title">État des dossiers étudiants</div>
+    ${filtresActifs.length ? `<div class="de-filters">${filtresActifs.map(f => `<span class="chip">${escapeHtml(f)}</span>`).join('')}</div>` : ''}
+    <div class="de-kpis">
+      <div class="kpi"><div class="k-lbl">Étudiants</div><div class="k-val">${liste.length}</div></div>
+      <div class="kpi ok"><div class="k-lbl">Dossiers complets</div><div class="k-val">${complets}</div></div>
+      <div class="kpi ok"><div class="k-lbl">Documents reçus</div><div class="k-val">${totalRecus}</div></div>
+      <div class="kpi ko"><div class="k-lbl">Documents manquants</div><div class="k-val">${manquants}</div></div>
+      <div class="kpi ratio"><div class="k-lbl">Taux global</div><div class="k-val">${tauxGlobal}%</div></div>
+    </div>
+    <table class="de-table">
+      <thead><tr>
+        <th style="width:60px">N° Étud.</th>
+        <th style="width:140px">Étudiant</th>
+        <th style="width:52px">Filière</th>
+        ${headerCols}
+        <th style="width:48px;border-left:2px solid #fff">Score</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="de-legend">
+      <span><i style="color:#16a34a">✓</i> Document reçu</span>
+      <span><i style="color:#dc2626">✗</i> Document manquant</span>
+      <span><i style="color:#cbd5e1">—</i> Non applicable à la filière</span>
+    </div>
+    ${uptechFooterHTML(`${liste.length} dossier${liste.length > 1 ? 's' : ''} · ${tauxGlobal}% complété`)}
+  </body></html>`
+
+  openPrintWindow(html)
+}
+
 onMounted(load)
 </script>
 
@@ -300,6 +464,14 @@ onMounted(load)
       </div>
       <button type="button" class="dos-reset-btn" @click="resetFiltres" title="Réinitialiser tous les filtres">
         Réinitialiser
+      </button>
+      <button type="button" class="dos-export-btn" @click="exportEtatDossiers"
+        :disabled="!etudiantsFiltres.length || !visibleTypes.length"
+        title="Exporter l'état des dossiers au format PDF (respecte les filtres)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        Exporter PDF
       </button>
       <span class="dos-count">{{ etudiantsFiltres.length }} étudiant{{ etudiantsFiltres.length > 1 ? 's' : '' }}</span>
     </div>
@@ -506,6 +678,15 @@ onMounted(load)
   white-space: nowrap;
 }
 .dos-reset-btn:hover { background: #f9fafb; border-color: #d1d5db; color: #111; }
+.dos-export-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border: 1px solid #E30613; border-radius: 8px;
+  font-size: 12px; font-weight: 600; background: #E30613; color: #fff;
+  cursor: pointer; white-space: nowrap; transition: all 0.15s;
+}
+.dos-export-btn svg { width: 14px; height: 14px; }
+.dos-export-btn:hover:not(:disabled) { background: #b10510; border-color: #b10510; }
+.dos-export-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Menu types de documents (sélection colonnes) ─────────────────── */
 .dos-types-menu-wrap { position: relative; }
