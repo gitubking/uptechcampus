@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import api from '@/services/api'
-import { useToast } from '@/composables/useToast'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
-
-const toast = useToast()
+import { openPrintWindow, uptechHeaderHTML, uptechFooterHTML, uptechPrintCSS } from '@/utils/uptechPrint'
 
 // ── State ──
 const loading = ref(true)
@@ -123,36 +121,54 @@ const classesUniques = computed(() => {
     .sort((a, b) => (a.nom ?? '').localeCompare(b.nom ?? ''))
 })
 
-// ── Export PDF ──
-async function exportPDF(parEns = false) {
+// Sécurise les chaînes utilisateur injectées dans le HTML imprimable.
+function escapeHtml(s: string): string {
+  return (s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string))
+}
+
+// ── Export impression HTML/print ──
+// Utilise l'en-tête institutionnel UPTECH partagé pour uniformiser avec
+// les reçus, autorisations d'absence et cahier de textes.
+function exportPDF(parEns = false) {
   const data = seancesFiltrees.value
   if (!data.length) { toast.warning('Aucune séance à exporter.'); return }
-
-  const { jsPDF } = await import('jspdf')
-  const { default: autoTable } = await import('jspdf-autotable')
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
-  const PW = doc.internal.pageSize.getWidth()
-  const NAVY: [number,number,number] = [15, 40, 90]
-  const RED:  [number,number,number] = [227, 6, 19]
-
   const totalH = data.reduce((s, r) => s + Number(r.heures || 0), 0)
+  const emitDate = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
 
-  const addHeader = (title: string) => {
-    // Bandeau haut
-    doc.setFillColor(...RED)
-    doc.rect(0, 0, PW, 18, 'F')
-    doc.setTextColor(255, 255, 255)
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
-    doc.text("UP'TECH — Suivi des Émargements", 14, 7)
-    doc.setFontSize(9); doc.setFont('helvetica', 'normal')
-    doc.text(title, 14, 13)
-    doc.setFontSize(8)
-    doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')}`, PW - 14, 13, { align: 'right' })
-    doc.setTextColor(0, 0, 0)
-  }
+  const renderRows = (rows: SeanceRow[]) => rows.map(s => `
+    <tr>
+      <td>${formatDate(s.date_debut)}</td>
+      <td style="white-space:nowrap">${formatHeure(s.date_debut)} – ${formatHeure(s.date_fin)}</td>
+      <td>${escapeHtml(s.classe?.nom ?? '—')}</td>
+      <td>${escapeHtml(s.matiere)}</td>
+      ${parEns ? '' : `<td>${escapeHtml(s.enseignant ? `${s.enseignant.prenom} ${s.enseignant.nom}` : '—')}</td>`}
+      <td style="text-align:center;font-weight:700">${Number(s.heures).toFixed(1)}h</td>
+      <td style="text-align:center">${s.nb_presents}/${s.nb_total}</td>
+      <td>${escapeHtml(s.mode ?? '—')}</td>
+    </tr>`).join('')
 
+  const renderTable = (rows: SeanceRow[], footTotal: number) => `
+    <table class="em-table">
+      <thead><tr>
+        <th style="width:68px">Date</th>
+        <th style="width:78px">Horaire</th>
+        <th style="width:80px">Classe</th>
+        <th>Matière</th>
+        ${parEns ? '' : '<th style="width:140px">Enseignant</th>'}
+        <th style="width:50px">Durée</th>
+        <th style="width:58px">Présences</th>
+        <th style="width:70px">Mode</th>
+      </tr></thead>
+      <tbody>${renderRows(rows)}</tbody>
+      <tfoot><tr>
+        <td colspan="${parEns ? 4 : 5}" style="text-align:right;font-weight:700">TOTAL</td>
+        <td style="text-align:center;font-weight:900;color:#E30613">${footTotal.toFixed(1)}h</td>
+        <td colspan="2"></td>
+      </tr></tfoot>
+    </table>`
+
+  let body = ''
   if (parEns) {
-    // Un tableau par enseignant
     const grouped = new Map<string, SeanceRow[]>()
     for (const s of data) {
       const key = s.enseignant ? `${s.enseignant.prenom} ${s.enseignant.nom}` : '—'
@@ -161,56 +177,58 @@ async function exportPDF(parEns = false) {
     }
     let first = true
     for (const [ensNom, rows] of grouped) {
-      if (!first) doc.addPage()
-      first = false
       const hEns = rows.reduce((s, r) => s + Number(r.heures || 0), 0)
-      addHeader(`${moisLabel.value}  —  ${ensNom}  (${rows.length} séance${rows.length > 1 ? 's' : ''} · ${hEns.toFixed(1)}h)`)
-      autoTable(doc, {
-        startY: 22,
-        head: [['Date', 'Horaire', 'Classe', 'Matière', 'Durée', 'Présences', 'Mode']],
-        body: rows.map(s => [
-          formatDate(s.date_debut),
-          `${formatHeure(s.date_debut)} – ${formatHeure(s.date_fin)}`,
-          s.classe?.nom ?? '—',
-          s.matiere,
-          `${Number(s.heures).toFixed(1)}h`,
-          `${s.nb_presents}/${s.nb_total}`,
-          s.mode ?? '—',
-        ]),
-        foot: [['', '', '', 'TOTAL', `${hEns.toFixed(1)}h`, '', '']],
-        styles: { fontSize: 9, cellPadding: 3 },
-        headStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold' },
-        footStyles: { fillColor: [240, 240, 240], fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
-        columnStyles: { 4: { halign: 'center' }, 5: { halign: 'center' } },
-      })
+      body += `
+        <div class="em-group ${first ? '' : 'em-pb'}">
+          <div class="em-group-title">
+            <span>${escapeHtml(ensNom)}</span>
+            <span class="em-group-meta">${rows.length} séance${rows.length > 1 ? 's' : ''} · ${hEns.toFixed(1)}h</span>
+          </div>
+          ${renderTable(rows, hEns)}
+        </div>`
+      first = false
     }
   } else {
-    // Un seul tableau global
-    addHeader(`${moisLabel.value}  —  ${data.length} séances · ${totalH.toFixed(1)}h au total`)
-    autoTable(doc, {
-      startY: 22,
-      head: [['Date', 'Horaire', 'Classe', 'Matière', 'Enseignant', 'Durée', 'Présences', 'Mode']],
-      body: data.map(s => [
-        formatDate(s.date_debut),
-        `${formatHeure(s.date_debut)} – ${formatHeure(s.date_fin)}`,
-        s.classe?.nom ?? '—',
-        s.matiere,
-        s.enseignant ? `${s.enseignant.prenom} ${s.enseignant.nom}` : '—',
-        `${Number(s.heures).toFixed(1)}h`,
-        `${s.nb_presents}/${s.nb_total}`,
-        s.mode ?? '—',
-      ]),
-      foot: [['', '', '', '', 'TOTAL', `${totalH.toFixed(1)}h`, '', '']],
-      styles: { fontSize: 9, cellPadding: 3 },
-      headStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold' },
-      footStyles: { fillColor: [240, 240, 240], fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
-      columnStyles: { 5: { halign: 'center' }, 6: { halign: 'center' } },
-    })
+    body = renderTable(data, totalH)
   }
 
-  doc.save(`emargements-${moisSelected.value}${parEns ? '-par-enseignant' : ''}.pdf`)
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+  <title>Suivi des émargements — ${escapeHtml(moisLabel.value)}</title>
+  <style>
+    ${uptechPrintCSS()}
+    @page{size:A4 landscape;margin:8mm}
+    .abs-sub{display:flex;justify-content:space-between;align-items:center;padding:4px 16px;background:#fafafa;border-bottom:1px solid #eee;font-size:9px;color:#666}
+    .abs-sub .left{font-weight:600;color:#E30613;text-transform:uppercase;letter-spacing:1px}
+    .em-meta{padding:6px 16px 4px;display:flex;gap:12px;font-size:10px;color:#333;align-items:center}
+    .em-meta strong{color:#111}
+    .em-meta .em-total{margin-left:auto;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:2px 10px;border-radius:999px;font-weight:700;font-size:10px}
+    .em-table{width:calc(100% - 32px);margin:6px 16px 10px;border-collapse:collapse;font-size:9px}
+    .em-table thead th{background:#E30613;color:#fff;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:5px 4px;font-size:8px;border:1px solid #b40510;text-align:left}
+    .em-table tbody td{padding:4px 6px;border:1px solid #eee;vertical-align:top;line-height:1.4}
+    .em-table tbody tr:nth-child(even) td{background:#fafafa}
+    .em-table tbody tr{page-break-inside:avoid}
+    .em-table tfoot td{padding:6px;background:#f3f4f6;font-size:9px;border:1px solid #e5e7eb}
+    .em-group{margin-top:10px}
+    .em-group.em-pb{page-break-before:always}
+    .em-group-title{display:flex;align-items:baseline;justify-content:space-between;padding:6px 16px 2px;border-bottom:1px dashed #e5e7eb;font-size:11px;font-weight:700;color:#111}
+    .em-group-meta{font-size:9px;font-weight:600;color:#E30613}
+  </style></head>
+  <body>
+    ${uptechHeaderHTML()}
+    <div class="abs-sub">
+      <span class="left">Pédagogie — Suivi des émargements</span>
+      <span>Émis le ${emitDate}</span>
+    </div>
+    <div class="em-meta">
+      <span><strong>Période :</strong> ${escapeHtml(moisLabel.value)}</span>
+      <span><strong>Séances :</strong> ${data.length}</span>
+      <span class="em-total">Total : ${totalH.toFixed(1)}h</span>
+    </div>
+    ${body}
+    ${uptechFooterHTML('Document pédagogique — émargements')}
+  </body></html>`
+
+  openPrintWindow(html)
 }
 </script>
 
