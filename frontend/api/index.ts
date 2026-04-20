@@ -13851,6 +13851,7 @@ app.post('/user-notifications/:id/read', requireAuth, async (c) => {
 app.get('/mon-equipe', requireAuth, role('dg'), async (c) => {
   await ensureTachesReady()
   await ensureActivityLogsReady()
+  await ensureDemandesAbsenceReady()
   const monthStr = new Date().toISOString().slice(0, 7) // 'YYYY-MM'
   // Agrégation en une requête : users non-étudiants + joint tâches, vacations, seances, activity
   const { rows } = await pool.query(`
@@ -13888,6 +13889,15 @@ app.get('/mon-equipe', requireAuth, role('dg'), async (c) => {
         COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')::int AS a_30j,
         MAX(created_at) AS derniere_action_at
       FROM activity_logs WHERE user_id IS NOT NULL GROUP BY user_id
+    ),
+    -- Absence en cours aujourd'hui : au moins une demande approuvée dont la
+    -- période couvre la date du jour. On remonte aussi le type pour le badge.
+    absence_today AS (
+      SELECT DISTINCT ON (demandeur_id) demandeur_id, type_absence, date_fin
+      FROM demandes_absence
+      WHERE statut = 'approuvee'
+        AND CURRENT_DATE BETWEEN date_debut AND date_fin
+      ORDER BY demandeur_id, date_fin DESC
     )
     SELECT u.id, u.nom, u.prenom, u.role, u.email, u.statut, u.last_login_at,
       COALESCE(ts.t_a_faire, 0)       AS taches_a_faire,
@@ -13902,12 +13912,15 @@ app.get('/mon-equipe', requireAuth, role('dg'), async (c) => {
       COALESCE(ss.s_total_mois, 0)    AS seances_total_mois,
       COALESCE(acs.a_7j, 0)           AS activite_7j,
       COALESCE(acs.a_30j, 0)          AS activite_30j,
-      acs.derniere_action_at
+      acs.derniere_action_at,
+      at.type_absence                 AS absent_type,
+      at.date_fin                     AS absent_jusquau
     FROM users u
     LEFT JOIN task_stats ts    ON ts.user_id = u.id
     LEFT JOIN vac_stats vs     ON vs.user_id = u.id
     LEFT JOIN seance_stats ss  ON ss.user_id = u.id
     LEFT JOIN activity_stats acs ON acs.user_id = u.id
+    LEFT JOIN absence_today at ON at.demandeur_id = u.id
     WHERE u.role IN ('dg','dir_peda','resp_fin','coordinateur','secretariat')
     ORDER BY
       CASE u.statut WHEN 'actif' THEN 0 ELSE 1 END,

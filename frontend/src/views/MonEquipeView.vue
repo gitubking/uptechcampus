@@ -24,6 +24,8 @@ interface Membre {
   activite_7j: number
   activite_30j: number
   derniere_action_at: string | null
+  absent_type: string | null
+  absent_jusquau: string | null
 }
 
 type TypeAbsence = 'conge_annuel'|'maladie'|'exceptionnel'|'formation'|'mission'|'sans_solde'|'autre'
@@ -158,6 +160,7 @@ const totaux = computed(() => {
   const items = filtered.value
   return {
     agents: items.length,
+    absents_aujourd_hui: items.filter(m => !!m.absent_type).length,
     taches_en_cours: items.reduce((s, m) => s + m.taches_en_cours + m.taches_a_faire, 0),
     taches_en_retard: items.reduce((s, m) => s + m.taches_en_retard, 0),
     taches_termines_30j: items.reduce((s, m) => s + m.taches_termines_30j, 0),
@@ -165,6 +168,16 @@ const totaux = computed(() => {
     activite_7j: items.reduce((s, m) => s + m.activite_7j, 0),
   }
 })
+
+const ABSENCE_TYPE_SHORT: Record<string, string> = {
+  conge_annuel: 'Congé',
+  maladie: 'Maladie',
+  exceptionnel: 'Exceptionnel',
+  formation: 'Formation',
+  mission: 'Mission',
+  sans_solde: 'Sans solde',
+  autre: 'Absent',
+}
 
 function initials(m: Membre) {
   return `${(m.prenom?.[0] ?? '')}${(m.nom?.[0] ?? '')}`.toUpperCase()
@@ -466,6 +479,12 @@ onMounted(() => {
         <div class="text-2xl font-bold text-gray-900">{{ totaux.agents }}</div>
       </div>
       <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <div class="text-xs text-gray-500 font-medium mb-1">Absents aujourd'hui</div>
+        <div :class="['text-2xl font-bold', totaux.absents_aujourd_hui ? 'text-orange-600' : 'text-gray-900']">
+          {{ totaux.absents_aujourd_hui }}
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 p-4">
         <div class="text-xs text-gray-500 font-medium mb-1">Tâches en cours</div>
         <div class="text-2xl font-bold text-blue-600">{{ totaux.taches_en_cours }}</div>
       </div>
@@ -476,10 +495,6 @@ onMounted(() => {
       <div class="bg-white rounded-xl border border-gray-200 p-4">
         <div class="text-xs text-gray-500 font-medium mb-1">Terminées 30j</div>
         <div class="text-2xl font-bold text-green-600">{{ totaux.taches_termines_30j }}</div>
-      </div>
-      <div class="bg-white rounded-xl border border-gray-200 p-4">
-        <div class="text-xs text-gray-500 font-medium mb-1">Heures vacations (mois)</div>
-        <div class="text-2xl font-bold text-gray-900">{{ formatNumber(totaux.heures_mois, 1) }}h</div>
       </div>
       <div class="bg-white rounded-xl border border-gray-200 p-4">
         <div class="text-xs text-gray-500 font-medium mb-1">Actions 7j</div>
@@ -517,7 +532,22 @@ onMounted(() => {
     <!-- Grille agents -->
     <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       <div v-for="m in filtered" :key="m.id"
-        class="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition">
+        :class="['bg-white rounded-xl border p-5 hover:shadow-md transition',
+          m.absent_type ? 'border-orange-200 ring-1 ring-orange-100' : 'border-gray-200']">
+
+        <!-- Bandeau "Absent aujourd'hui" -->
+        <div v-if="m.absent_type"
+          class="mb-3 -mt-1 -mx-1 px-3 py-1.5 bg-orange-50 border border-orange-200 rounded-lg flex items-center gap-2">
+          <svg class="w-3.5 h-3.5 text-orange-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <span class="text-xs font-semibold text-orange-800">
+            Absent(e) aujourd'hui — {{ ABSENCE_TYPE_SHORT[m.absent_type] ?? 'Absence' }}
+          </span>
+          <span v-if="m.absent_jusquau" class="text-[10px] text-orange-600 ml-auto">
+            jusqu'au {{ formatDateFr(m.absent_jusquau) }}
+          </span>
+        </div>
 
         <!-- Header carte -->
         <div class="flex items-start justify-between gap-3 mb-4">
