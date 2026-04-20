@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { openPrintWindow, uptechHeaderHTML, uptechFooterHTML, uptechPrintCSS } from '@/utils/uptechPrint'
 
 type TypeAbsence = 'conge_annuel'|'maladie'|'exceptionnel'|'formation'|'mission'|'sans_solde'|'autre'
 type StatutAbsence = 'en_attente'|'approuvee'|'refusee'|'annulee'
@@ -223,97 +224,98 @@ function formatDateLong(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-// Export PDF — autorisation signée (A4, bloc signatures, référence unique).
-async function exportPDF(d: DemandeAbsence) {
-  const { default: jsPDF } = await import('jspdf')
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const red: [number, number, number] = [227, 6, 19]
-  const dark: [number, number, number] = [30, 30, 30]
-  const grey: [number, number, number] = [100, 100, 100]
-  const page = { w: 210, h: 297 }
-  const marge = 20
-  let y = marge
-
-  doc.setFillColor(...red); doc.rect(0, 0, page.w, 4, 'F')
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...dark)
-  doc.text('UPTECH CAMPUS', marge, y + 10)
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...grey)
-  doc.text('Ressources humaines — Gestion des absences', marge, y + 15)
-  doc.text(`Réf. : ABS-${String(d.id).padStart(6, '0')}`, page.w - marge, y + 10, { align: 'right' })
-  doc.text(`Émis le ${new Date().toLocaleDateString('fr-FR')}`, page.w - marge, y + 15, { align: 'right' })
-  y += 22
-
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(...red)
+// Export PDF — document officiel A4 imprimable. Utilise l'en-tête institutionnel
+// partagé (uptechPrint.ts) pour une uniformisation avec les reçus de paiement
+// et autres documents UPTECH.
+function exportPDF(d: DemandeAbsence) {
+  const ref = `ABS-${String(d.id).padStart(6, '0')}`
   const titre = d.statut === 'approuvee' ? "AUTORISATION D'ABSENCE"
              : d.statut === 'refusee' ? "REFUS DE DEMANDE D'ABSENCE"
              : d.statut === 'annulee' ? "DEMANDE D'ABSENCE (ANNULÉE)"
-             : "DEMANDE D'ABSENCE (EN ATTENTE)"
-  doc.text(titre, page.w / 2, y + 8, { align: 'center' })
-  y += 16
-  doc.setDrawColor(...red); doc.setLineWidth(0.5)
-  doc.line(marge, y, page.w - marge, y)
-  y += 8
+             : "DEMANDE D'ABSENCE"
+  const statutClass = d.statut === 'approuvee' ? 'approved'
+                    : d.statut === 'refusee' ? 'rejected'
+                    : d.statut === 'annulee' ? 'cancelled' : 'pending'
+  const statutLabel = STATUT_ABSENCE_CONF[d.statut].label
+  const demandeurFull = `${d.demandeur_prenom ?? ''} ${d.demandeur_nom ?? ''}`.trim() || '—'
+  const decideurFull = d.decideur_id ? `${d.decideur_prenom ?? ''} ${d.decideur_nom ?? ''}`.trim() : ''
+  const emitDate = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
 
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...dark)
-  doc.text('AGENT CONCERNÉ', marge, y); y += 6
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
-  const ligne = (label: string, valeur: string) => {
-    doc.setTextColor(...grey); doc.text(label, marge, y)
-    doc.setTextColor(...dark); doc.text(valeur, marge + 55, y)
-    y += 6
-  }
-  ligne('Nom et prénom :', `${d.demandeur_prenom ?? ''} ${d.demandeur_nom ?? ''}`.trim() || '—')
-  ligne('Fonction / rôle :', d.demandeur_role ?? '—')
-  ligne('Email :', d.demandeur_email ?? '—')
-  y += 4
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+  <title>${titre} — ${ref}</title>
+  <style>
+    ${uptechPrintCSS()}
+    .abs-sub{display:flex;justify-content:space-between;align-items:center;padding:4px 16px;background:#fafafa;border-bottom:1px solid #eee;font-size:9px;color:#666}
+    .abs-sub .left{font-weight:600;color:#E30613;text-transform:uppercase;letter-spacing:1px}
+  </style></head>
+  <body>
+    ${uptechHeaderHTML()}
+    <div class="abs-sub">
+      <span class="left">Ressources humaines — Gestion des absences</span>
+      <span>Émis le ${emitDate} · Réf. ${ref}</span>
+    </div>
+    <div class="doc-content">
+      <div class="doc-title">${titre}</div>
+      <div class="doc-subtitle">Document officiel — archivage dossier RH</div>
 
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...dark)
-  doc.text('ABSENCE DEMANDÉE', marge, y); y += 6
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
-  ligne("Type d'absence :", TYPE_ABSENCE_LABEL[d.type_absence])
-  ligne('Date de début :', formatDateLong(d.date_debut))
-  ligne('Date de fin :', formatDateLong(d.date_fin))
-  ligne('Durée :', `${d.nb_jours_ouvrables} jour(s) ouvrable(s)`)
-  if (d.motif) {
-    doc.setTextColor(...grey); doc.text('Motif :', marge, y)
-    doc.setTextColor(...dark)
-    const lignes = doc.splitTextToSize(d.motif, page.w - marge * 2 - 55)
-    doc.text(lignes, marge + 55, y); y += 6 * lignes.length
-  }
-  y += 4
+      <!-- AGENT -->
+      <div class="doc-section-title">Agent concerné</div>
+      <div class="info-grid">
+        <div class="info-box full"><label>Nom et prénom</label><span>${demandeurFull}</span></div>
+        <div class="info-box"><label>Fonction / rôle</label><span>${d.demandeur_role ?? '—'}</span></div>
+        <div class="info-box"><label>Email</label><span style="font-size:10px">${d.demandeur_email ?? '—'}</span></div>
+      </div>
 
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...dark)
-  doc.text('DÉCISION', marge, y); y += 6
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
-  ligne('Statut :', STATUT_ABSENCE_CONF[d.statut].label.toUpperCase())
-  if (d.decideur_id && d.decision_at) {
-    ligne('Décidée par :', `${d.decideur_prenom ?? ''} ${d.decideur_nom ?? ''}`.trim() || '—')
-    ligne('Date de décision :', formatDateLong(d.decision_at))
-    if (d.decision_commentaire) {
-      doc.setTextColor(...grey); doc.text('Commentaire :', marge, y)
-      doc.setTextColor(...dark)
-      const lignes = doc.splitTextToSize(d.decision_commentaire, page.w - marge * 2 - 55)
-      doc.text(lignes, marge + 55, y); y += 6 * lignes.length
-    }
-  }
-  y += 8
+      <!-- ABSENCE -->
+      <div class="doc-section-title">Absence demandée</div>
+      <div class="info-grid">
+        <div class="info-box full"><label>Type d'absence</label><span>${TYPE_ABSENCE_LABEL[d.type_absence]}</span></div>
+        <div class="info-box"><label>Date de début</label><span>${formatDateLong(d.date_debut)}</span></div>
+        <div class="info-box"><label>Date de fin</label><span>${formatDateLong(d.date_fin)}</span></div>
+        <div class="info-box full"><label>Durée</label><span>${d.nb_jours_ouvrables} jour(s) ouvrable(s)</span></div>
+      </div>
+      ${d.motif ? `
+        <div style="font-size:7px;text-transform:uppercase;color:#aaa;font-weight:700;letter-spacing:0.5px;margin-top:6px;margin-bottom:3px">Motif fourni par l'agent</div>
+        <div class="motif-box">${escapeHtml(d.motif)}</div>
+      ` : ''}
 
-  doc.setDrawColor(...grey); doc.setLineWidth(0.2)
-  const sigY = Math.max(y, page.h - 65)
-  const colW = (page.w - marge * 2 - 10) / 2
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...dark)
-  doc.text("Signature de l'agent", marge, sigY)
-  doc.text("Signature et cachet de la Direction", marge + colW + 10, sigY)
-  doc.rect(marge, sigY + 3, colW, 30)
-  doc.rect(marge + colW + 10, sigY + 3, colW, 30)
+      <!-- DÉCISION -->
+      <div class="doc-section-title">Décision</div>
+      <div class="decision-box ${statutClass}">
+        <div class="dec-lbl">Statut</div>
+        <div class="dec-val">${statutLabel.toUpperCase()}</div>
+        ${d.decideur_id && d.decision_at ? `
+          <div class="dec-note">
+            <strong>Décidée par :</strong> ${decideurFull || '—'}<br>
+            <strong>Date de décision :</strong> ${formatDateLong(d.decision_at)}
+            ${d.decision_commentaire ? `<br><strong>Commentaire :</strong> ${escapeHtml(d.decision_commentaire)}` : ''}
+          </div>
+        ` : `<div class="dec-note" style="font-style:italic">En attente de la décision de la Direction générale.</div>`}
+      </div>
 
-  doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(...grey)
-  doc.text(
-    `Document généré automatiquement par UPTECH Campus — toute décision est tracée dans les journaux d'audit (réf. dossier ABS-${String(d.id).padStart(6, '0')}).`,
-    page.w / 2, page.h - 10, { align: 'center', maxWidth: page.w - marge * 2 }
-  )
-  const nomFichier = `absence_${(d.demandeur_nom ?? 'agent').toLowerCase().replace(/\s+/g, '_')}_${d.date_debut}.pdf`
-  doc.save(nomFichier)
+      <!-- SIGNATURES -->
+      <div class="sign-area">
+        <div class="sign-box">
+          <div class="sign-title">Signature de l'agent</div>
+          <div class="sign-line"></div>
+          <div class="sign-hint">Date &amp; nom lisible</div>
+        </div>
+        <div class="sign-box">
+          <div class="sign-title">Signature et cachet de la Direction</div>
+          <div class="sign-line"></div>
+          <div class="sign-hint">${decideurFull ? decideurFull : '—'}</div>
+        </div>
+      </div>
+    </div>
+    ${uptechFooterHTML(`Document ${ref} · toute décision est tracée dans les journaux d'audit`)}
+  </body></html>`
+
+  openPrintWindow(html)
+}
+
+// Sécurise les chaînes utilisateur injectées dans le HTML imprimable.
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string))
 }
 
 watch([sousTab, filtreStatut], () => load())
