@@ -4161,12 +4161,13 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
   )
   // Inscription "principale" (la plus complète) pour l'affichage de la ligne :
   // filière affichée, classe affichée, statut, type de formation courant.
+  // Cast ::int pour cohérence avec le frontend (voir note plus bas).
   const { rows: etudiants } = await pool.query(`
-    SELECT e.id, e.nom, e.prenom, e.numero_etudiant,
-           f.id AS filiere_id, f.nom AS filiere_nom, f.code AS filiere_code,
-           f.type_formation_id,
+    SELECT e.id::int AS id, e.nom, e.prenom, e.numero_etudiant,
+           f.id::int AS filiere_id, f.nom AS filiere_nom, f.code AS filiere_code,
+           f.type_formation_id::int AS type_formation_id,
            tf.nom AS type_formation_nom,
-           cl.id AS classe_id, cl.nom AS classe_nom,
+           cl.id::int AS classe_id, cl.nom AS classe_nom,
            i.statut AS inscription_statut
     FROM etudiants e
     LEFT JOIN inscriptions i ON i.id = (
@@ -4187,8 +4188,14 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
   // type de formation s'il a AU MOINS une inscription dans cette catégorie.
   // Les filtres et les compteurs utilisent cette logique pour que les deux
   // soient toujours cohérents entre eux.
+  // NB : on cast explicitement en INT car certaines colonnes sont BIGINT côté
+  // PG, ce que node-postgres sérialise en string → les filtres côté UI font
+  // des comparaisons numériques strictes qui échouent sinon silencieusement.
   const { rows: attachments } = await pool.query(`
-    SELECT i.etudiant_id, i.classe_id, i.filiere_id, f.type_formation_id
+    SELECT i.etudiant_id::int AS etudiant_id,
+           i.classe_id::int AS classe_id,
+           i.filiere_id::int AS filiere_id,
+           f.type_formation_id::int AS type_formation_id
     FROM inscriptions i
     LEFT JOIN filieres f ON f.id = i.filiere_id
   `)
@@ -4236,9 +4243,9 @@ app.get('/dossiers-etudiants', requireAuth, async (c) => {
   // la même logique "au moins une inscription" que le filtre → jamais de
   // dropdown affichant "N" alors que le filtre retourne 0.
   const [typesFormationRows, filieresRows, classesRows] = await Promise.all([
-    pool.query(`SELECT id, nom FROM types_formation ORDER BY nom`),
-    pool.query(`SELECT id, nom, code, type_formation_id FROM filieres ORDER BY nom`),
-    pool.query(`SELECT id, nom, filiere_id FROM classes ORDER BY nom`),
+    pool.query(`SELECT id::int AS id, nom FROM types_formation ORDER BY nom`),
+    pool.query(`SELECT id::int AS id, nom, code, type_formation_id::int AS type_formation_id FROM filieres ORDER BY nom`),
+    pool.query(`SELECT id::int AS id, nom, filiere_id::int AS filiere_id FROM classes ORDER BY nom`),
   ])
   const countByAttachment = (byEtu: Map<number, Set<number>>) => {
     const counts = new Map<number, number>()
