@@ -179,6 +179,41 @@ async function saveDecision() {
   }
 }
 
+// Purge complète — réservée au DG pour nettoyer les données de test après
+// la mise en production. Double confirmation pour éviter toute erreur.
+async function deleteDemande(d: DemandeAbsence) {
+  const label = `${d.demandeur_prenom ?? ''} ${d.demandeur_nom ?? ''} — ${TYPE_ABSENCE_LABEL[d.type_absence]} du ${formatDateFr(d.date_debut)}`
+  if (!confirm(`Supprimer définitivement cette demande ?\n\n${label}\n\nCette action est irréversible.`)) return
+  try {
+    await api.delete(`/demandes-absence/${d.id}`)
+    await load()
+  } catch (e: any) {
+    alert(e.response?.data?.message ?? 'Erreur')
+  }
+}
+
+async function resetToutesLesDemandes() {
+  const premier = confirm(
+    "⚠️  Supprimer TOUTES les demandes d'absence (tous agents, tous statuts) ?\n\n" +
+    "Cette action est IRRÉVERSIBLE. Utilisez-la uniquement pour nettoyer les données de test."
+  )
+  if (!premier) return
+  const deuxieme = prompt(
+    "Pour confirmer, tapez exactement : EFFACER",
+  )
+  if (deuxieme !== 'EFFACER') {
+    alert("Opération annulée (confirmation incorrecte).")
+    return
+  }
+  try {
+    const { data } = await api.delete('/demandes-absence/reset?confirm=OUI')
+    alert(`${data.supprimees ?? 0} demande(s) supprimée(s).`)
+    await load()
+  } catch (e: any) {
+    alert(e.response?.data?.message ?? 'Erreur')
+  }
+}
+
 function formatDateFr(iso: string): string {
   if (!iso) return ''
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -333,6 +368,12 @@ onMounted(load)
         <option value="refusee">Refusée</option>
         <option value="annulee">Annulée</option>
       </select>
+      <button v-if="isDecideur && sousTab === 'a_valider' && demandes.length > 0"
+        @click="resetToutesLesDemandes"
+        :class="[sousTab === 'a_valider' ? '' : 'ml-auto', 'px-3 py-1.5 bg-white border border-red-200 text-red-600 text-xs font-medium rounded-lg hover:bg-red-50 transition']"
+        title="Effacer toutes les demandes (données de test)">
+        Effacer les données de test
+      </button>
     </div>
 
     <!-- Erreur -->
@@ -410,6 +451,13 @@ onMounted(load)
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
             </svg>
             PDF
+          </button>
+          <button v-if="isDecideur" @click="deleteDemande(d)"
+            title="Supprimer cette demande (DG uniquement)"
+            class="inline-flex items-center justify-center p-1.5 bg-white border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 text-xs rounded-lg transition">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/>
+            </svg>
           </button>
         </div>
       </div>

@@ -12831,6 +12831,30 @@ app.put('/demandes-absence/:id/annuler', requireAuth, role(...ABSENCE_ROLES), as
   return c.json(rows[0])
 })
 
+// DELETE /demandes-absence/reset — purge TOUTES les demandes (DG uniquement).
+// Usage : nettoyage des données de test après mise en production du module.
+// Le ?confirm=OUI est exigé pour éviter toute purge accidentelle via cURL
+// ou un script mal réglé.
+app.delete('/demandes-absence/reset', requireAuth, role(...ABSENCE_DECIDEUR_ROLES), async (c) => {
+  await ensureDemandesAbsenceReady()
+  if (c.req.query('confirm') !== 'OUI') {
+    return c.json({ message: 'Confirmation requise : ajoutez ?confirm=OUI.' }, 400)
+  }
+  const { rowCount } = await pool.query('DELETE FROM demandes_absence')
+  return c.json({ supprimees: rowCount ?? 0 })
+})
+
+// DELETE /demandes-absence/:id — suppression individuelle (DG uniquement).
+// Utilisé pour nettoyer une demande erronée ou des données de test précises.
+// Trace conservée dans activity_logs (middleware automatique).
+app.delete('/demandes-absence/:id', requireAuth, role(...ABSENCE_DECIDEUR_ROLES), async (c) => {
+  await ensureDemandesAbsenceReady()
+  const id = c.req.param('id')
+  const { rowCount } = await pool.query('DELETE FROM demandes_absence WHERE id=$1', [id])
+  if (!rowCount) return c.json({ message: 'Demande introuvable.' }, 404)
+  return c.body(null, 204)
+})
+
 // ─── Vercel handler ───────────────────────────────────────────────────────────
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   try {
