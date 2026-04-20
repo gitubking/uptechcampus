@@ -287,132 +287,169 @@ onMounted(loadAll)
 </script>
 
 <template>
-  <div class="p-6 max-w-7xl mx-auto">
-    <!-- Header -->
-    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+  <div class="mx-auto max-w-7xl px-6 py-8">
+    <!-- Header ───────────────────────────────────────────────────── -->
+    <header class="mb-6 flex items-end justify-between gap-4 flex-wrap">
       <div>
-        <h1 class="text-xl font-bold text-gray-900">Tâches & productivité</h1>
-        <p class="text-sm text-gray-500 mt-0.5">
-          Suivi du travail de l'équipe administrative
-        </p>
+        <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-red-600">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+          Productivité équipe
+        </div>
+        <h1 class="mt-1 text-2xl font-bold tracking-tight text-gray-900">Tâches &amp; productivité</h1>
+        <p class="mt-1 text-sm text-gray-500">Suivi du travail de l'équipe administrative</p>
       </div>
       <button v-if="isManager" @click="openCreate"
-        class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
+        class="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 hover:shadow">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         Nouvelle tâche
       </button>
-    </div>
+    </header>
 
-    <!-- Tabs -->
-    <div class="flex gap-1 border-b border-gray-200 mb-5">
-      <button @click="tab = 'kanban'" :class="['px-4 py-2 text-sm font-medium border-b-2 -mb-px transition',
-        tab === 'kanban' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700']">
+    <!-- Tabs ────────────────────────────────────────────────────── -->
+    <div class="mb-5 inline-flex rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+      <button @click="tab = 'kanban'"
+        :class="['inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition',
+          tab === 'kanban' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50']">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
         Kanban
       </button>
-      <button @click="tab = 'liste'" :class="['px-4 py-2 text-sm font-medium border-b-2 -mb-px transition',
-        tab === 'liste' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700']">
+      <button @click="tab = 'liste'"
+        :class="['inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition',
+          tab === 'liste' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50']">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
         Liste
       </button>
-      <button v-if="isManager" @click="tab = 'productivite'" :class="['px-4 py-2 text-sm font-medium border-b-2 -mb-px transition',
-        tab === 'productivite' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700']">
-        Productivité de l'équipe
+      <button v-if="isManager" @click="tab = 'productivite'"
+        :class="['inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition',
+          tab === 'productivite' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50']">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        Productivité
       </button>
     </div>
 
-    <!-- Filtres -->
-    <div v-if="tab !== 'productivite'" class="flex flex-wrap gap-2 mb-4">
-      <input v-model="searchQ" placeholder="Rechercher..." class="px-3 py-2 border border-gray-300 rounded-lg text-sm w-56" />
-      <select v-if="isManager" v-model="filterAssignee" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+    <!-- Filtres ─────────────────────────────────────────────────── -->
+    <div v-if="tab !== 'productivite'" class="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-2 shadow-sm">
+      <div class="relative flex-1 min-w-[220px]">
+        <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/></svg>
+        <input v-model="searchQ" placeholder="Rechercher une tâche…"
+          class="w-full rounded-lg border-0 bg-transparent px-3 py-2 pl-9 text-sm outline-none focus:ring-2 focus:ring-red-500" />
+      </div>
+      <select v-if="isManager" v-model="filterAssignee"
+        class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
         <option value="">Tous les agents</option>
         <option v-for="u in users" :key="u.id" :value="String(u.id)">
           {{ u.prenom }} {{ u.nom }} ({{ ROLE_LABEL[u.role] || u.role }})
         </option>
       </select>
-      <select v-model="filterPriorite" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+      <select v-model="filterPriorite"
+        class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
         <option value="">Toutes priorités</option>
         <option value="urgente">Urgente</option>
         <option value="haute">Haute</option>
         <option value="normale">Normale</option>
         <option value="basse">Basse</option>
       </select>
+      <span class="ml-auto px-2 text-xs text-gray-500">
+        {{ filteredTaches.length }} tâche{{ filteredTaches.length > 1 ? 's' : '' }}
+      </span>
     </div>
 
-    <div v-if="loading" class="p-12 text-center text-gray-400 text-sm">Chargement…</div>
+    <div v-if="loading" class="rounded-2xl border border-gray-200 bg-white p-16 text-center">
+      <div class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-red-200 border-t-red-600"></div>
+      <p class="mt-3 text-sm text-gray-500">Chargement des tâches…</p>
+    </div>
 
-    <!-- Vue KANBAN -->
-    <div v-else-if="tab === 'kanban'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <!-- Vue KANBAN ──────────────────────────────────────────────── -->
+    <div v-else-if="tab === 'kanban'" class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
       <div v-for="col in kanbanColumns" :key="col.key"
-        class="bg-gray-50 rounded-xl p-3 min-h-[400px]"
+        class="flex flex-col rounded-2xl border border-gray-200 bg-gray-50/70 p-3 min-h-[500px]"
         @dragover.prevent
         @drop.prevent="onDrop(col.key)">
-        <div class="flex items-center justify-between mb-3 px-1">
-          <h3 class="text-sm font-semibold text-gray-700">{{ col.label }}</h3>
-          <span class="text-xs font-medium text-gray-500 bg-white px-2 py-0.5 rounded-full">
+        <!-- En-tête colonne -->
+        <div class="mb-3 flex items-center justify-between px-1">
+          <div class="flex items-center gap-2">
+            <span :class="['h-2.5 w-2.5 rounded-full',
+              col.key === 'a_faire' ? 'bg-gray-400' :
+              col.key === 'en_cours' ? 'bg-blue-500' :
+              col.key === 'en_revue' ? 'bg-violet-500' : 'bg-emerald-500']"></span>
+            <h3 class="text-sm font-semibold text-gray-800">{{ col.label }}</h3>
+          </div>
+          <span class="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-gray-600 shadow-sm">
             {{ tachesByStatut(col.key).length }}
           </span>
         </div>
-        <div class="space-y-2">
+        <!-- Cartes -->
+        <div class="space-y-2 flex-1">
           <div v-for="t in tachesByStatut(col.key)" :key="t.id"
             draggable="true"
             @dragstart="onDragStart(t)"
-            class="bg-white rounded-lg p-3 border border-gray-200 shadow-sm hover:shadow cursor-grab active:cursor-grabbing transition">
-            <div class="flex items-start justify-between gap-2 mb-1.5">
-              <span :class="['text-xs font-medium px-2 py-0.5 rounded border', PRIORITE_CONF[t.priorite].color]">
-                {{ PRIORITE_CONF[t.priorite].label }}
-              </span>
-              <div class="flex items-center gap-1">
-                <button v-if="isManager" @click="openEdit(t)" class="p-1 text-gray-400 hover:text-red-600 transition" title="Modifier">
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </button>
-                <button
-                  v-if="!isManager && (t.assignees ?? []).some(a => a.id === auth.user?.id) && t.statut !== 'termine'"
-                  @click="markDone(t)"
-                  class="p-1 text-green-500 hover:text-green-700 transition"
-                  title="Marquer terminé">
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div class="text-sm font-medium text-gray-900 mb-1.5 leading-snug">{{ t.titre }}</div>
-            <div v-if="t.description" class="text-xs text-gray-500 mb-2 line-clamp-2">{{ t.description }}</div>
-            <div v-if="t.date_debut || t.deadline" class="text-[11px] text-gray-500 mb-1">
-              <template v-if="t.date_debut && t.deadline">
-                <span>Du {{ formatDate(t.date_debut) }} au </span>
-                <span :class="isOverdue(t) ? 'text-red-600 font-medium' : ''">{{ formatDate(t.deadline) }}</span>
-              </template>
-              <template v-else-if="t.date_debut">Début : {{ formatDate(t.date_debut) }}</template>
-              <template v-else-if="t.deadline">
-                Fin :
-                <span :class="isOverdue(t) ? 'text-red-600 font-medium' : ''">{{ formatDate(t.deadline) }}</span>
-              </template>
-            </div>
-            <div class="flex items-center justify-between gap-2 mt-2">
-              <div v-if="(t.assignees ?? []).length" class="flex items-center">
-                <!-- Avatars empilés. Au-delà de 3, on affiche "+N" -->
-                <div v-for="(a, idx) in (t.assignees ?? []).slice(0, 3)" :key="a.id"
-                  :style="{ marginLeft: idx === 0 ? '0' : '-6px', zIndex: 3 - idx }"
-                  :title="`${a.prenom} ${a.nom}`"
-                  class="w-6 h-6 rounded-full bg-red-100 text-red-700 text-[10px] font-semibold flex items-center justify-center border-2 border-white">
-                  {{ initials(a.prenom, a.nom) }}
+            class="group relative cursor-grab overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md active:cursor-grabbing">
+            <!-- Liseret priorité -->
+            <div :class="['absolute left-0 top-0 h-full w-1',
+              t.priorite === 'urgente' ? 'bg-red-500' :
+              t.priorite === 'haute' ? 'bg-orange-400' :
+              t.priorite === 'normale' ? 'bg-blue-400' : 'bg-gray-300']"></div>
+
+            <div class="pl-3 pr-3 py-3">
+              <!-- Ligne priorité + actions -->
+              <div class="mb-1.5 flex items-start justify-between gap-2">
+                <span :class="['inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide', PRIORITE_CONF[t.priorite].color]">
+                  {{ PRIORITE_CONF[t.priorite].label }}
+                </span>
+                <div class="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+                  <button v-if="isManager" @click="openEdit(t)"
+                    class="rounded p-1 text-gray-400 transition hover:bg-gray-100 hover:text-red-600"
+                    title="Modifier">
+                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                  </button>
+                  <button
+                    v-if="!isManager && (t.assignees ?? []).some(a => a.id === auth.user?.id) && t.statut !== 'termine'"
+                    @click="markDone(t)"
+                    class="rounded p-1 text-emerald-500 transition hover:bg-emerald-50 hover:text-emerald-700"
+                    title="Marquer terminé">
+                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                  </button>
                 </div>
-                <span v-if="(t.assignees ?? []).length > 3" class="text-[10px] text-gray-500 ml-1">
-                  +{{ (t.assignees ?? []).length - 3 }}
-                </span>
-                <span v-else-if="(t.assignees ?? []).length === 1" class="text-xs text-gray-600 ml-1.5 truncate max-w-[90px]">
-                  {{ t.assignees?.[0]?.prenom }} {{ t.assignees?.[0]?.nom }}
-                </span>
-                <span v-else class="text-xs text-gray-500 ml-1.5">{{ (t.assignees ?? []).length }} assignés</span>
               </div>
-              <span v-else class="text-xs text-gray-400 italic">Non assignée</span>
+              <!-- Titre -->
+              <h4 class="mb-1 text-sm font-semibold leading-snug text-gray-900">{{ t.titre }}</h4>
+              <!-- Description -->
+              <p v-if="t.description" class="mb-2 line-clamp-2 text-xs text-gray-500">{{ t.description }}</p>
+              <!-- Échéancier -->
+              <div v-if="t.date_debut || t.deadline"
+                :class="['mb-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium',
+                  isOverdue(t) ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600']">
+                <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                <template v-if="t.date_debut && t.deadline">
+                  {{ formatDate(t.date_debut) }} → {{ formatDate(t.deadline) }}
+                </template>
+                <template v-else-if="t.date_debut">Début : {{ formatDate(t.date_debut) }}</template>
+                <template v-else-if="t.deadline">Échéance : {{ formatDate(t.deadline) }}</template>
+                <span v-if="isOverdue(t)" class="ml-0.5">⚠</span>
+              </div>
+              <!-- Assignés -->
+              <div class="flex items-center justify-between">
+                <div v-if="(t.assignees ?? []).length" class="flex items-center">
+                  <div v-for="(a, idx) in (t.assignees ?? []).slice(0, 3)" :key="a.id"
+                    :style="{ marginLeft: idx === 0 ? '0' : '-8px', zIndex: 3 - idx }"
+                    :title="`${a.prenom} ${a.nom}`"
+                    class="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-gradient-to-br from-red-500 to-red-700 text-[9px] font-bold text-white shadow-sm">
+                    {{ initials(a.prenom, a.nom) }}
+                  </div>
+                  <span v-if="(t.assignees ?? []).length > 3"
+                    class="ml-1 text-[10px] font-semibold text-gray-500">
+                    +{{ (t.assignees ?? []).length - 3 }}
+                  </span>
+                  <span v-else-if="(t.assignees ?? []).length === 1" class="ml-1.5 max-w-[100px] truncate text-[11px] text-gray-600">
+                    {{ t.assignees?.[0]?.prenom }} {{ t.assignees?.[0]?.nom }}
+                  </span>
+                </div>
+                <span v-else class="text-[11px] italic text-gray-400">Non assignée</span>
+              </div>
             </div>
           </div>
-          <div v-if="tachesByStatut(col.key).length === 0" class="text-center py-8 text-xs text-gray-400 italic">
+          <div v-if="tachesByStatut(col.key).length === 0"
+            class="rounded-lg border border-dashed border-gray-300 bg-white/60 py-6 text-center text-[11px] italic text-gray-400">
             Aucune tâche
           </div>
         </div>
@@ -421,14 +458,22 @@ onMounted(loadAll)
 
     <!-- Vue LISTE — groupée par statut (4 sections À faire / En cours / En revue / Terminé) -->
     <div v-else-if="tab === 'liste'" class="space-y-4">
-      <div v-if="filteredTaches.length === 0" class="bg-white rounded-xl border border-gray-200 p-12 text-center">
-        <p class="text-gray-500 text-sm">Aucune tâche</p>
+      <div v-if="filteredTaches.length === 0"
+        class="rounded-2xl border border-dashed border-gray-300 bg-white p-16 text-center">
+        <svg class="mx-auto h-10 w-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+        <p class="mt-3 text-sm font-medium text-gray-700">Aucune tâche ne correspond aux filtres.</p>
       </div>
       <div v-for="col in kanbanColumns" :key="col.key"
-        class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div :class="['flex items-center justify-between px-4 py-2.5 border-b border-gray-200', STATUT_CONF[col.key].color]">
-          <h3 class="text-sm font-semibold">{{ col.label }}</h3>
-          <span class="text-xs font-medium bg-white/70 px-2 py-0.5 rounded-full">
+        class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <div :class="['flex items-center justify-between px-4 py-3 border-b', STATUT_CONF[col.key].color]">
+          <div class="flex items-center gap-2">
+            <span :class="['h-2.5 w-2.5 rounded-full',
+              col.key === 'a_faire' ? 'bg-gray-500' :
+              col.key === 'en_cours' ? 'bg-blue-600' :
+              col.key === 'en_revue' ? 'bg-violet-600' : 'bg-emerald-600']"></span>
+            <h3 class="text-sm font-bold">{{ col.label }}</h3>
+          </div>
+          <span class="rounded-full bg-white/80 px-2 py-0.5 text-xs font-semibold shadow-sm">
             {{ tachesByStatut(col.key).length }}
           </span>
         </div>
@@ -505,46 +550,59 @@ onMounted(loadAll)
       </div>
     </div>
 
-    <!-- Vue PRODUCTIVITE -->
-    <div v-else-if="tab === 'productivite'" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div v-if="stats.length === 0" class="p-12 text-center text-gray-500 text-sm">
-        Aucune donnée de productivité pour l'instant.
+    <!-- Vue PRODUCTIVITE ────────────────────────────────────────── -->
+    <div v-else-if="tab === 'productivite'" class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+      <div v-if="stats.length === 0" class="p-16 text-center text-gray-500">
+        <svg class="mx-auto h-10 w-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        <p class="mt-3 text-sm font-medium text-gray-700">Aucune donnée de productivité pour l'instant.</p>
+        <p class="mt-1 text-xs text-gray-500">Elle apparaîtra dès qu'une tâche sera assignée.</p>
       </div>
       <table v-else class="w-full">
-        <thead class="bg-gray-50 border-b border-gray-200">
+        <thead class="border-b border-gray-200 bg-gray-50">
           <tr>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Agent</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Rôle</th>
-            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase">À faire</th>
-            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase">En cours</th>
-            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase">En revue</th>
-            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Terminé</th>
-            <th class="px-4 py-3 text-center text-xs font-semibold text-red-500 uppercase">En retard</th>
-            <th class="px-4 py-3 text-center text-xs font-semibold text-green-600 uppercase">Terminés 30j</th>
+            <th class="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Agent</th>
+            <th class="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Rôle</th>
+            <th class="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500" style="min-width:200px;">Répartition</th>
+            <th class="px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-red-600">Retard</th>
+            <th class="px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-emerald-600">Faites 30j</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
-          <tr v-for="s in stats" :key="s.id" class="hover:bg-gray-50 transition">
+          <tr v-for="s in stats" :key="s.id" class="transition hover:bg-gray-50">
             <td class="px-4 py-3">
-              <div class="flex items-center gap-2">
-                <div class="w-8 h-8 rounded-full bg-red-100 text-red-700 text-xs font-semibold flex items-center justify-center">
+              <div class="flex items-center gap-3">
+                <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-red-700 text-[11px] font-bold text-white shadow-sm">
                   {{ initials(s.prenom, s.nom) }}
                 </div>
-                <span class="text-sm font-medium text-gray-900">{{ s.prenom }} {{ s.nom }}</span>
+                <div>
+                  <div class="text-sm font-semibold text-gray-900">{{ s.prenom }} {{ s.nom }}</div>
+                  <div class="text-[11px] text-gray-500">{{ s.total }} tâche{{ s.total > 1 ? 's' : '' }}</div>
+                </div>
               </div>
             </td>
             <td class="px-4 py-3 text-sm text-gray-600">{{ ROLE_LABEL[s.role] || s.role }}</td>
-            <td class="px-4 py-3 text-center text-sm text-gray-700">{{ s.a_faire }}</td>
-            <td class="px-4 py-3 text-center text-sm text-gray-700">{{ s.en_cours }}</td>
-            <td class="px-4 py-3 text-center text-sm text-gray-700">{{ s.en_revue }}</td>
-            <td class="px-4 py-3 text-center text-sm text-gray-700">{{ s.termine }}</td>
+            <td class="px-4 py-3">
+              <!-- Barre empilée + légende chiffrée -->
+              <div class="flex h-2 overflow-hidden rounded-full bg-gray-100">
+                <div v-if="s.a_faire" class="bg-gray-400" :style="{ width: (s.a_faire / Math.max(1, s.total)) * 100 + '%' }" :title="`${s.a_faire} à faire`"></div>
+                <div v-if="s.en_cours" class="bg-blue-500" :style="{ width: (s.en_cours / Math.max(1, s.total)) * 100 + '%' }" :title="`${s.en_cours} en cours`"></div>
+                <div v-if="s.en_revue" class="bg-violet-500" :style="{ width: (s.en_revue / Math.max(1, s.total)) * 100 + '%' }" :title="`${s.en_revue} en revue`"></div>
+                <div v-if="s.termine" class="bg-emerald-500" :style="{ width: (s.termine / Math.max(1, s.total)) * 100 + '%' }" :title="`${s.termine} terminées`"></div>
+              </div>
+              <div class="mt-1 flex gap-2 text-[10px] text-gray-500">
+                <span><span class="inline-block h-1.5 w-1.5 rounded-full bg-gray-400"></span> {{ s.a_faire }}</span>
+                <span><span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500"></span> {{ s.en_cours }}</span>
+                <span><span class="inline-block h-1.5 w-1.5 rounded-full bg-violet-500"></span> {{ s.en_revue }}</span>
+                <span><span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span> {{ s.termine }}</span>
+              </div>
+            </td>
             <td class="px-4 py-3 text-center">
-              <span :class="s.en_retard > 0 ? 'text-red-600 font-semibold' : 'text-gray-400'">
+              <span :class="s.en_retard > 0 ? 'inline-flex rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-700 ring-1 ring-inset ring-red-100' : 'text-sm text-gray-300'">
                 {{ s.en_retard }}
               </span>
             </td>
             <td class="px-4 py-3 text-center">
-              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+              <span class="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-100">
                 {{ s.termines_30j }}
               </span>
             </td>
