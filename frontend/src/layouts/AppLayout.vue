@@ -26,9 +26,9 @@ watch(() => auth.user?.role, async (role) => {
 
 const roleLabel: Record<string, string> = {
   dg: 'Directeur Général',
-  dir_peda: 'Directeur Pédagogique',
+  dir_peda: 'Directeur des études',
   resp_fin: 'Resp. Financier',
-  coordinateur: 'Coordinateur',
+  coordinateur: 'Directeur adjoint des études',
   secretariat: 'Secrétariat',
   enseignant: 'Enseignant',
   etudiant: 'Étudiant',

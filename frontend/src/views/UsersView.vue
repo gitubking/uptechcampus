@@ -32,9 +32,9 @@ const form = ref({ nom: '', prenom: '', email: '', telephone: '', role: '', stat
 
 const roleLabels: Record<string, string> = {
   dg: 'Directeur Général',
-  dir_peda: 'Directeur Pédagogique',
+  dir_peda: 'Directeur des études',
   resp_fin: 'Resp. Financier',
-  coordinateur: 'Coordinateur',
+  coordinateur: 'Directeur adjoint des études',
   secretariat: 'Secrétariat',
   enseignant: 'Enseignant',
   etudiant: 'Étudiant',
@@ -177,8 +177,8 @@ const permError = ref('')
 
 const PERM_ROLES = ['dg','dir_peda','resp_fin','coordinateur','secretariat','enseignant']
 const PERM_ROLE_LABELS: Record<string,string> = {
-  dg: 'DG', dir_peda: 'Dir. Péda', resp_fin: 'Resp. Fin.',
-  coordinateur: 'Coord.', secretariat: 'Secrét.', enseignant: 'Enseignant',
+  dg: 'DG', dir_peda: 'Dir. études', resp_fin: 'Resp. Fin.',
+  coordinateur: 'Dir. adj. études', secretariat: 'Secrét.', enseignant: 'Enseignant',
 }
 const PERM_ROLE_COLORS: Record<string,string> = {
   dg: '#7c3aed', dir_peda: '#2563eb', resp_fin: '#059669',

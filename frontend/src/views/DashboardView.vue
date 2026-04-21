@@ -195,9 +195,9 @@ async function loadEnseignant() {
 // ─────────────────────────────────────────────────────────
 const roleLabel: Record<string, string> = {
   dg: 'Directeur Général',
-  coordinateur: 'Coordinateur',
+  coordinateur: 'Directeur adjoint des études',
   secretariat: 'Secrétariat',
-  dir_peda: 'Directeur Pédagogique',
+  dir_peda: 'Directeur des études',
   resp_fin: 'Resp. Financier',
 }
 
