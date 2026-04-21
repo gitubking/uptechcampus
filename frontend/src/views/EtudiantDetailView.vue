@@ -1307,8 +1307,8 @@ function printCertificatDetail() {
 <title>Certificat d'inscription — ${etd.prenom} ${etd.nom}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padding:6mm 15mm}
-@page{size:A4 portrait;margin:0}@media print{body{padding:6mm 15mm}}
+body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padding:6mm 15mm;min-height:100vh;display:flex;flex-direction:column}
+@page{size:A4 portrait;margin:0}@media print{body{padding:6mm 15mm;min-height:100vh}}
 .hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:4px;gap:0}
 .hdr img{width:113px;height:113px;object-fit:contain;display:block;margin-bottom:-18px}
 .hdr-info{text-align:center;line-height:1.4}
@@ -1334,7 +1334,7 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padd
 .cert-sign-box .sign-name{font-size:10px;font-weight:700;color:#111;margin-bottom:2px}
 .cert-sign-box .sign-title{font-size:9px;color:#888}
 .cert-sign-box .sign-zone{height:60px;border-bottom:1px solid #bbb;margin:8px 0 4px}
-.footer-bar{margin-top:20px;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
+.footer-bar{margin-top:auto;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
 </style></head><body>
 <div class="hdr"><img src="${logoUrl}" alt="UP'TECH"/>
 <div class="hdr-info">
