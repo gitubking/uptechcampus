@@ -1086,9 +1086,12 @@ function printFiche(etd: any, insc: any, anneeLabel?: string) {
 <title>Fiche d'inscription — ${etd.prenom} ${etd.nom}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:6mm 15mm;min-height:100vh;display:flex;flex-direction:column}
+body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:6mm 15mm}
 @page{size:A4 portrait;margin:0}
-@media print{body{padding:6mm 15mm;min-height:100vh}}
+@media print{body{padding:6mm 15mm}}
+
+/* Wrappers page → footer en bas de chaque page imprimée */
+.page-wrap{min-height:calc(100vh - 12mm);display:flex;flex-direction:column}
 
 /* ── En-tête ── */
 .hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:4px;gap:0}
@@ -1130,7 +1133,7 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 .footer-bar{margin-top:auto;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
 
 /* ── Page 2 : Règlement intérieur ── */
-.page2{page-break-before:always;padding-top:10mm}
+.page2{page-break-before:always;padding-top:10mm;min-height:calc(100vh - 12mm);display:flex;flex-direction:column}
 .ri-hdr{text-align:center;margin-bottom:16px}
 .ri-hdr h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:2px;border:2px solid #E30613;display:inline-block;padding:6px 28px;color:#E30613}
 .ri-hdr p{font-size:9.5px;color:#555;margin-top:5px}
@@ -1148,6 +1151,7 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 </style>
 </head><body>
 
+<div class="page-wrap">
 <!-- En-tête UPTECH -->
 <div class="hdr">
   <img src="${logoUrl}" alt="UP'TECH"/>
@@ -1217,6 +1221,7 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 
 <div class="mention">En signant cette fiche, l'étudiant(e) reconnaît avoir pris connaissance du règlement intérieur de l'établissement et s'engage à respecter ses obligations académiques et financières.</div>
 <div class="footer-bar">Amitié 1, Villa n°3031 — Dakar, Sénégal &nbsp;|&nbsp; +221 77 841 50 44 / 77 618 45 52 &nbsp;|&nbsp; uptechformation.com</div>
+</div><!-- /page-wrap -->
 
 <!-- ═══════════════════════════════════════════════
      PAGE 2 — RÈGLEMENT INTÉRIEUR
@@ -1313,7 +1318,7 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
     </div>
   </div>
 
-  <div class="footer-bar" style="margin-top:20px">UP'TECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal &nbsp;|&nbsp; +221 77 841 50 44 / 77 618 45 52</div>
+  <div class="footer-bar">UP'TECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal &nbsp;|&nbsp; +221 77 841 50 44 / 77 618 45 52</div>
 </div>
 
 <script>window.onload=()=>{window.print()}<\/script>
