@@ -1177,7 +1177,7 @@ function printFicheDetail() {
 body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:6mm 15mm}
 @page{size:A4 portrait;margin:0}@media print{body{padding:6mm 15mm}}
 .hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:4px;gap:0}
-.hdr img{width:113px;height:113px;object-fit:contain;display:block;margin-bottom:-18px}
+.hdr img{width:113px;height:113px;object-fit:contain;display:block;margin-bottom:12px}
 .hdr-info{text-align:center;line-height:1.4}
 .hdr-info .tagline{font-size:10px;font-weight:700;color:#111;margin-bottom:1px}
 .hdr-info .meta{font-size:9px;color:#333;line-height:1.4;margin-bottom:1px}
@@ -1310,7 +1310,7 @@ function printCertificatDetail() {
 body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padding:6mm 15mm;min-height:100vh;display:flex;flex-direction:column}
 @page{size:A4 portrait;margin:0}@media print{body{padding:6mm 15mm;min-height:100vh}}
 .hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:4px;gap:0}
-.hdr img{width:113px;height:113px;object-fit:contain;display:block;margin-bottom:-18px}
+.hdr img{width:113px;height:113px;object-fit:contain;display:block;margin-bottom:12px}
 .hdr-info{text-align:center;line-height:1.4}
 .hdr-info .tagline{font-size:10px;font-weight:700;color:#111;margin-bottom:1px}
 .hdr-info .meta{font-size:9px;color:#333;line-height:1.4;margin-bottom:1px}
