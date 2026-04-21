@@ -1346,9 +1346,9 @@ function printCertificat(etd: any, insc: any, anneeLabel?: string) {
 <title>Certificat d'inscription — ${etd.prenom} ${etd.nom}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padding:6mm 15mm}
+body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padding:6mm 15mm;min-height:100vh;display:flex;flex-direction:column}
 @page{size:A4 portrait;margin:0}
-@media print{body{padding:6mm 15mm}}
+@media print{body{padding:6mm 15mm;min-height:100vh}}
 
 /* ── En-tête ── */
 .hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:4px;gap:0}
@@ -1391,7 +1391,7 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padd
 .cert-sign-box .sign-zone{height:60px;border-bottom:1px solid #bbb;margin:8px 0 4px}
 
 /* ── Pied de page ── */
-.footer-bar{margin-top:20px;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
+.footer-bar{margin-top:auto;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
 </style>
 </head><body>
 
