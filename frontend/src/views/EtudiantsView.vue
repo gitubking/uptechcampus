@@ -1134,7 +1134,7 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 
 /* ── Page 2 : Règlement intérieur ── */
 .page2{page-break-before:always;padding-top:10mm;min-height:calc(100vh - 12mm);display:flex;flex-direction:column}
-.ri-hdr{text-align:center;margin-bottom:16px}
+.ri-hdr{text-align:center;margin-bottom:28px}
 .ri-hdr h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:2px;border:2px solid #E30613;display:inline-block;padding:6px 28px;color:#E30613}
 .ri-hdr p{font-size:9.5px;color:#555;margin-top:5px}
 .ri-art{margin-bottom:10px}

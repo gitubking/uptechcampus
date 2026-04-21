@@ -1202,7 +1202,7 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 .footer-bar{margin-top:auto;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
 .page-wrap{min-height:calc(100vh - 12mm);display:flex;flex-direction:column}
 .page2{page-break-before:always;padding-top:10mm;min-height:calc(100vh - 12mm);display:flex;flex-direction:column}
-.ri-hdr{text-align:center;margin-bottom:16px}
+.ri-hdr{text-align:center;margin-bottom:28px}
 .ri-hdr h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:2px;border:2px solid #E30613;display:inline-block;padding:6px 28px;color:#E30613}
 .ri-art{margin-bottom:10px}
 .ri-art-title{font-size:10px;font-weight:700;text-transform:uppercase;color:#fff;background:#111;padding:3px 10px;margin-bottom:5px;display:block}
