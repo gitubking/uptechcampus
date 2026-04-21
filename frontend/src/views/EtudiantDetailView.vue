@@ -1174,8 +1174,8 @@ function printFicheDetail() {
 <title>Fiche d'inscription — ${etd.prenom} ${etd.nom}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:6mm 15mm}
-@page{size:A4 portrait;margin:0}@media print{body{padding:6mm 15mm}}
+body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:6mm 15mm;min-height:100vh;display:flex;flex-direction:column}
+@page{size:A4 portrait;margin:0}@media print{body{padding:6mm 15mm;min-height:100vh}}
 .hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:4px;gap:0}
 .hdr img{width:113px;height:113px;object-fit:contain;display:block;margin-bottom:12px}
 .hdr-info{text-align:center;line-height:1.4}
@@ -1199,7 +1199,7 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 .sign-box h4{font-size:9.5px;font-weight:700;text-transform:uppercase;color:#555;margin-bottom:50px;border-bottom:1px dashed #ddd;padding-bottom:6px}
 .sign-box .sign-line{border-top:1px solid #bbb;padding-top:4px;font-size:9px;color:#aaa;text-align:center}
 .mention{margin-top:16px;font-size:8.5px;color:#777;text-align:center;font-style:italic}
-.footer-bar{margin-top:10px;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
+.footer-bar{margin-top:auto;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
 .page2{page-break-before:always;padding-top:10mm}
 .ri-hdr{text-align:center;margin-bottom:16px}
 .ri-hdr h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:2px;border:2px solid #E30613;display:inline-block;padding:6px 28px;color:#E30613}

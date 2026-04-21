@@ -1086,9 +1086,9 @@ function printFiche(etd: any, insc: any, anneeLabel?: string) {
 <title>Fiche d'inscription — ${etd.prenom} ${etd.nom}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:6mm 15mm}
+body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff;padding:6mm 15mm;min-height:100vh;display:flex;flex-direction:column}
 @page{size:A4 portrait;margin:0}
-@media print{body{padding:6mm 15mm}}
+@media print{body{padding:6mm 15mm;min-height:100vh}}
 
 /* ── En-tête ── */
 .hdr{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:4px;gap:0}
@@ -1127,7 +1127,7 @@ td.lbl2{font-weight:700;color:#444;width:18%;background:#f5f5f5;white-space:nowr
 
 /* ── Pied de page ── */
 .mention{margin-top:16px;font-size:8.5px;color:#777;text-align:center;font-style:italic}
-.footer-bar{margin-top:10px;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
+.footer-bar{margin-top:auto;border-top:2px solid #E30613;padding-top:6px;font-size:9px;text-align:center;color:#333}
 
 /* ── Page 2 : Règlement intérieur ── */
 .page2{page-break-before:always;padding-top:10mm}
