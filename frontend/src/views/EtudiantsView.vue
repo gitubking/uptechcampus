@@ -1420,7 +1420,7 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padd
 
 <!-- Corps du certificat -->
 <div class="cert-body">
-  Le Directeur Général de l'Institut Supérieur de Formation UP'TECH certifie que&nbsp;:
+  Le Directeur Pédagogique de l'Institut Supérieur de Formation UP'TECH certifie que&nbsp;:
   <br><br>
   <span class="highlight">${civilite} ${etd.prenom?.toUpperCase()} ${etd.nom?.toUpperCase()}</span>
   ${etd.date_naissance ? `, né(e) le <span class="underline">${fmtDate(etd.date_naissance)}</span> à <span class="underline">${val(etd.lieu_naissance)}</span>,` : ''}
@@ -1452,7 +1452,7 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padd
   <div class="cert-sign-box">
     <div class="sign-place">Dakar, le ${dateJour}</div>
     <div class="sign-zone"></div>
-    <div class="sign-name">Le Directeur Général</div>
+    <div class="sign-name">Le Directeur Pédagogique</div>
     <div class="sign-title">UP'TECH Formation</div>
   </div>
 </div>
