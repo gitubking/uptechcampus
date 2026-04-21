@@ -75,8 +75,8 @@ const form = ref({
 })
 
 const ROLE_LABEL: Record<string, string> = {
-  dg: 'DG', dir_peda: 'Dir. Péda', resp_fin: 'Resp. Fin.',
-  coordinateur: 'Coord.', secretariat: 'Secrétariat', enseignant: 'Enseignant',
+  dg: 'DG', dir_peda: 'Dir. études', resp_fin: 'Resp. Fin.',
+  coordinateur: 'Dir. adj. études', secretariat: 'Secrétariat', enseignant: 'Enseignant',
 }
 
 const PRIORITE_CONF = {

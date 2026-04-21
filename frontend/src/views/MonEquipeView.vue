@@ -33,8 +33,8 @@ const filterStatut = ref('actif')
 const searchQ = ref('')
 
 const ROLE_LABEL: Record<string, string> = {
-  dg: 'Directeur Général', dir_peda: 'Dir. Pédagogique', resp_fin: 'Resp. Financier',
-  coordinateur: 'Coordinateur', secretariat: 'Secrétariat',
+  dg: 'Directeur Général', dir_peda: 'Directeur des études', resp_fin: 'Resp. Financier',
+  coordinateur: 'Directeur adjoint des études', secretariat: 'Secrétariat',
 }
 
 const ROLE_COLOR: Record<string, string> = {

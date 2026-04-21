@@ -54,9 +54,9 @@ const selectedLog = ref<AuditLog | null>(null)
 // ── Helpers ─────────────────────────────────────────────────────────
 const roleLabel: Record<string, string> = {
   dg: 'DG',
-  dir_peda: 'Dir. Péda',
+  dir_peda: 'Dir. études',
   resp_fin: 'Resp. Fin.',
-  coordinateur: 'Coord.',
+  coordinateur: 'Dir. adj. études',
   secretariat: 'Secrétariat',
   enseignant: 'Enseignant',
   etudiant: 'Étudiant',

@@ -1802,7 +1802,7 @@ watch(budgetAnnee, loadBudget)
           <UcFormGroup label="Prénom" :required="true"><input v-model="formPersonnel.prenom" required /></UcFormGroup>
           <UcFormGroup label="Nom" :required="true"><input v-model="formPersonnel.nom" required /></UcFormGroup>
         </UcFormGrid>
-        <UcFormGroup label="Poste / Fonction" :required="true"><input v-model="formPersonnel.poste" required placeholder="Ex : Directeur pédagogique" /></UcFormGroup>
+        <UcFormGroup label="Poste / Fonction" :required="true"><input v-model="formPersonnel.poste" required placeholder="Ex : Directeur des études" /></UcFormGroup>
         <UcFormGrid :cols="2">
           <UcFormGroup label="Type de contrat" :required="true">
             <select v-model="formPersonnel.type_contrat" required>

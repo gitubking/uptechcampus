@@ -36,8 +36,8 @@ const page = ref(0)
 const pageSize = 50
 
 const ROLE_LABEL: Record<string, string> = {
-  dg: 'DG', dir_peda: 'Dir. Péda', resp_fin: 'Resp. Fin.',
-  coordinateur: 'Coord.', secretariat: 'Secrétariat', enseignant: 'Enseignant', etudiant: 'Étudiant',
+  dg: 'DG', dir_peda: 'Dir. études', resp_fin: 'Resp. Fin.',
+  coordinateur: 'Dir. adj. études', secretariat: 'Secrétariat', enseignant: 'Enseignant', etudiant: 'Étudiant',
 }
 
 const ACTION_COLOR: Record<string, string> = {

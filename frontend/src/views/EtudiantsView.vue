@@ -2,17 +2,13 @@
 import { ref, watch, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
-import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 import UcTable from '@/components/ui/UcTable.vue'
-import UcDraftBanner from '@/components/ui/UcDraftBanner.vue'
 import EtudiantsImportModal from '@/components/EtudiantsImportModal.vue'
-import { useFormAutoSave } from '@/composables/useFormAutoSave'
 
 const router = useRouter()
 const auth = useAuthStore()
-const toast = useToast()
 const canWrite = computed(() => ['dg', 'secretariat'].includes(auth.user?.role ?? ''))
 
 // Import CSV modal
@@ -59,7 +55,7 @@ async function confirmDeleteEtudiant() {
     deleteTargetEtudiant.value = null
     await fetchEtudiants()
   } catch (err: any) {
-    toast.apiError(err, 'Erreur lors de la suppression')
+    alert(err?.response?.data?.message || 'Erreur lors de la suppression')
   } finally {
     deletingEtudiant.value = false
   }
@@ -260,7 +256,7 @@ async function loadRefs() {
     api.get('/types-formation'),
     api.get('/classes'),
     api.get('/matieres'),
-    api.get('/enseignants?all=1'),
+    api.get('/enseignants'),
   ])
   filieres.value = f.data
   niveauxEntree.value = (ne.data ?? []).filter((n: NiveauEntree) => n.actif)
@@ -649,65 +645,6 @@ const fiForm = ref({
 })
 const fiMontantInscription = computed(() => Math.round(fiForm.value.cout_total * fiForm.value.pct_inscription / 100))
 const fiMontantSolde = computed(() => fiForm.value.cout_total - fiMontantInscription.value)
-
-// ── Auto-save brouillon (mode 'inscrire' = création étudiant + inscription) ──
-// Active uniquement quand le panneau de création est ouvert, pour ne pas polluer
-// le localStorage pendant les modifications qui chargent depuis le serveur.
-const autoSavingEnabled = computed(() => showPanel.value && panelMode.value === 'inscrire' && currentStep.value < 3)
-const studentDraft = useFormAutoSave(studentForm, {
-  key: 'etudiant-nouveau',
-  pause: () => !autoSavingEnabled.value,
-})
-const inscriptionDraft = useFormAutoSave(inscriptionForm, {
-  key: 'inscription-nouveau',
-  pause: () => !autoSavingEnabled.value,
-})
-const fiDraft = useFormAutoSave(fiForm, {
-  key: 'fi-nouveau',
-  pause: () => !autoSavingEnabled.value,
-})
-
-// Bannière de restauration : visible au premier affichage du panneau "inscrire"
-// si au moins un brouillon existe.
-const draftBannerShown = ref(false)
-const hasAnyDraft = computed(() =>
-  studentDraft.hasDraft.value || inscriptionDraft.hasDraft.value || fiDraft.hasDraft.value
-)
-const draftAgeLabel = computed(() => {
-  // Choisit l'âge le plus récent parmi les brouillons
-  const ages = [
-    studentDraft.draftAge.value,
-    inscriptionDraft.draftAge.value,
-    fiDraft.draftAge.value,
-  ].filter((v): v is number => v !== null)
-  if (ages.length === 0) return ''
-  const newest = Math.max(...ages)
-  const diff = Date.now() - newest
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'à l\'instant'
-  if (mins < 60) return `il y a ${mins} min`
-  const h = Math.floor(mins / 60)
-  if (h < 24) return `il y a ${h}h`
-  return `il y a ${Math.floor(h / 24)}j`
-})
-
-function restoreAllDrafts() {
-  studentDraft.restoreDraft()
-  inscriptionDraft.restoreDraft()
-  fiDraft.restoreDraft()
-  draftBannerShown.value = false
-  toast.success('Brouillon restauré.')
-}
-function discardAllDrafts() {
-  studentDraft.clearDraft()
-  inscriptionDraft.clearDraft()
-  fiDraft.clearDraft()
-  draftBannerShown.value = false
-}
-
-watch(() => autoSavingEnabled.value, (on) => {
-  if (on && hasAnyDraft.value) draftBannerShown.value = true
-})
 const fiTotalHeures = computed(() => fiForm.value.modules.reduce((s, m) => s + (m.volume_horaire || 0), 0))
 function fiAddModule() { fiForm.value.modules.push({ matiere_id: null, volume_horaire: 0, enseignant_id: null }) }
 function fiRemoveModule(i: number) { if (fiForm.value.modules.length > 1) fiForm.value.modules.splice(i, 1) }
@@ -920,10 +857,6 @@ async function submitInscrire() {
       anneeLabel: annees.value.find(a => a.id === inscriptionForm.value.annee_academique_id)?.libelle ?? '',
     }
     currentStep.value = 3
-    // Inscription validée côté serveur → on efface les brouillons locaux
-    studentDraft.clearDraft()
-    inscriptionDraft.clearDraft()
-    fiDraft.clearDraft()
     fetchEtudiants()
   } catch (err: any) {
     const errs = err.response?.data?.errors as Record<string, string[]> | undefined
@@ -1487,7 +1420,7 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padd
 
 <!-- Corps du certificat -->
 <div class="cert-body">
-  Le Directeur Général de l'Institut Supérieur de Formation UP'TECH certifie que&nbsp;:
+  Le Directeur des études de l'Institut Supérieur de Formation UP'TECH certifie que&nbsp;:
   <br><br>
   <span class="highlight">${civilite} ${etd.prenom?.toUpperCase()} ${etd.nom?.toUpperCase()}</span>
   ${etd.date_naissance ? `, né(e) le <span class="underline">${fmtDate(etd.date_naissance)}</span> à <span class="underline">${val(etd.lieu_naissance)}</span>,` : ''}
@@ -1519,7 +1452,7 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padd
   <div class="cert-sign-box">
     <div class="sign-place">Dakar, le ${dateJour}</div>
     <div class="sign-zone"></div>
-    <div class="sign-name">Le Directeur Général</div>
+    <div class="sign-name">Le Directeur des études</div>
     <div class="sign-title">UP'TECH Formation</div>
   </div>
 </div>
@@ -1904,8 +1837,6 @@ onMounted(() => {
 
               <!-- ══ INSCRIRE — ÉTAPE 1 : Identité ══ -->
               <template v-if="panelMode === 'inscrire' && currentStep === 1">
-                <UcDraftBanner :show="draftBannerShown && hasAnyDraft" :age-label="draftAgeLabel"
-                  @restore="restoreAllDrafts" @discard="discardAllDrafts" />
                 <div class="form-section-label">Informations personnelles</div>
                 <div class="form-row">
                   <div class="form-group">

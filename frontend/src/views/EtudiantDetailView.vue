@@ -3,13 +3,11 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
-import { useToast } from '@/composables/useToast'
 import QRCode from 'qrcode'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-const toast = useToast()
 
 const canWrite = computed(() => ['dg', 'secretariat'].includes(auth.user?.role ?? ''))
 const canDelete = computed(() => auth.user?.role === 'dg')
@@ -48,7 +46,7 @@ async function confirmDeleteEtudiant() {
     await api.delete(`/etudiants/${etudiant.value.id}`)
     router.push('/etudiants')
   } catch (err: any) {
-    toast.apiError(err, 'Erreur lors de la suppression')
+    alert(err?.response?.data?.message || 'Erreur lors de la suppression')
     deletingEtudiant.value = false
   }
 }
@@ -482,7 +480,7 @@ async function uploadPhoto(e: Event) {
     const { data } = await api.post(`/etudiants/${etudiant.value.id}/photo`, { photo_base64: dataUrl })
     etudiant.value.photo_path = data.photo_path
   } catch (err: any) {
-    toast.apiError(err, 'Erreur upload photo')
+    alert(err?.response?.data?.message || 'Erreur upload photo')
   } finally {
     photoLoading.value = false
     if (photoInput.value) photoInput.value.value = ''
@@ -532,7 +530,7 @@ async function openWebcam() {
       webcamVideo.value.play()
     }
   } catch {
-    toast.error('Impossible d\'accéder à la webcam. Vérifiez les permissions du navigateur.')
+    alert('Impossible d\'accéder à la webcam. Vérifiez les permissions du navigateur.')
     closeWebcam()
   }
 }
@@ -569,7 +567,7 @@ async function saveWebcamPhoto() {
     etudiant.value.photo_path = data.photo_path
     closeWebcam()
   } catch (err: any) {
-    toast.apiError(err, 'Erreur enregistrement photo')
+    alert(err?.response?.data?.message || 'Erreur enregistrement photo')
   } finally {
     webcamLoading.value = false
   }
@@ -1150,7 +1148,7 @@ function printFicheDetail() {
   const etd = etudiant.value
   const insc = etd.inscriptions?.[0]
   const fi = fiData.value
-  if (!etd || (!insc && !fi)) { toast.warning("Aucune inscription trouvée pour cet étudiant."); return }
+  if (!etd || (!insc && !fi)) { alert("Aucune inscription trouvée pour cet étudiant."); return }
   const fmt = (n: number | null | undefined) =>
     n != null ? new Intl.NumberFormat('fr-FR').format(n) + ' FCFA' : '—'
   const val = (v: any) => v || '—'
@@ -1284,7 +1282,7 @@ function printCertificatDetail() {
   const etd = etudiant.value
   const insc = etd.inscriptions?.[0]
   const fi = fiData.value
-  if (!etd || (!insc && !fi)) { toast.warning("Aucune inscription trouvée pour cet étudiant."); return }
+  if (!etd || (!insc && !fi)) { alert("Aucune inscription trouvée pour cet étudiant."); return }
   const val = (v: any) => v || '—'
   const fmtDate = (d: string | null | undefined) => {
     if (!d) return '—'
@@ -1348,7 +1346,7 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff;padd
 <div class="ref-row"><span>Réf. : <strong>${refNum}</strong></span><span>Dakar, le <strong>${dateJour}</strong></span></div>
 <div class="cert-title"><h2>Certificat d'Inscription</h2><p>Année académique ${annee}</p></div>
 <div class="cert-body">
-Le Directeur Général de l'Institut Supérieur de Formation UP'TECH certifie que :<br><br>
+Le Directeur des études de l'Institut Supérieur de Formation UP'TECH certifie que :<br><br>
 <span class="highlight">${etd.prenom?.toUpperCase()} ${etd.nom?.toUpperCase()}</span>
 ${etd.date_naissance ? `, né(e) le <span class="underline">${fmtDate(etd.date_naissance)}</span> à <span class="underline">${val(etd.lieu_naissance)}</span>,` : ''}
 ${etd.cni_numero ? `porteur/porteuse de la CNI N° <span class="underline">${etd.cni_numero}</span>,` : ''}
@@ -1372,7 +1370,7 @@ ${niveauEtude ? `<tr><td>Année d'étude</td><td><strong>${niveauEtude}</strong>
 <div class="cert-sign"><div class="cert-sign-box">
 <div class="sign-place">Dakar, le ${dateJour}</div>
 <div class="sign-zone"></div>
-<div class="sign-name">Le Directeur Général</div>
+<div class="sign-name">Le Directeur des études</div>
 <div class="sign-title">UP'TECH Formation</div>
 </div></div>
 <div class="footer-bar">UP'TECH Formation — Amitié 1, Villa n°3031, Dakar, Sénégal | +221 77 841 50 44 / 77 618 45 52 | uptechformation.com</div>
@@ -1414,7 +1412,7 @@ async function toggleDoc(item: ChecklistItem) {
     item.recu = data.recu
     item.date_reception = data.date_reception
   } catch {
-    toast.warning('Erreur lors de la mise à jour')
+    alert('Erreur lors de la mise à jour')
   } finally {
     item.toggling = false
   }
@@ -1482,7 +1480,7 @@ async function submitCommentaire() {
     newCommentaire.value = ''
     newCategorie.value = 'general'
   } catch (err: any) {
-    toast.apiError(err, 'Erreur lors de l\'ajout du commentaire.')
+    alert(err?.response?.data?.message || 'Erreur lors de l\'ajout du commentaire.')
   } finally {
     commentaireSubmitting.value = false
   }
@@ -1510,7 +1508,7 @@ async function saveEdit(c: Commentaire) {
     if (idx !== -1) commentaires.value[idx] = data
     editingCommentId.value = null
   } catch (err: any) {
-    toast.apiError(err, 'Erreur lors de la modification.')
+    alert(err?.response?.data?.message || 'Erreur lors de la modification.')
   }
 }
 
@@ -1521,7 +1519,7 @@ async function deleteCommentaire(id: number) {
     await api.delete(`/commentaires/${id}`)
     commentaires.value = commentaires.value.filter(c => c.id !== id)
   } catch (err: any) {
-    toast.apiError(err, 'Erreur lors de la suppression.')
+    alert(err?.response?.data?.message || 'Erreur lors de la suppression.')
   } finally {
     commentaireDeleting.value = null
   }
@@ -1604,14 +1602,14 @@ async function sendManualRelance(inscriptionId: number) {
     const msg = data.simulated
       ? 'Relance simulée (configurez BREVO_API_KEY pour envoi réel).'
       : 'Relance envoyée avec succès.'
-    toast.warning(msg)
+    alert(msg)
     await loadRelances(inscriptionId)
     // Recharger la timeline si active
     if (activeTab.value === 'timeline') await loadTimeline()
   } catch (err: any) {
+    const msg = err?.response?.data?.message || 'Erreur lors de l\'envoi de la relance.'
     const simulated = err?.response?.data?.simulated
-    if (simulated) toast.warning('Simulation — ' + (err?.response?.data?.message || 'relance simulée'))
-    else toast.apiError(err, 'Erreur lors de l\'envoi de la relance.')
+    alert(simulated ? `Simulation — ${msg}` : msg)
   } finally {
     relanceSending.value = { ...relanceSending.value, [inscriptionId]: false }
   }
@@ -1742,7 +1740,7 @@ async function validerExo(e: any) {
       } catch { /* noop */ }
     }
   } catch (err: any) {
-    toast.apiError(err, 'Erreur')
+    alert(err.response?.data?.message ?? 'Erreur')
   }
 }
 
@@ -1751,7 +1749,7 @@ async function rejeterExo(e: any) {
   try {
     await api.post(`/exonerations/${e.id}/rejeter`, { motif: motif || null })
     await loadExonerations()
-  } catch (err: any) { toast.apiError(err, 'Erreur') }
+  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
 }
 
 async function annulerExo(e: any) {
@@ -1766,7 +1764,7 @@ async function annulerExo(e: any) {
         echeancesMap.value = { ...echeancesMap.value, [e.inscription_id]: echs }
       } catch { /* noop */ }
     }
-  } catch (err: any) { toast.apiError(err, 'Erreur') }
+  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
 }
 
 async function supprimerExo(e: any) {
@@ -1774,7 +1772,7 @@ async function supprimerExo(e: any) {
   try {
     await api.delete(`/exonerations/${e.id}`)
     await loadExonerations()
-  } catch (err: any) { toast.apiError(err, 'Erreur') }
+  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
 }
 
 function switchTab(key: string) {
@@ -2163,7 +2161,7 @@ ${checklist.value.length ? `<div class="sec">
 <div class="sig">
   <div class="sig-box">
     <div class="sig-line"></div>
-    <div class="sig-lbl">Signature du Directeur Général</div>
+    <div class="sig-lbl">Signature du Directeur des études</div>
   </div>
   <div class="sig-box">
     <div class="sig-line"></div>
@@ -2213,7 +2211,7 @@ async function lierParent() {
     newParentUserId.value = ''
     await loadParents()
   } catch (e: any) {
-    toast.apiError(e, 'Erreur lors du lien.')
+    alert(e?.response?.data?.message ?? 'Erreur lors du lien.')
   } finally { lieurParent.value = false }
 }
 
