@@ -15,7 +15,10 @@ const router = useRouter()
 const toast = useToast()
 
 const auth = useAuthStore()
-const canWrite = computed(() => ['dg', 'coordinateur'].includes(auth.user?.role ?? ''))
+// Dir. études et secrétariat ont été ajoutés : la secrétaire peut créer
+// de nouvelles formations, le directeur des études fait l'emploi du temps
+// (bouton "Planifier" sur chaque module).
+const canWrite = computed(() => ['dg', 'dir_peda', 'coordinateur', 'secretariat'].includes(auth.user?.role ?? ''))
 const canPay = computed(() => ['dg', 'coordinateur', 'comptable'].includes(auth.user?.role ?? ''))
 
 // ── Types ──────────────────────────────────────────────────────────────
