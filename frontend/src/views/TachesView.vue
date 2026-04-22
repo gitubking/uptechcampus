@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import api from '@/services/api'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
@@ -170,7 +170,9 @@ async function loadAll() {
   try {
     const [tachesRes, usersRes] = await Promise.all([
       api.get('/taches'),
-      isManager.value ? api.get('/users').catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+      // La liste des agents est nécessaire même pour les non-managers :
+      // autocomplétion @mention dans les commentaires + affichage assignés.
+      api.get('/users').catch(() => ({ data: [] })),
     ])
     taches.value = tachesRes.data
     // Accepte tous les rôles administratifs/pédagogiques et exclut seulement les
@@ -350,6 +352,102 @@ function canDeleteComment(c: Commentaire): boolean {
 function formatDateHeure(iso: string): string {
   if (!iso) return ''
   return new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+// ── Autocomplétion @mention dans les commentaires ────────────────────────
+// Quand l'utilisateur tape "@" dans le textarea, on affiche la liste des
+// agents (filtrable par les caractères qui suivent) ; un clic insère
+// "@Prénom Nom " dans le texte. Les mentions restent stockées en texte
+// clair côté back pour rester simples et interopérables.
+const commentTextarea = ref<HTMLTextAreaElement | null>(null)
+const mentionQuery = ref<string | null>(null)
+const mentionStart = ref(-1)
+const mentionIndex = ref(0)
+
+function onCommentInput(e: Event) {
+  const ta = e.target as HTMLTextAreaElement
+  const pos = ta.selectionStart ?? 0
+  const text = ta.value
+  // Remonte depuis le curseur pour trouver le @ actif
+  for (let i = pos - 1; i >= 0; i--) {
+    const ch = text[i]
+    if (ch === '@') {
+      // Le @ doit être en début de texte ou précédé d'un espace / retour ligne
+      if (i === 0 || /\s/.test(text[i - 1] ?? '')) {
+        const query = text.substring(i + 1, pos)
+        if (!query.includes('\n') && query.length <= 30) {
+          mentionQuery.value = query
+          mentionStart.value = i
+          mentionIndex.value = 0
+          return
+        }
+      }
+      break
+    }
+    if (/\s/.test(ch ?? '')) break
+  }
+  mentionQuery.value = null
+  mentionStart.value = -1
+}
+
+const mentionCandidates = computed<User[]>(() => {
+  if (mentionQuery.value === null) return []
+  const q = mentionQuery.value.toLowerCase()
+  return users.value
+    .filter(u => !q || `${u.prenom} ${u.nom}`.toLowerCase().includes(q) || (u.role ?? '').toLowerCase().includes(q))
+    .slice(0, 8)
+})
+
+function insertMention(u: User) {
+  if (mentionStart.value < 0) return
+  const text = nouveauCommentaire.value
+  const before = text.substring(0, mentionStart.value)
+  const after = text.substring(mentionStart.value + (mentionQuery.value?.length ?? 0) + 1)
+  const mention = `@${u.prenom} ${u.nom} `
+  nouveauCommentaire.value = before + mention + after
+  const newCursor = (before + mention).length
+  mentionQuery.value = null
+  mentionStart.value = -1
+  nextTick(() => {
+    const ta = commentTextarea.value
+    if (ta) {
+      ta.focus()
+      ta.setSelectionRange(newCursor, newCursor)
+    }
+  })
+}
+
+function onCommentKeydown(e: KeyboardEvent) {
+  if (mentionQuery.value === null) return
+  const list = mentionCandidates.value
+  if (!list.length) return
+  if (e.key === 'ArrowDown') { e.preventDefault(); mentionIndex.value = (mentionIndex.value + 1) % list.length }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); mentionIndex.value = (mentionIndex.value - 1 + list.length) % list.length }
+  else if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault()
+    const u = list[mentionIndex.value] ?? list[0]
+    if (u) insertMention(u)
+  } else if (e.key === 'Escape') {
+    mentionQuery.value = null; mentionStart.value = -1
+  }
+}
+
+// Rend un commentaire en HTML en échappant tout puis en surlignant les
+// @mentions reconnues (qui correspondent à un utilisateur connu).
+function renderCommentHTML(text: string): string {
+  const escape = (s: string) => s.replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch] as string))
+  const escaped = escape(text)
+  // Regex : @ suivi d'un prénom (lettres) espace nom (lettres), on garde
+  // uniquement celles qui matchent un user connu pour éviter les faux positifs.
+  return escaped.replace(/@([A-Za-zÀ-ÿ-]+(?:\s[A-Za-zÀ-ÿ-]+)?)/g, (match, name: string) => {
+    const normalized = name.trim().toLowerCase()
+    const match2 = users.value.find(u => `${u.prenom} ${u.nom}`.toLowerCase() === normalized
+      || u.prenom.toLowerCase() === normalized)
+    if (match2) {
+      return `<span class="mention">@${escape(match2.prenom)} ${escape(match2.nom)}</span>`
+    }
+    return match
+  }).replace(/\n/g, '<br>')
 }
 
 // Drag & drop Kanban — seul le DG peut déplacer librement ; un assigné ne peut
@@ -863,19 +961,40 @@ onMounted(loadAll)
                     <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/></svg>
                   </button>
                 </div>
-                <div class="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-800">
-                  {{ c.contenu }}
-                </div>
+                <div class="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-800"
+                  v-html="renderCommentHTML(c.contenu)"></div>
               </div>
             </div>
           </div>
 
           <!-- Formulaire d'ajout -->
-          <div class="border-t border-gray-200 bg-white px-5 py-3">
+          <div class="relative border-t border-gray-200 bg-white px-5 py-3">
+            <!-- Dropdown @mention -->
+            <div v-if="mentionQuery !== null && mentionCandidates.length > 0"
+              class="absolute bottom-full left-5 right-5 mb-1 max-h-56 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg z-10">
+              <div class="sticky top-0 border-b border-gray-100 bg-gray-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                Mentionner un agent
+              </div>
+              <button v-for="(u, idx) in mentionCandidates" :key="u.id"
+                type="button"
+                @mousedown.prevent="insertMention(u)"
+                @mouseenter="mentionIndex = idx"
+                :class="['flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition',
+                  idx === mentionIndex ? 'bg-red-50 text-red-700' : 'text-gray-700 hover:bg-gray-50']">
+                <div class="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-red-500 to-red-700 text-[9px] font-bold text-white">
+                  {{ initials(u.prenom, u.nom) }}
+                </div>
+                <span class="flex-1 truncate">{{ u.prenom }} {{ u.nom }}</span>
+                <span class="text-[10px] text-gray-400">{{ ROLE_LABEL[u.role] || u.role }}</span>
+              </button>
+            </div>
             <form @submit.prevent="postCommentaire" class="space-y-2">
               <textarea v-model="nouveauCommentaire"
+                ref="commentTextarea"
+                @input="onCommentInput"
+                @keydown="onCommentKeydown"
                 rows="2"
-                placeholder="Partagez ce qui a été fait, ce qui reste, un blocage…"
+                placeholder="Partagez ce qui a été fait, ce qui reste, un blocage… (tapez @ pour mentionner un agent)"
                 class="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500"></textarea>
               <div class="flex items-center justify-between">
                 <span class="text-[11px] text-gray-400">{{ nouveauCommentaire.length }}/5000</span>
@@ -899,3 +1018,16 @@ onMounted(loadAll)
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+/* Mise en forme des @mentions injectées via v-html dans les commentaires. */
+:deep(.mention) {
+  display: inline-block;
+  padding: 1px 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.875em;
+}
+</style>
