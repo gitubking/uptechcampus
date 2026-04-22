@@ -11465,10 +11465,43 @@ app.get('/absences/semaine', requireAuth, absenceRoles, async (c) => {
     LIMIT 20
   `, [debut, fin])
 
+  // Liste détaillée de TOUTES les absences/retards de la semaine — même format
+  // que /absences/jour pour un meilleur suivi ligne par ligne (demande métier).
+  const { rows: details } = await pool.query(`
+    SELECT
+      COALESCE(pr.id, -1)                        AS id,
+      COALESCE(pr.statut, 'absent')              AS statut,
+      pr.heure_arrivee,
+      s.date_debut::date                         AS jour,
+      jsonb_build_object(
+        'id',e.id,'nom',e.nom,'prenom',e.prenom,
+        'numero_etudiant',e.numero_etudiant
+      ) AS etudiant,
+      jsonb_build_object('id',cl.id,'nom',cl.nom) AS classe,
+      jsonb_build_object(
+        'id',s.id,'date_debut',s.date_debut,'date_fin',s.date_fin,
+        'matiere',s.matiere,
+        'enseignant',jsonb_build_object('id',ens.id,'nom',ens.nom,'prenom',ens.prenom)
+      ) AS seance
+    FROM seances s
+    JOIN classes cl           ON cl.id = s.classe_id
+    JOIN inscriptions i ON (
+        i.classe_id = s.classe_id
+        OR i.classe_id IN (SELECT classe_id FROM classe_tronc_commun WHERE tronc_commun_id = s.classe_id)
+      ) AND i.statut IN ('inscrit_actif','pre_inscrit')
+    JOIN etudiants e          ON e.id = i.etudiant_id
+    LEFT JOIN presences pr    ON pr.seance_id = s.id AND pr.inscription_id = i.id
+    LEFT JOIN enseignants ens ON ens.id = s.enseignant_id
+    WHERE s.date_debut::date BETWEEN $1 AND $2
+      AND s.statut = 'effectue'
+      AND (pr.statut IN ('absent','retard') OR pr.id IS NULL)
+    ORDER BY s.date_debut, cl.nom, e.nom
+  `, [debut, fin])
+
   const totalAbsents = parJour.reduce((s: number, r: any) => s + r.absents, 0)
   const totalRetards = parJour.reduce((s: number, r: any) => s + r.retards, 0)
 
-  return c.json({ debut, fin, par_jour: parJour, top_absents: topAbsents, total_absents: totalAbsents, total_retards: totalRetards })
+  return c.json({ debut, fin, par_jour: parJour, top_absents: topAbsents, details, total_absents: totalAbsents, total_retards: totalRetards })
 })
 
 // GET /absences/mois?mois=YYYY-MM

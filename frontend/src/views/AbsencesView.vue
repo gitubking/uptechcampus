@@ -187,6 +187,7 @@ function exportPDF() {
       </div>`
     const parJour: any[] = semaineData.value.par_jour || []
     const top: any[] = semaineData.value.top_absents || []
+    const details: any[] = semaineData.value.details || []
     bodyHTML = `
       <div class="grid2">
         <div class="panel">
@@ -207,7 +208,33 @@ function exportPDF() {
                 <tr><td>${i + 1}</td><td><strong>${esc(e.prenom)} ${esc(e.nom)}</strong></td><td>${esc(e.classe?.nom ?? '—')}</td><td style="text-align:center;font-weight:700;color:#dc2626">${e.nb_absences}</td><td style="text-align:center;color:#f59e0b">${e.nb_retards ?? 0}</td></tr>`).join('')}</tbody>
             </table>`}
         </div>
-      </div>`
+      </div>
+      ${details.length > 0 ? `
+        <div style="padding:0 16px 4px;margin-top:4px;font-size:10px;font-weight:800;color:#E30613;text-transform:uppercase;letter-spacing:1px;">
+          Liste détaillée (${details.length} ligne${details.length > 1 ? 's' : ''})
+        </div>
+        <table class="abs-table">
+          <thead><tr>
+            <th style="width:70px">Jour</th>
+            <th>Étudiant</th>
+            <th>Classe</th>
+            <th>Séance / Matière</th>
+            <th style="width:80px">Horaire</th>
+            <th>Enseignant</th>
+            <th style="text-align:center;width:60px">Statut</th>
+          </tr></thead>
+          <tbody>${details.map(r => `
+            <tr>
+              <td>${esc(fmtDate(r.jour))}</td>
+              <td><strong>${esc(r.etudiant.prenom)} ${esc(r.etudiant.nom)}</strong>${r.etudiant.numero_etudiant ? `<br><span style="font-size:8px;color:#888">${esc(r.etudiant.numero_etudiant)}</span>` : ''}</td>
+              <td>${esc(r.classe.nom)}</td>
+              <td>${esc(r.seance.matiere || '—')}</td>
+              <td style="white-space:nowrap">${fmtHeure(r.seance.date_debut)}–${fmtHeure(r.seance.date_fin)}</td>
+              <td>${r.seance.enseignant?.id ? esc(`${r.seance.enseignant.prenom} ${r.seance.enseignant.nom}`) : '—'}</td>
+              <td style="text-align:center"><span class="chip ${r.statut === 'absent' ? 'chip-red' : 'chip-orange'}">${r.statut === 'absent' ? 'Absent' : 'Retard'}</span></td>
+            </tr>`).join('')}</tbody>
+        </table>
+      ` : ''}`
   } else if (tab.value === 'mois') {
     if (!moisData.value) { alert('Aucune donnée à exporter.'); return }
     titre = 'Suivi des absences — Mois'
@@ -530,6 +557,62 @@ function exportPDF() {
               <span v-if="e.nb_retards" style="font-size:11px;color:#f59e0b;margin-left:4px;">+{{ e.nb_retards }} ret</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Liste détaillée de TOUTES les absences de la semaine -->
+      <div v-if="semaineData && semaineData.details && semaineData.details.length > 0"
+        style="margin-top:20px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+          <h3 style="font-size:13px;font-weight:700;color:#1e293b;margin:0;">
+            📋 Liste détaillée des absences/retards
+          </h3>
+          <span style="font-size:11px;color:#64748b;background:#f1f5f9;padding:3px 10px;border-radius:999px;font-weight:600;">
+            {{ semaineData.details.length }} ligne{{ semaineData.details.length > 1 ? 's' : '' }}
+          </span>
+        </div>
+        <div class="uc-table-wrap" style="margin:0;">
+          <table class="uc-table">
+            <thead>
+              <tr>
+                <th style="width:90px;">Jour</th>
+                <th>Étudiant</th>
+                <th>Classe</th>
+                <th>Séance / Matière</th>
+                <th style="width:110px;">Horaire</th>
+                <th>Enseignant</th>
+                <th style="text-align:center;width:80px;">Statut</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in semaineData.details" :key="`${r.id}-${r.seance.id}-${r.etudiant.id}`">
+                <td style="font-size:11px;color:#475569;font-weight:600;white-space:nowrap;">{{ fmtDate(r.jour) }}</td>
+                <td>
+                  <div style="font-weight:700;color:#1e293b;">{{ r.etudiant.prenom }} {{ r.etudiant.nom }}</div>
+                  <div v-if="r.etudiant.numero_etudiant" style="font-size:10px;color:#94a3b8;font-family:monospace;">{{ r.etudiant.numero_etudiant }}</div>
+                </td>
+                <td style="font-size:12px;color:#475569;">{{ r.classe.nom }}</td>
+                <td style="font-size:12px;color:#1e293b;">{{ r.seance.matiere || '—' }}</td>
+                <td style="font-size:11px;color:#64748b;white-space:nowrap;">
+                  {{ fmtHeure(r.seance.date_debut) }}–{{ fmtHeure(r.seance.date_fin) }}
+                </td>
+                <td style="font-size:12px;color:#475569;">
+                  <span v-if="r.seance.enseignant?.id">{{ r.seance.enseignant.prenom }} {{ r.seance.enseignant.nom }}</span>
+                  <span v-else style="color:#cbd5e1;">—</span>
+                </td>
+                <td style="text-align:center;">
+                  <span :style="{
+                    display:'inline-block',padding:'2px 10px',borderRadius:'20px',
+                    fontSize:'10px',fontWeight:'700',
+                    background: r.statut === 'absent' ? '#fef2f2' : '#fffbeb',
+                    color: r.statut === 'absent' ? '#dc2626' : '#f59e0b',
+                  }">
+                    {{ r.statut === 'absent' ? 'Absent' : 'Retard' }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
