@@ -4816,6 +4816,10 @@ app.post('/migrate-enseignant', requireAuth, role('dg'), async (c) => {
 app.get('/enseignants', requireAuth, async (c) => {
   const search = c.req.query('search') || ''
   const statut = c.req.query('statut') || ''
+  // `all=1` renvoie l'intégralité des enseignants sans pagination — utilisé
+  // par les dropdowns d'affectation (classe / UE / vacation) qui doivent
+  // pouvoir en afficher plus de 20.
+  const fetchAll = c.req.query('all') === '1'
   const page = Math.max(1, parseInt(c.req.query('page') || '1'))
   const perPage = 20
   const offset = (page - 1) * perPage
@@ -4826,8 +4830,13 @@ app.get('/enseignants', requireAuth, async (c) => {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const { rows: countRows } = await pool.query(`SELECT COUNT(*)::int as total FROM enseignants i ${where}`, params)
   const total = countRows[0].total
-  params.push(perPage); const p1 = params.length
-  params.push(offset); const p2 = params.length
+  const pagination = fetchAll
+    ? ''
+    : (() => {
+        params.push(perPage); const p1 = params.length
+        params.push(offset); const p2 = params.length
+        return `LIMIT $${p1} OFFSET $${p2}`
+      })()
   const { rows } = await pool.query(`
     SELECT i.*,
       jsonb_build_object('id',aa.id,'libelle',aa.libelle,'actif',aa.actif) as annee_academique,
@@ -4843,10 +4852,10 @@ app.get('/enseignants', requireAuth, async (c) => {
       ), '[]'::json) as mes_ues
     FROM enseignants i
     LEFT JOIN annees_academiques aa ON i.annee_academique_id = aa.id
-    ${where} ORDER BY i.nom,i.prenom LIMIT $${p1} OFFSET $${p2}
+    ${where} ORDER BY i.prenom, i.nom ${pagination}
   `, params)
-  const lastPage = Math.max(1, Math.ceil(total / perPage))
-  return c.json({ data: rows, current_page: page, last_page: lastPage, per_page: perPage, total })
+  const lastPage = fetchAll ? 1 : Math.max(1, Math.ceil(total / perPage))
+  return c.json({ data: rows, current_page: fetchAll ? 1 : page, last_page: lastPage, per_page: fetchAll ? total : perPage, total })
 })
 
 // Profil enseignant du user connecté + ses classes (DOIT être avant /:id)

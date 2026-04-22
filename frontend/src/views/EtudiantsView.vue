@@ -260,7 +260,7 @@ async function loadRefs() {
     api.get('/types-formation'),
     api.get('/classes'),
     api.get('/matieres'),
-    api.get('/enseignants'),
+    api.get('/enseignants?all=1'),
   ])
   filieres.value = f.data
   niveauxEntree.value = (ne.data ?? []).filter((n: NiveauEntree) => n.actif)

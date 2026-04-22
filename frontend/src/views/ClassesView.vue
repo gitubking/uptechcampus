@@ -409,7 +409,9 @@ async function loadUes() {
 
 async function loadEnseignants() {
   if (enseignantsAll.value.length > 0) return
-  const { data } = await api.get('/enseignants')
+  // `?all=1` : récupère TOUS les enseignants (pas juste la page 1 de 20)
+  // afin que tous apparaissent dans la dropdown d'affectation UE.
+  const { data } = await api.get('/enseignants?all=1')
   enseignantsAll.value = Array.isArray(data) ? data : (data.data ?? [])
 }
 

@@ -124,7 +124,7 @@ async function load() {
       api.get('/formations-individuelles'),
       api.get('/etudiants'),
       api.get('/matieres'),
-      api.get('/enseignants'),
+      api.get('/enseignants?all=1'),
       api.get('/annees-academiques'),
     ])
     formations.value = fiRes.data
