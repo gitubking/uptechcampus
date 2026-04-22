@@ -654,6 +654,18 @@ async function ensureAuditLogsReady(): Promise<void> {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `)
+    // Migration idempotente : certains environnements avaient une ancienne
+    // version de cette table créée avec moins de colonnes. On rajoute les
+    // manquantes via ALTER TABLE IF NOT EXISTS, safe à chaque boot.
+    await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_email VARCHAR(200)`)
+    await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_role VARCHAR(40)`)
+    await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS entity_type VARCHAR(60)`)
+    await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS entity_id BIGINT`)
+    await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS description TEXT`)
+    await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS metadata JSONB`)
+    await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(60)`)
+    await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_agent TEXT`)
+    await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS severity VARCHAR(15) NOT NULL DEFAULT 'info'`)
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at DESC)`)
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs (user_id)`)
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action)`)
