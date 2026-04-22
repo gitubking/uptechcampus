@@ -717,8 +717,9 @@ async function logAudit(c: any, entry: AuditEntry): Promise<void> {
       ]
     )
   } catch (err) {
-    // ne pas bloquer la requête métier si l'audit fail
-    console.error('[audit] insert failed:', err)
+    // ne pas bloquer la requête métier si l'audit fail — mais logger l'action
+    // concernée pour faciliter le diagnostic quand la table audit_logs reste vide.
+    console.error(`[audit] insert failed for action=${entry.action}:`, err)
   }
 }
 
@@ -1324,7 +1325,7 @@ app.post('/auth/login', async (c) => {
   const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email])
   const user = rows[0]
   if (!user) {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'login_failed',
       user_email: String(email).toLowerCase(),
       description: `Tentative de connexion avec email inconnu : ${email}`,
@@ -1336,7 +1337,7 @@ app.post('/auth/login', async (c) => {
   // Blocage temporaire : vérifier si le temps est écoulé → auto-débloquer
   if (user.bloque_jusqu_a && new Date(user.bloque_jusqu_a as string) > new Date()) {
     const reste = Math.ceil((new Date(user.bloque_jusqu_a as string).getTime() - Date.now()) / 60000)
-    logAudit(c, {
+    await logAudit(c, {
       action: 'login_blocked',
       user_id: user.id, user_email: user.email, user_role: user.role,
       description: `Connexion refusée : compte bloqué temporairement (${reste}min restantes)`,
@@ -1353,7 +1354,7 @@ app.post('/auth/login', async (c) => {
   }
 
   if (user.statut === 'bloque') {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'login_blocked',
       user_id: user.id, user_email: user.email, user_role: user.role,
       description: 'Connexion refusée : compte bloqué définitivement',
@@ -1363,7 +1364,7 @@ app.post('/auth/login', async (c) => {
   }
 
   if (['inactif', 'suspendu'].includes(user.statut as string)) {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'login_blocked',
       user_id: user.id, user_email: user.email, user_role: user.role,
       description: `Connexion refusée : compte ${user.statut}`,
@@ -1384,7 +1385,7 @@ app.post('/auth/login', async (c) => {
     } else {
       await pool.query('UPDATE users SET tentatives_echec=$1 WHERE id=$2', [attempts, user.id])
     }
-    logAudit(c, {
+    await logAudit(c, {
       action: 'login_failed',
       user_id: user.id, user_email: user.email, user_role: user.role,
       description: `Mot de passe incorrect (tentative ${attempts}/${MAX_ATTEMPTS})`,
@@ -1409,7 +1410,7 @@ app.post('/auth/login', async (c) => {
   // ── Pas de 2FA : token complet ──
   await pool.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id])
   const token = jwt.sign({ userId: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' })
-  logAudit(c, {
+  await logAudit(c, {
     action: 'login_success',
     user_id: user.id, user_email: user.email, user_role: user.role,
     description: `Connexion réussie (${user.role})`,
@@ -1492,7 +1493,7 @@ app.post('/auth/2fa/verify', async (c) => {
 
   const result = await verify2FACode(user.id, user.totp_secret, code, user.totp_backup_codes)
   if (!result.ok) {
-    logAudit(c, {
+    await logAudit(c, {
       action: '2fa_verify_failed',
       user_id: user.id, user_email: user.email, user_role: user.role,
       description: 'Code 2FA invalide à la connexion',
@@ -1503,7 +1504,7 @@ app.post('/auth/2fa/verify', async (c) => {
 
   await pool.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id])
   const token = jwt.sign({ userId: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' })
-  logAudit(c, {
+  await logAudit(c, {
     action: 'login_success',
     user_id: user.id, user_email: user.email, user_role: user.role,
     description: `Connexion 2FA réussie (${user.role})${result.usedBackup ? ' [code de secours]' : ''}`,
@@ -1552,7 +1553,7 @@ app.post('/auth/2fa/verify-setup', requireAuth, async (c) => {
     'UPDATE users SET totp_secret=$1, totp_enabled=TRUE, totp_enabled_at=NOW(), totp_backup_codes=$2 WHERE id=$3',
     [secret, JSON.stringify(hashes), u.id]
   )
-  logAudit(c, {
+  await logAudit(c, {
     action: '2fa_enable',
     entity_type: 'users', entity_id: u.id,
     description: `2FA activée pour ${u.email}`,
@@ -1570,7 +1571,7 @@ app.post('/auth/2fa/disable', requireAuth, async (c) => {
   if (!rows[0]) return c.json({ message: 'Utilisateur introuvable.' }, 404)
   const valid = await bcrypt.compare(String(password), rows[0].password as string)
   if (!valid) {
-    logAudit(c, {
+    await logAudit(c, {
       action: '2fa_disable_failed',
       entity_type: 'users', entity_id: u.id,
       description: `Tentative de désactivation 2FA avec mot de passe invalide`,
@@ -1582,7 +1583,7 @@ app.post('/auth/2fa/disable', requireAuth, async (c) => {
     'UPDATE users SET totp_secret=NULL, totp_enabled=FALSE, totp_enabled_at=NULL, totp_backup_codes=NULL WHERE id=$1',
     [u.id]
   )
-  logAudit(c, {
+  await logAudit(c, {
     action: '2fa_disable',
     entity_type: 'users', entity_id: u.id,
     description: `2FA désactivée pour ${u.email}`,
@@ -1604,7 +1605,7 @@ app.post('/auth/2fa/regenerate-backup-codes', requireAuth, async (c) => {
   const newCodes = generateBackupCodes(10)
   const hashes = newCodes.map(hashBackupCode)
   await pool.query('UPDATE users SET totp_backup_codes=$1 WHERE id=$2', [JSON.stringify(hashes), u.id])
-  logAudit(c, {
+  await logAudit(c, {
     action: '2fa_regenerate_backup_codes',
     entity_type: 'users', entity_id: u.id,
     description: 'Régénération des codes de secours 2FA',
@@ -1828,7 +1829,7 @@ app.post('/auth/reset-password', async (c) => {
   )
   // Supprimer le token utilisé
   await pool.query('DELETE FROM password_reset_tokens WHERE email=$1', [email]).catch(() => {})
-  logAudit(c, {
+  await logAudit(c, {
     action: 'password_reset',
     user_id: updated[0]?.id, user_email: email, user_role: updated[0]?.role,
     description: 'Mot de passe réinitialisé via code OTP',
@@ -1840,7 +1841,7 @@ app.post('/auth/reset-password', async (c) => {
 
 // ─── AUTH PROTECTED ───────────────────────────────────────────────────────────
 app.post('/auth/logout', requireAuth, async (c) => {
-  logAudit(c, { action: 'logout', description: 'Déconnexion utilisateur' })
+  await logAudit(c, { action: 'logout', description: 'Déconnexion utilisateur' })
   return c.json({ message: 'Déconnecté avec succès.' })
 })
 
@@ -1864,7 +1865,7 @@ app.post('/auth/change-password', requireAuth, async (c) => {
   const { ancien_mot_de_passe, nouveau_mot_de_passe } = body
   const { rows } = await pool.query('SELECT password FROM users WHERE id=$1', [u(c).id])
   if (!await bcrypt.compare(ancien_mot_de_passe as string, rows[0].password as string)) {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'password_change_failed',
       description: 'Changement de mot de passe refusé : ancien MDP incorrect',
       severity: 'warning',
@@ -1873,7 +1874,7 @@ app.post('/auth/change-password', requireAuth, async (c) => {
   }
   const hashed = await bcrypt.hash(nouveau_mot_de_passe as string, 10)
   await pool.query('UPDATE users SET password=$1, premier_connexion=false WHERE id=$2', [hashed, u(c).id])
-  logAudit(c, {
+  await logAudit(c, {
     action: 'password_change',
     description: 'Mot de passe modifié par l\'utilisateur',
     severity: 'warning',
@@ -1902,7 +1903,7 @@ app.post('/users', requireAuth, role('dg'), async (c) => {
     'INSERT INTO users (nom,prenom,email,password,role,telephone,statut,premier_connexion,cgu_acceptees,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,true,false,$8) RETURNING id,nom,prenom,email,role,statut,telephone',
     [body.nom, body.prenom, body.email, hashed, body.role, body.telephone || null, body.statut || 'actif', u(c).id]
   )
-  logAudit(c, {
+  await logAudit(c, {
     action: 'user_create',
     entity_type: 'user', entity_id: rows[0].id,
     description: `Création utilisateur ${rows[0].prenom} ${rows[0].nom} (${rows[0].email}) rôle=${rows[0].role}`,
@@ -1932,7 +1933,7 @@ app.put('/users/:id', requireAuth, role('dg'), async (c) => {
   const prev = before[0] || {}
   const roleChanged   = prev.role !== rows[0].role
   const statusChanged = prev.statut !== rows[0].statut
-  logAudit(c, {
+  await logAudit(c, {
     action: roleChanged ? 'user_role_change' : (statusChanged ? 'user_status_change' : 'user_update'),
     entity_type: 'user', entity_id: rows[0].id,
     description: roleChanged
@@ -1953,7 +1954,7 @@ app.delete('/users/:id', requireAuth, role('dg'), async (c) => {
   )
   await pool.query('DELETE FROM users WHERE id=$1', [c.req.param('id')])
   if (before[0]) {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'user_delete',
       entity_type: 'user', entity_id: before[0].id,
       description: `Suppression utilisateur ${before[0].prenom} ${before[0].nom} (${before[0].email})`,
@@ -1998,7 +1999,7 @@ app.post('/users/:id/reset-password', requireAuth, role('dg'), async (c) => {
     [hashed, c.req.param('id')]
   )
   if (t[0]) {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'user_reset_password',
       entity_type: 'user', entity_id: t[0].id,
       description: `Réinitialisation du mot de passe par admin pour ${t[0].email}`,
@@ -2045,7 +2046,7 @@ app.put('/parametres/:cle', requireAuth, role('dg'), async (c) => {
   const { rows: before } = await pool.query('SELECT valeur FROM parametres_systeme WHERE cle=$1', [c.req.param('cle')])
   await pool.query('UPDATE parametres_systeme SET valeur=$1 WHERE cle=$2', [body.valeur, c.req.param('cle')])
   const { rows } = await pool.query('SELECT * FROM parametres_systeme WHERE cle=$1', [c.req.param('cle')])
-  logAudit(c, {
+  await logAudit(c, {
     action: 'parametre_update',
     entity_type: 'parametre',
     description: `Paramètre système « ${c.req.param('cle')} » modifié`,
@@ -2218,7 +2219,7 @@ app.post('/backups/snapshot', requireAuth, role('dg'), async (c) => {
        WHERE id=$6`,
       [stats.db_size_bytes, stats.table_count, stats.total_rows, JSON.stringify(stats.tables_stats), duration, runId]
     )
-    logAudit(c, {
+    await logAudit(c, {
       action: 'backup_snapshot',
       entity_type: 'backup_runs', entity_id: runId,
       description: `Snapshot de vérification BD (${stats.table_count} tables, ${stats.total_rows.toLocaleString('fr-FR')} lignes, ${(stats.db_size_bytes / 1024 / 1024).toFixed(1)} MB)`,
@@ -2231,7 +2232,7 @@ app.post('/backups/snapshot', requireAuth, role('dg'), async (c) => {
       `UPDATE backup_runs SET status='failed', error_message=$1, completed_at=NOW(), duration_ms=$2 WHERE id=$3`,
       [String(err?.message ?? err), Date.now() - start, runId]
     )
-    logAudit(c, {
+    await logAudit(c, {
       action: 'backup_snapshot_failed',
       entity_type: 'backup_runs', entity_id: runId,
       description: `Échec snapshot : ${err?.message ?? err}`,
@@ -3738,7 +3739,7 @@ app.post('/etudiants/import', requireAuth, role('secretariat', 'dg'), async (c) 
     }
   }
 
-  logAudit(c, {
+  await logAudit(c, {
     action: 'etudiants_import',
     entity_type: 'etudiants',
     description: `Import CSV : ${inserted.length} inséré(s), ${errors.length} erreur(s) sur ${rows.length} ligne(s)`,
@@ -5189,7 +5190,7 @@ app.post('/clotures', requireAuth, role('dg'), async (c) => {
     LEFT JOIN users u ON u.id = c.cloture_par
     WHERE c.id = $1
   `, [rows[0].id])
-  logAudit(c, {
+  await logAudit(c, {
     action: 'cloture_mensuelle',
     entity_type: 'cloture', entity_id: rows[0].id,
     description: `Clôture mensuelle période ${b.periode}`,
@@ -5203,7 +5204,7 @@ app.delete('/clotures/:id', requireAuth, role('dg'), async (c) => {
   const { rows: before } = await pool.query('SELECT periode FROM clotures_mensuelles WHERE id=$1', [c.req.param('id')])
   await pool.query('DELETE FROM clotures_mensuelles WHERE id=$1', [c.req.param('id')])
   if (before[0]) {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'cloture_reopen',
       entity_type: 'cloture', entity_id: Number(c.req.param('id')),
       description: `Réouverture de la période clôturée ${before[0].periode}`,
@@ -6046,7 +6047,7 @@ app.post('/paiements', requireAuth, role('secretariat', 'dg', 'resp_fin'), async
       }
     } catch { /* silencieux */ }
   }
-  logAudit(c, {
+  await logAudit(c, {
     action: 'paiement_create',
     entity_type: 'paiement', entity_id: rows[0].id,
     description: `Paiement ${numero} — ${Math.round(rows[0].montant)} FCFA (${rows[0].type_paiement}, ${rows[0].mode_paiement}) ${isConfirmed ? 'confirmé' : 'en attente'}`,
@@ -6073,7 +6074,7 @@ app.put('/paiements/:id', requireAuth, role('dg', 'resp_fin'), async (c) => {
   )
   if (rows[0]?.inscription_id) await recalculerEcheances(rows[0].inscription_id)
   if (rows[0]) {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'paiement_update',
       entity_type: 'paiement', entity_id: rows[0].id,
       description: `Paiement ${rows[0].numero_recu} modifié — ${Math.round(rows[0].montant)} FCFA`,
@@ -6093,7 +6094,7 @@ app.post('/paiements/:id/confirmer', requireAuth, role('dg', 'resp_fin'), async 
     await recalculerEcheances(rows[0].inscription_id)
   }
   if (rows[0]) {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'paiement_confirm',
       entity_type: 'paiement', entity_id: rows[0].id,
       description: `Paiement ${rows[0].numero_recu} confirmé — ${Math.round(rows[0].montant)} FCFA`,
@@ -6196,7 +6197,7 @@ app.post('/paiements/:id/rejeter', requireAuth, role('dg', 'resp_fin'), async (c
     [b.motif || null, c.req.param('id')]
   )
   if (rows[0]) {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'paiement_reject',
       entity_type: 'paiement', entity_id: rows[0].id,
       description: `Paiement ${rows[0].numero_recu} rejeté — motif: ${b.motif || '—'}`,
@@ -6216,7 +6217,7 @@ app.delete('/paiements/:id', requireAuth, role('dg'), async (c) => {
   await pool.query('DELETE FROM paiements WHERE id=$1', [id])
   // Recalculer les statuts d'échéances
   if (inscriptionId) await recalculerEcheances(inscriptionId)
-  logAudit(c, {
+  await logAudit(c, {
     action: 'paiement_delete',
     entity_type: 'paiement', entity_id: Number(id),
     description: `Paiement ${pRows[0].numero_recu} supprimé — ${Math.round(pRows[0].montant)} FCFA`,
@@ -6267,7 +6268,7 @@ app.post('/depenses', requireAuth, role('secretariat', 'dg'), async (c) => {
      VALUES ($1,$2,$3,$4,'en_attente',$5,$6,$7,$8,$9) RETURNING *`,
     [b.libelle, b.montant, b.categorie || null, b.date_depense, b.mode_paiement || 'especes', b.beneficiaire || null, b.reference_facture || null, b.notes || null, u(c).id]
   )
-  logAudit(c, {
+  await logAudit(c, {
     action: 'depense_create',
     entity_type: 'depense', entity_id: rows[0].id,
     description: `Dépense créée : ${rows[0].libelle} — ${Math.round(rows[0].montant)} FCFA (${rows[0].categorie || '—'})`,
@@ -6284,7 +6285,7 @@ app.post('/depenses/:id/justificatif', requireAuth, role('secretariat', 'dg'), a
 app.post('/depenses/:id/valider', requireAuth, role('dg'), async (c) => {
   const { rows } = await pool.query("UPDATE depenses SET statut='validee' WHERE id=$1 RETURNING *", [c.req.param('id')])
   if (rows[0]) {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'depense_validate',
       entity_type: 'depense', entity_id: rows[0].id,
       description: `Dépense validée : ${rows[0].libelle} — ${Math.round(rows[0].montant)} FCFA`,
@@ -6299,7 +6300,7 @@ app.post('/depenses/:id/rejeter', requireAuth, role('dg'), async (c) => {
   const b = await c.req.json().catch(() => ({})) as Record<string, unknown>
   const { rows } = await pool.query("UPDATE depenses SET statut='rejetee',motif_rejet=$1 WHERE id=$2 RETURNING *", [b.motif || null, c.req.param('id')])
   if (rows[0]) {
-    logAudit(c, {
+    await logAudit(c, {
       action: 'depense_reject',
       entity_type: 'depense', entity_id: rows[0].id,
       description: `Dépense rejetée : ${rows[0].libelle} — motif: ${b.motif || '—'}`,
@@ -6326,7 +6327,7 @@ app.post('/depenses/valider-masse', requireAuth, role('dg'), async (c) => {
     )
   }
   const n = result.rowCount ?? 0
-  logAudit(c, {
+  await logAudit(c, {
     action: 'depense_validate_bulk',
     description: `Validation en masse : ${n} dépense(s)`,
     metadata: { nb: n, ids: ids ?? 'all_pending' },
@@ -6365,7 +6366,7 @@ app.put('/depenses/:id', requireAuth, role('dg', 'resp_fin'), async (c) => {
       id
     ]
   )
-  logAudit(c, {
+  await logAudit(c, {
     action: 'depense_update',
     entity_type: 'depense', entity_id: Number(id),
     description: `Dépense modifiée : ${b.libelle} — ${Math.round(montant)} FCFA`,
@@ -6384,7 +6385,7 @@ app.delete('/depenses/:id', requireAuth, role('dg'), async (c) => {
   }
   // Le DG peut supprimer toute dépense, même validée (avec confirmation côté frontend)
   await pool.query('DELETE FROM depenses WHERE id=$1', [c.req.param('id')])
-  logAudit(c, {
+  await logAudit(c, {
     action: 'depense_delete',
     entity_type: 'depense', entity_id: Number(c.req.param('id')),
     description: `Dépense supprimée : ${rows[0].libelle} — ${Math.round(rows[0].montant)} FCFA (statut=${rows[0].statut})`,
@@ -6764,7 +6765,7 @@ app.post('/exonerations/:id/valider', requireAuth, role('dg', 'resp_fin'), async
   )
   if (!rows[0]) return c.json({ message: 'Exonération introuvable ou déjà validée.' }, 404)
   const applique = await appliquerExoneration(Number(id))
-  logAudit(c, {
+  await logAudit(c, {
     action: 'exoneration_validate',
     entity_type: 'exoneration', entity_id: Number(id),
     description: `Exonération #${id} validée — ${Math.round(applique)} FCFA appliqués (motif=${rows[0].motif}, portée=${rows[0].portee})`,
@@ -6782,7 +6783,7 @@ app.post('/exonerations/:id/rejeter', requireAuth, role('dg', 'resp_fin'), async
     [b.motif || null, c.req.param('id')]
   )
   if (!rows[0]) return c.json({ message: 'Exonération introuvable ou non annulable.' }, 404)
-  logAudit(c, {
+  await logAudit(c, {
     action: 'exoneration_reject',
     entity_type: 'exoneration', entity_id: rows[0].id,
     description: `Exonération #${rows[0].id} rejetée — motif: ${b.motif || '—'}`,
@@ -6806,7 +6807,7 @@ app.post('/exonerations/:id/annuler', requireAuth, role('dg'), async (c) => {
     "UPDATE exonerations SET statut='annulee', annulee_at=NOW(), annulee_par=$1, motif_annulation=$2 WHERE id=$3",
     [u(c).id, b.motif || null, id]
   )
-  logAudit(c, {
+  await logAudit(c, {
     action: 'exoneration_cancel',
     entity_type: 'exoneration', entity_id: Number(id),
     description: `Exonération #${id} annulée — ${Math.round(ex[0].montant_applique || 0)} FCFA retirés des échéances`,
@@ -6825,7 +6826,7 @@ app.delete('/exonerations/:id', requireAuth, role('dg'), async (c) => {
     await retirerExoneration(Number(id))
   }
   await pool.query('DELETE FROM exonerations WHERE id=$1', [id])
-  logAudit(c, {
+  await logAudit(c, {
     action: 'exoneration_delete',
     entity_type: 'exoneration', entity_id: Number(id),
     description: `Exonération #${id} supprimée (statut=${rows[0].statut})`,
