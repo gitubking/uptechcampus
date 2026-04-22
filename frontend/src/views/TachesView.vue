@@ -27,6 +27,18 @@ interface Tache {
   updated_at: string
   createur_nom?: string | null
   createur_prenom?: string | null
+  nb_commentaires?: number
+}
+
+interface Commentaire {
+  id: number
+  tache_id: number
+  auteur_id: number | null
+  auteur_nom: string | null
+  auteur_prenom: string | null
+  auteur_role: string | null
+  contenu: string
+  created_at: string
 }
 
 interface User {
@@ -71,6 +83,17 @@ const searchQ = ref('')
 
 const showForm = ref(false)
 const editTarget = ref<Tache | null>(null)
+
+// Commentaires — modal dédié accessible à tous les rôles admin.
+// Un commentaire ne modifie JAMAIS les champs métier de la tâche : il sert
+// uniquement à tracer l'avancement ("j'ai fait X", "problème Y", etc.).
+const showCommentsModal = ref(false)
+const commentsTarget = ref<Tache | null>(null)
+const commentaires = ref<Commentaire[]>([])
+const commentairesLoading = ref(false)
+const nouveauCommentaire = ref('')
+const commentSaving = ref(false)
+
 const form = ref({
   titre: '',
   description: '',
@@ -272,6 +295,63 @@ async function removeTache(t: Tache) {
   }
 }
 
+// ── Commentaires ───────────────────────────────────────────────────────────
+async function openComments(t: Tache) {
+  commentsTarget.value = t
+  commentaires.value = []
+  nouveauCommentaire.value = ''
+  showCommentsModal.value = true
+  commentairesLoading.value = true
+  try {
+    const { data } = await api.get(`/taches/${t.id}/commentaires`)
+    commentaires.value = data
+  } catch {
+    commentaires.value = []
+  } finally {
+    commentairesLoading.value = false
+  }
+}
+
+async function postCommentaire() {
+  const t = commentsTarget.value
+  const contenu = nouveauCommentaire.value.trim()
+  if (!t || !contenu) return
+  commentSaving.value = true
+  try {
+    const { data } = await api.post(`/taches/${t.id}/commentaires`, { contenu })
+    commentaires.value.push(data)
+    nouveauCommentaire.value = ''
+    // Mettre à jour le compteur sur la carte
+    t.nb_commentaires = (t.nb_commentaires ?? 0) + 1
+  } catch (e: any) {
+    alert(e.response?.data?.message ?? 'Erreur')
+  } finally {
+    commentSaving.value = false
+  }
+}
+
+async function deleteCommentaire(c: Commentaire) {
+  if (!confirm('Supprimer ce commentaire ?')) return
+  try {
+    await api.delete(`/tache-commentaires/${c.id}`)
+    commentaires.value = commentaires.value.filter(x => x.id !== c.id)
+    if (commentsTarget.value && commentsTarget.value.nb_commentaires) {
+      commentsTarget.value.nb_commentaires--
+    }
+  } catch (e: any) {
+    alert(e.response?.data?.message ?? 'Erreur')
+  }
+}
+
+function canDeleteComment(c: Commentaire): boolean {
+  return isManager.value || c.auteur_id === (auth.user?.id ?? -1)
+}
+
+function formatDateHeure(iso: string): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
 // Drag & drop Kanban — seul le DG peut déplacer librement ; un assigné ne peut
 // que "drop" dans la colonne Terminé.
 const dragId = ref<number | null>(null)
@@ -398,19 +478,31 @@ onMounted(loadAll)
                 <span :class="['inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide', PRIORITE_CONF[t.priorite].color]">
                   {{ PRIORITE_CONF[t.priorite].label }}
                 </span>
-                <div class="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-                  <button v-if="isManager" @click="openEdit(t)"
-                    class="rounded p-1 text-gray-400 transition hover:bg-gray-100 hover:text-red-600"
-                    title="Modifier">
-                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                <div class="flex items-center gap-0.5">
+                  <!-- Bouton commentaires toujours visible, avec badge de compte -->
+                  <button @click.stop="openComments(t)"
+                    class="relative rounded p-1 text-gray-400 transition hover:bg-blue-50 hover:text-blue-600"
+                    :title="`Commentaires (${t.nb_commentaires ?? 0})`">
+                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                    <span v-if="t.nb_commentaires && t.nb_commentaires > 0"
+                      class="absolute -right-1 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-blue-500 px-1 text-[9px] font-bold text-white">
+                      {{ t.nb_commentaires }}
+                    </span>
                   </button>
-                  <button
-                    v-if="!isManager && (t.assignees ?? []).some(a => a.id === auth.user?.id) && t.statut !== 'termine'"
-                    @click="markDone(t)"
-                    class="rounded p-1 text-emerald-500 transition hover:bg-emerald-50 hover:text-emerald-700"
-                    title="Marquer terminé">
-                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                  </button>
+                  <div class="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+                    <button v-if="isManager" @click.stop="openEdit(t)"
+                      class="rounded p-1 text-gray-400 transition hover:bg-gray-100 hover:text-red-600"
+                      title="Modifier">
+                      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    </button>
+                    <button
+                      v-if="!isManager && (t.assignees ?? []).some(a => a.id === auth.user?.id) && t.statut !== 'termine'"
+                      @click.stop="markDone(t)"
+                      class="rounded p-1 text-emerald-500 transition hover:bg-emerald-50 hover:text-emerald-700"
+                      title="Marquer terminé">
+                      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    </button>
+                  </div>
                 </div>
               </div>
               <!-- Titre -->
@@ -534,6 +626,15 @@ onMounted(loadAll)
                 <span v-else class="text-gray-400">—</span>
               </td>
               <td class="px-4 py-3 text-right">
+                <button @click="openComments(t)"
+                  class="relative p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                  :title="`Commentaires (${t.nb_commentaires ?? 0})`">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                  <span v-if="t.nb_commentaires && t.nb_commentaires > 0"
+                    class="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-bold text-white">
+                    {{ t.nb_commentaires }}
+                  </span>
+                </button>
                 <button v-if="isManager" @click="openEdit(t)" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition" title="Modifier">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -708,6 +809,91 @@ onMounted(loadAll)
               </button>
             </div>
           </form>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- ══════════════ Modal commentaires de tâche ══════════════ -->
+    <Teleport to="body">
+      <div v-if="showCommentsModal && commentsTarget"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/40" @click="showCommentsModal = false"></div>
+        <div class="relative flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <!-- En-tête -->
+          <div class="border-b border-gray-200 bg-gray-50 px-5 py-4">
+            <div class="mb-1 flex items-center gap-2">
+              <span :class="['inline-block rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                PRIORITE_CONF[commentsTarget.priorite].color]">
+                {{ PRIORITE_CONF[commentsTarget.priorite].label }}
+              </span>
+              <span :class="['inline-block rounded px-2 py-0.5 text-[10px] font-semibold',
+                STATUT_CONF[commentsTarget.statut].color]">
+                {{ STATUT_CONF[commentsTarget.statut].label }}
+              </span>
+            </div>
+            <h2 class="text-base font-semibold text-gray-900">{{ commentsTarget.titre }}</h2>
+            <p class="mt-0.5 text-xs text-gray-500">
+              Fil d'avancement — {{ commentaires.length }} commentaire{{ commentaires.length > 1 ? 's' : '' }}
+            </p>
+          </div>
+
+          <!-- Fil de commentaires -->
+          <div class="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+            <div v-if="commentairesLoading" class="py-8 text-center text-sm text-gray-400">
+              Chargement…
+            </div>
+            <div v-else-if="commentaires.length === 0"
+              class="rounded-xl border border-dashed border-gray-200 bg-gray-50 py-8 text-center">
+              <svg class="mx-auto h-7 w-7 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+              <p class="mt-2 text-xs text-gray-500">Aucun commentaire pour l'instant.<br>Écrivez le premier pour tracer l'avancement.</p>
+            </div>
+            <div v-for="c in commentaires" :key="c.id" class="group flex items-start gap-2.5">
+              <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-red-500 to-red-700 text-[10px] font-bold text-white">
+                {{ initials(c.auteur_prenom, c.auteur_nom) }}
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-baseline gap-2">
+                  <span class="text-xs font-semibold text-gray-900">
+                    {{ c.auteur_prenom }} {{ c.auteur_nom }}
+                  </span>
+                  <span class="text-[10px] text-gray-400">{{ formatDateHeure(c.created_at) }}</span>
+                  <button v-if="canDeleteComment(c)" @click="deleteCommentaire(c)"
+                    title="Supprimer ce commentaire"
+                    class="ml-auto rounded p-0.5 text-gray-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/></svg>
+                  </button>
+                </div>
+                <div class="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-800">
+                  {{ c.contenu }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Formulaire d'ajout -->
+          <div class="border-t border-gray-200 bg-white px-5 py-3">
+            <form @submit.prevent="postCommentaire" class="space-y-2">
+              <textarea v-model="nouveauCommentaire"
+                rows="2"
+                placeholder="Partagez ce qui a été fait, ce qui reste, un blocage…"
+                class="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500"></textarea>
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] text-gray-400">{{ nouveauCommentaire.length }}/5000</span>
+                <div class="flex gap-2">
+                  <button type="button" @click="showCommentsModal = false"
+                    class="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-200">
+                    Fermer
+                  </button>
+                  <button type="submit"
+                    :disabled="commentSaving || !nouveauCommentaire.trim()"
+                    class="inline-flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50">
+                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                    {{ commentSaving ? 'Envoi…' : 'Publier' }}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     </Teleport>

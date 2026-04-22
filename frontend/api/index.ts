@@ -1028,6 +1028,18 @@ async function ensureTachesReady(): Promise<void> {
       SELECT id, assignee_id FROM taches WHERE assignee_id IS NOT NULL
       ON CONFLICT DO NOTHING
     `)
+    // Fil de commentaires : permet aux agents de commenter l'avancement
+    // d'une tâche "en cours" sans modifier les champs métier. Les entrées
+    // restent immuables (pas d'update, on peut supprimer mais pas éditer)
+    // pour garder une trace fiable de qui a dit quoi et quand.
+    await pool.query(`CREATE TABLE IF NOT EXISTS tache_commentaires (
+      id SERIAL PRIMARY KEY,
+      tache_id INTEGER NOT NULL REFERENCES taches(id) ON DELETE CASCADE,
+      auteur_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      contenu TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_tache_comm_tache ON tache_commentaires(tache_id, created_at)`)
   })().catch((err) => {
     tachesReady = null
     throw err
@@ -14094,7 +14106,8 @@ app.get('/taches', requireAuth, role(...TACHES_ROLES), async (c) => {
                JOIN users u ON u.id = ta.user_id
                WHERE ta.tache_id = t.id),
               '[]'::json
-            ) AS assignees
+            ) AS assignees,
+            (SELECT COUNT(*)::int FROM tache_commentaires tc WHERE tc.tache_id = t.id) AS nb_commentaires
      FROM taches t
      LEFT JOIN users cb ON cb.id = t.created_by
      ${where}
@@ -14247,6 +14260,67 @@ app.delete('/taches/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
   await pool.query('DELETE FROM taches WHERE id=$1', [id])
   return c.body(null, 204)
 })
+
+// ─── Commentaires de tâches ───────────────────────────────────────────────
+// Tous les rôles admin peuvent lire et poster ; un commentaire est
+// supprimable par son auteur ou par le manager (DG). Pas d'édition possible
+// pour garder la trace d'avancement fidèle.
+
+// GET /taches/:id/commentaires — fil chronologique
+app.get('/taches/:id/commentaires', requireAuth, role(...TACHES_ROLES), async (c) => {
+  await ensureTachesReady()
+  const id = c.req.param('id')
+  const { rows } = await pool.query(
+    `SELECT tc.id, tc.tache_id, tc.auteur_id, tc.contenu, tc.created_at,
+            u.nom AS auteur_nom, u.prenom AS auteur_prenom, u.role AS auteur_role
+     FROM tache_commentaires tc
+     LEFT JOIN users u ON u.id = tc.auteur_id
+     WHERE tc.tache_id = $1
+     ORDER BY tc.created_at ASC`,
+    [id]
+  )
+  return c.json(rows)
+})
+
+// POST /taches/:id/commentaires — ajouter un commentaire
+app.post('/taches/:id/commentaires', requireAuth, role(...TACHES_ROLES), async (c) => {
+  await ensureTachesReady()
+  const id = c.req.param('id')
+  const user = u(c) as any
+  const body = await c.req.json()
+  const contenu = String(body.contenu ?? '').trim()
+  if (!contenu) return c.json({ message: 'Le commentaire ne peut pas être vide.' }, 422)
+  if (contenu.length > 5000) return c.json({ message: 'Commentaire trop long (5000 car. max).' }, 422)
+  // Vérifier que la tâche existe
+  const { rows: t } = await pool.query('SELECT id FROM taches WHERE id=$1', [id])
+  if (!t[0]) return c.json({ message: 'Tâche introuvable.' }, 404)
+  const { rows } = await pool.query(
+    `INSERT INTO tache_commentaires (tache_id, auteur_id, contenu)
+     VALUES ($1, $2, $3)
+     RETURNING id, tache_id, auteur_id, contenu, created_at`,
+    [id, user.id, contenu]
+  )
+  // Enrichit la ligne retournée avec les infos auteur
+  const row = { ...rows[0], auteur_nom: user.nom, auteur_prenom: user.prenom, auteur_role: user.role }
+  return c.json(row, 201)
+})
+
+// DELETE /tache-commentaires/:id — auteur ou manager
+app.delete('/tache-commentaires/:id', requireAuth, role(...TACHES_ROLES), async (c) => {
+  await ensureTachesReady()
+  const user = u(c) as any
+  const id = c.req.param('id')
+  const { rows } = await pool.query('SELECT auteur_id FROM tache_commentaires WHERE id=$1', [id])
+  if (!rows[0]) return c.body(null, 204)
+  const isManager = TACHES_MANAGER_ROLES.includes(user.role)
+  if (!isManager && rows[0].auteur_id !== user.id) {
+    return c.json({ message: 'Accès refusé.' }, 403)
+  }
+  await pool.query('DELETE FROM tache_commentaires WHERE id=$1', [id])
+  return c.body(null, 204)
+})
+
+// Modifie aussi GET /taches pour retourner le compteur de commentaires
 
 // GET /taches/stats — KPIs productivité par agent (managers uniquement)
 // Passe par tache_assignees : une tâche assignée à 3 agents compte pour
