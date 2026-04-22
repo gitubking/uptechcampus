@@ -2400,6 +2400,53 @@ app.get('/audit-logs', requireAuth, role('dg'), async (c) => {
   return c.json({ data: rows, total: totalRows[0].n, limit, offset })
 })
 
+// POST /audit-logs/test-write — diagnostic : insère une entrée de test et
+// renvoie soit la ligne créée, soit l'erreur SQL détaillée. Permet de voir
+// concrètement pourquoi les écritures échouent (contrainte, type, permission).
+app.post('/audit-logs/test-write', requireAuth, role('dg'), async (c) => {
+  try {
+    await ensureAuditLogsReady()
+    const user = c.get('user') as any
+    const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+           ?? c.req.header('x-real-ip')
+           ?? null
+    const ua = c.req.header('user-agent') ?? null
+    const { rows } = await pool.query(
+      `INSERT INTO audit_logs
+         (user_id, user_email, user_role, action, entity_type, entity_id,
+          description, metadata, ip_address, user_agent, severity)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING id, created_at`,
+      [
+        user?.id ?? null,
+        user?.email ?? null,
+        user?.role ?? null,
+        'audit_test',
+        null, null,
+        `Test diagnostic lancé par ${user?.prenom ?? ''} ${user?.nom ?? ''}`.trim(),
+        JSON.stringify({ source: 'test-write', ts: new Date().toISOString() }),
+        ip, ua, 'info',
+      ]
+    )
+    // Compte aussi les entrées totales pour confirmer l'état de la table
+    const { rows: totalRows } = await pool.query('SELECT COUNT(*)::int AS n FROM audit_logs')
+    return c.json({
+      ok: true,
+      created: rows[0],
+      total_entries: totalRows[0].n,
+      message: `Entrée #${rows[0].id} créée avec succès.`,
+    })
+  } catch (err: any) {
+    return c.json({
+      ok: false,
+      error: err?.message ?? String(err),
+      detail: err?.detail ?? null,
+      hint: err?.hint ?? null,
+      code: err?.code ?? null,
+    }, 500)
+  }
+})
+
 // Valeurs distinctes pour les filtres (actions, entity_types) — DG
 app.get('/audit-logs/facets', requireAuth, role('dg'), async (c) => {
   await ensureAuditLogsReady()
