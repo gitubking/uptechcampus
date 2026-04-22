@@ -3076,7 +3076,7 @@ app.get('/formations-individuelles/:id', requireAuth, async (c) => {
 })
 
 // Créer une formation individuelle + modules + échéancier 50/50
-app.post('/formations-individuelles', requireAuth, role('dg', 'coordinateur', 'secretariat'), async (c) => {
+app.post('/formations-individuelles', requireAuth, role('dg', 'dir_peda', 'coordinateur', 'secretariat'), async (c) => {
   const b = await c.req.json()
 
   // Création inline d'un nouvel étudiant si new_etudiant est fourni
@@ -3147,7 +3147,7 @@ app.post('/formations-individuelles', requireAuth, role('dg', 'coordinateur', 's
 // Créer une formation individuelle de GROUPE (même formation pour N étudiants)
 // Accepte etudiant_ids[] (existants) ET/OU participants[] (nouveaux à créer)
 // Tarification : cout_mode = 'par_personne' (défaut) ou 'total_groupe'
-app.post('/formations-individuelles/groupe', requireAuth, role('dg', 'coordinateur', 'secretariat'), async (c) => {
+app.post('/formations-individuelles/groupe', requireAuth, role('dg', 'dir_peda', 'coordinateur', 'secretariat'), async (c) => {
   const b = await c.req.json()
   const existingIds: number[] = Array.isArray(b.etudiant_ids) ? b.etudiant_ids : []
   const newParticipants: any[] = Array.isArray(b.participants) ? b.participants : []
