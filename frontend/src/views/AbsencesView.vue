@@ -5,7 +5,7 @@ import { UcPageHeader, UcFormGroup } from '@/components/ui'
 import { openPrintWindow, uptechHeaderHTML, uptechFooterHTML, uptechPrintCSS } from '@/utils/uptechPrint'
 
 // ── Onglet actif ──────────────────────────────────────────────────────────────
-type Tab = 'jour' | 'semaine' | 'mois' | 'classe'
+type Tab = 'jour' | 'semaine' | 'mois' | 'classe' | 'top'
 const tab = ref<Tab>('jour')
 
 // ── Filtres ───────────────────────────────────────────────────────────────────
@@ -15,6 +15,7 @@ const filterDate    = ref(today)
 const filterSemaine = ref(today)
 const filterMois    = ref(thisMonth)
 const filterMoisClasse = ref(thisMonth)
+const filterMoisTop = ref(thisMonth)
 const filterClasse  = ref<number | null>(null)
 
 const loading = ref(false)
@@ -24,6 +25,7 @@ const jourData    = ref<any>(null)
 const semaineData = ref<any>(null)
 const moisData    = ref<any>(null)
 const classeData  = ref<any>(null)
+const topData     = ref<any>(null)
 const classes     = ref<{ id: number; nom: string }[]>([])
 
 // ── Chargement ────────────────────────────────────────────────────────────────
@@ -66,11 +68,22 @@ async function loadClasse() {
   } finally { loading.value = false }
 }
 
+async function loadTop() {
+  // Réutilise /absences/mois qui renvoie déjà un `classement` complet :
+  // pas besoin d'un nouvel endpoint back pour afficher le Top absents.
+  loading.value = true
+  try {
+    const { data } = await api.get('/absences/mois', { params: { mois: filterMoisTop.value } })
+    topData.value = data
+  } finally { loading.value = false }
+}
+
 function loadCurrent() {
   if (tab.value === 'jour')    loadJour()
   else if (tab.value === 'semaine') loadSemaine()
   else if (tab.value === 'mois')    loadMois()
   else if (tab.value === 'classe')  loadClasse()
+  else if (tab.value === 'top')     loadTop()
 }
 
 watch(tab, loadCurrent)
@@ -79,6 +92,7 @@ watch(filterClasse,    loadJour)
 watch(filterSemaine,   loadSemaine)
 watch(filterMois,      loadMois)
 watch(filterMoisClasse, loadClasse)
+watch(filterMoisTop, loadTop)
 
 onMounted(async () => {
   await loadClasses()
@@ -224,6 +238,35 @@ function exportPDF() {
               <td style="text-align:center"><span class="chip ${Number(e.taux_absence) >= 30 ? 'chip-red' : Number(e.taux_absence) >= 15 ? 'chip-orange' : 'chip-green'}">${e.taux_absence}%</span></td>
             </tr>`).join('')}</tbody>
         </table>`
+  } else if (tab.value === 'top') {
+    if (!topData.value) { alert('Aucune donnée à exporter.'); return }
+    titre = 'Suivi des absences — Top absents'
+    periode = fmtMois(filterMoisTop.value)
+    kpisHTML = `
+      <div class="abs-kpis">
+        <div class="kpi"><span class="k-lbl">Étudiants absents</span><span class="k-val">${topData.value.classement.length}</span></div>
+        <div class="kpi ko"><span class="k-lbl">Total absences</span><span class="k-val">${topData.value.total_absents}</span></div>
+        <div class="kpi warn"><span class="k-lbl">Total retards</span><span class="k-val">${topData.value.total_retards}</span></div>
+      </div>`
+    const classement: any[] = topData.value.classement || []
+    bodyHTML = classement.length === 0
+      ? `<div class="empty">Aucune absence ce mois.</div>`
+      : `<table class="abs-table">
+          <thead><tr>
+            <th style="width:30px">#</th><th>Étudiant</th><th>N° Étud.</th><th>Classe</th>
+            <th style="text-align:center">Absences</th><th style="text-align:center">Retards</th><th style="text-align:center">Taux abs.</th>
+          </tr></thead>
+          <tbody>${classement.map((e, i) => `
+            <tr>
+              <td>${i + 1}</td>
+              <td><strong>${esc(e.prenom)} ${esc(e.nom)}</strong></td>
+              <td>${esc(e.numero_etudiant ?? '—')}</td>
+              <td>${esc(e.classe?.nom ?? '—')}</td>
+              <td style="text-align:center;font-weight:700;color:#dc2626">${e.nb_absences}</td>
+              <td style="text-align:center;color:#f59e0b">${e.nb_retards}</td>
+              <td style="text-align:center"><span class="chip ${Number(e.taux_absence) >= 30 ? 'chip-red' : Number(e.taux_absence) >= 15 ? 'chip-orange' : 'chip-green'}">${e.taux_absence}%</span></td>
+            </tr>`).join('')}</tbody>
+        </table>`
   } else {
     if (!classeData.value) { alert('Aucune donnée à exporter.'); return }
     titre = 'Suivi des absences — Par classe'
@@ -315,6 +358,7 @@ function exportPDF() {
     <!-- Onglets -->
     <div style="display:flex;gap:4px;border-bottom:2px solid #e2e8f0;margin-bottom:20px;">
       <button v-for="t in ([
+        { key:'top',     label:'🏆 Top absents' },
         { key:'jour',    label:'📅 Par jour' },
         { key:'semaine', label:'📆 Par semaine' },
         { key:'mois',    label:'🗓️ Par mois' },
@@ -636,6 +680,91 @@ function exportPDF() {
                   background: Number(r.taux_absence) >= 30 ? '#fef2f2' : Number(r.taux_absence) >= 15 ? '#fffbeb' : '#f0fdf4',
                   color: tauxColor(Number(r.taux_absence)),
                 }">{{ r.taux_absence ?? '—' }}%</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ═══════════════ ONGLET TOP ABSENTS ═══════════════ -->
+    <div v-if="tab === 'top'">
+      <div class="uc-filters-bar">
+        <UcFormGroup label="Période (mois)">
+          <input type="month" v-model="filterMoisTop" class="uc-input" />
+        </UcFormGroup>
+      </div>
+
+      <!-- KPIs -->
+      <div class="uc-kpi-grid" style="margin-bottom:18px;" v-if="topData">
+        <div class="uc-kpi-card">
+          <div class="uc-kpi-label">Étudiants absents ce mois</div>
+          <div class="uc-kpi-value">{{ topData.classement.length }}</div>
+        </div>
+        <div class="uc-kpi-card" style="background:#fef2f2;border-color:#fecaca;">
+          <div class="uc-kpi-label" style="color:#991b1b;">Total absences</div>
+          <div class="uc-kpi-value" style="color:#dc2626;">{{ topData.total_absents }}</div>
+        </div>
+        <div class="uc-kpi-card" style="background:#fffbeb;border-color:#fde68a;">
+          <div class="uc-kpi-label" style="color:#92400e;">Total retards</div>
+          <div class="uc-kpi-value" style="color:#f59e0b;">{{ topData.total_retards }}</div>
+        </div>
+      </div>
+
+      <div v-if="loading" class="uc-empty">Chargement…</div>
+      <div v-else-if="!topData || topData.classement.length === 0" class="uc-empty">
+        Aucune absence enregistrée pour ce mois.
+      </div>
+      <div v-else class="uc-table-wrap">
+        <table class="uc-table">
+          <thead>
+            <tr>
+              <th style="width:50px;">#</th>
+              <th>Étudiant</th>
+              <th>Classe</th>
+              <th style="text-align:center;">Absences</th>
+              <th style="text-align:center;">Retards</th>
+              <th style="text-align:center;">Taux d'absence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(e, i) in topData.classement" :key="e.id">
+              <td>
+                <span :style="{
+                  display:'inline-flex',alignItems:'center',justifyContent:'center',
+                  width:'28px',height:'28px',borderRadius:'50%',
+                  background: (i as number) === 0 ? '#fef3c7' : (i as number) === 1 ? '#e5e7eb' : (i as number) === 2 ? '#fed7aa' : '#f8fafc',
+                  color: (i as number) < 3 ? '#92400e' : '#64748b',
+                  fontSize:'12px', fontWeight:'800',
+                }">{{ (i as number) + 1 }}</span>
+              </td>
+              <td>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <div :style="{
+                    width:'32px',height:'32px',borderRadius:'50%',
+                    background:'linear-gradient(135deg,#ef4444 0%,#b91c1c 100%)',
+                    color:'#fff',fontSize:'11px',fontWeight:'700',
+                    display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,
+                  }">{{ (e.prenom?.[0] ?? '') + (e.nom?.[0] ?? '') }}</div>
+                  <div>
+                    <div style="font-weight:700;color:#1e293b;">{{ e.prenom }} {{ e.nom }}</div>
+                    <div style="font-size:10px;color:#94a3b8;font-family:monospace;">{{ e.numero_etudiant ?? '—' }}</div>
+                  </div>
+                </div>
+              </td>
+              <td style="font-size:12px;color:#475569;">{{ e.classe?.nom ?? '—' }}</td>
+              <td style="text-align:center;">
+                <span style="display:inline-block;min-width:36px;padding:3px 10px;border-radius:20px;background:#fef2f2;color:#b91c1c;font-weight:800;">
+                  {{ e.nb_absences }}
+                </span>
+              </td>
+              <td style="text-align:center;color:#f59e0b;font-weight:600;">{{ e.nb_retards }}</td>
+              <td style="text-align:center;">
+                <span :style="{
+                  display:'inline-block',padding:'3px 12px',borderRadius:'20px',fontSize:'11px',fontWeight:'700',
+                  background: Number(e.taux_absence) >= 30 ? '#fef2f2' : Number(e.taux_absence) >= 15 ? '#fffbeb' : '#f0fdf4',
+                  color: tauxColor(Number(e.taux_absence)),
+                }">{{ e.taux_absence }}%</span>
               </td>
             </tr>
           </tbody>
