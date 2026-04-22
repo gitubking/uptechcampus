@@ -94,7 +94,7 @@ async function loadTargetData() {
     const [c, f, e, et] = await Promise.all([
       api.get('/classes'),
       api.get('/filieres'),
-      api.get('/enseignants'),
+      api.get('/enseignants?all=1'),
       api.get('/etudiants'),
     ])
     let allClasses = (Array.isArray(c.data) ? c.data : c.data.data ?? []).map((x: any) => ({ id: x.id, nom: x.nom }))

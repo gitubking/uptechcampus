@@ -215,7 +215,7 @@ async function load() {
         annee_academique_id: filterAnnee.value || undefined,
       }}),
       api.get('/annees-academiques'),
-      api.get('/enseignants'),
+      api.get('/enseignants?all=1'),
     ])
     vacations.value = Array.isArray(vRes.data) ? vRes.data : []
     annees.value = aRes.data
