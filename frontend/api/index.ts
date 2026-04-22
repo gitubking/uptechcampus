@@ -859,7 +859,7 @@ const ROLE_PERMS_DEFAULTS: { path: string; roles: string[] }[] = [
   { path: '/caisse',                  roles: ['dg','resp_fin','secretariat'] },
   { path: '/depenses',                roles: ['dg','resp_fin'] },
   { path: '/vacations',               roles: ['dg','resp_fin','coordinateur'] },
-  { path: '/formations-individuelles',roles: ['dg','resp_fin','coordinateur'] },
+  { path: '/formations-individuelles',roles: ['dg','dir_peda','resp_fin','coordinateur','secretariat'] },
   // Communication
   { path: '/communication',           roles: ['dg','dir_peda','coordinateur','secretariat'] },
   // Administration
@@ -921,6 +921,18 @@ async function ensureRolePermissionsReady(): Promise<void> {
       `INSERT INTO role_permissions(role,page_path,has_access) VALUES('enseignant','/demandes-absence',false)
        ON CONFLICT(role,page_path) DO NOTHING`
     )
+    // 5. Migration : ouvrir /formations-individuelles au directeur des études
+    //    (planification EDT) et au secrétariat (création de nouvelles FI).
+    //    DO UPDATE … WHERE has_access=false → ne touche pas les personnalisations
+    //    DG qui auraient déjà été activées.
+    for (const r of ['dg','dir_peda','resp_fin','coordinateur','secretariat']) {
+      await pool.query(
+        `INSERT INTO role_permissions(role,page_path,has_access) VALUES($1,'/formations-individuelles',true)
+         ON CONFLICT(role,page_path) DO UPDATE SET has_access=true
+         WHERE role_permissions.has_access = false`,
+        [r]
+      )
+    }
   })().catch((err) => {
     // Reset so a later request can retry
     rolePermsReady = null
@@ -2757,7 +2769,7 @@ app.get('/formations-individuelles/:id', requireAuth, async (c) => {
 })
 
 // Créer une formation individuelle + modules + échéancier 50/50
-app.post('/formations-individuelles', requireAuth, role('dg', 'coordinateur'), async (c) => {
+app.post('/formations-individuelles', requireAuth, role('dg', 'coordinateur', 'secretariat'), async (c) => {
   const b = await c.req.json()
 
   // Création inline d'un nouvel étudiant si new_etudiant est fourni
@@ -2828,7 +2840,7 @@ app.post('/formations-individuelles', requireAuth, role('dg', 'coordinateur'), a
 // Créer une formation individuelle de GROUPE (même formation pour N étudiants)
 // Accepte etudiant_ids[] (existants) ET/OU participants[] (nouveaux à créer)
 // Tarification : cout_mode = 'par_personne' (défaut) ou 'total_groupe'
-app.post('/formations-individuelles/groupe', requireAuth, role('dg', 'coordinateur'), async (c) => {
+app.post('/formations-individuelles/groupe', requireAuth, role('dg', 'coordinateur', 'secretariat'), async (c) => {
   const b = await c.req.json()
   const existingIds: number[] = Array.isArray(b.etudiant_ids) ? b.etudiant_ids : []
   const newParticipants: any[] = Array.isArray(b.participants) ? b.participants : []
@@ -3009,7 +3021,7 @@ app.post('/seances/fi-planifier-groupe', requireAuth, role('dg', 'dir_peda', 'co
 })
 
 // Modifier une formation individuelle
-app.put('/formations-individuelles/:id', requireAuth, role('dg', 'coordinateur'), async (c) => {
+app.put('/formations-individuelles/:id', requireAuth, role('dg', 'dir_peda', 'coordinateur', 'secretariat'), async (c) => {
   const b = await c.req.json()
   const id = c.req.param('id')
   const { rows } = await pool.query(
