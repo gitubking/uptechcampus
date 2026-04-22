@@ -33,6 +33,7 @@ const loading = ref(false)
 const logs = ref<AuditLog[]>([])
 const total = ref(0)
 const facets = ref<FacetsResponse>({ actions: [], entity_types: [], users: [] })
+const testing = ref(false)
 
 const filters = ref({
   search: '',
@@ -123,6 +124,34 @@ function applyFilters() {
   loadLogs()
 }
 
+// Diagnostic : force l'écriture d'une entrée de test et affiche le résultat.
+// Permet de savoir concrètement si la BDD accepte les INSERT audit, et si
+// non, de récupérer le message d'erreur PostgreSQL exact.
+async function testWrite() {
+  testing.value = true
+  try {
+    const { data } = await api.post('/audit-logs/test-write')
+    alert(
+      `✅ Entrée de test #${data.created.id} créée.\n` +
+      `Total d'entrées dans la table : ${data.total_entries}\n\n` +
+      `Si vous ne voyez rien dans la liste, cliquez « Actualiser ».`
+    )
+    await Promise.all([loadLogs(), loadFacets()])
+  } catch (e: any) {
+    const r = e?.response?.data
+    alert(
+      `❌ Échec d'écriture dans audit_logs.\n\n` +
+      `Message : ${r?.error ?? e?.message ?? 'inconnu'}\n` +
+      `Code PG : ${r?.code ?? 'n/a'}\n` +
+      (r?.detail ? `Détail : ${r.detail}\n` : '') +
+      (r?.hint ? `Piste : ${r.hint}` : '') +
+      `\n\nCopiez ce message et envoyez-le au support pour diagnostic.`
+    )
+  } finally {
+    testing.value = false
+  }
+}
+
 function resetFilters() {
   filters.value = {
     search: '', action: '', entity_type: '', severity: '',
@@ -210,6 +239,10 @@ onMounted(() => {
         </p>
       </div>
       <div style="display:flex; gap:8px;">
+        <button class="uc-btn" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;"
+          @click="testWrite" :disabled="testing">
+          🧪 {{ testing ? 'Test en cours…' : 'Tester l\'audit' }}
+        </button>
         <button class="uc-btn uc-btn-secondary" @click="loadLogs">
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
