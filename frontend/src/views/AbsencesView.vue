@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import api from '@/services/api'
 import { UcPageHeader, UcFormGroup } from '@/components/ui'
+import { openPrintWindow, uptechHeaderHTML, uptechFooterHTML, uptechPrintCSS } from '@/utils/uptechPrint'
 
 // ── Onglet actif ──────────────────────────────────────────────────────────────
 type Tab = 'jour' | 'semaine' | 'mois' | 'classe'
@@ -118,6 +119,186 @@ const maxAbsJour = computed(() => {
   if (!data?.length) return 1
   return Math.max(...data.map((r: any) => r.absents + r.retards), 1)
 })
+
+// ── Export PDF (HTML/print avec en-tête UPTECH) ─────────────────────────
+function esc(s: any): string {
+  return String(s ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch] as string))
+}
+
+function exportPDF() {
+  const emitDate = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+  let titre = ''
+  let periode = ''
+  let kpisHTML = ''
+  let bodyHTML = ''
+
+  if (tab.value === 'jour') {
+    if (!jourData.value) { alert('Aucune donnée à exporter.'); return }
+    titre = 'Suivi des absences — Journée'
+    periode = fmtDate(filterDate.value)
+    kpisHTML = `
+      <div class="abs-kpis">
+        <div class="kpi"><span class="k-lbl">Total</span><span class="k-val">${jourData.value.total}</span></div>
+        <div class="kpi ko"><span class="k-lbl">Absents</span><span class="k-val">${jourData.value.absents}</span></div>
+        <div class="kpi warn"><span class="k-lbl">Retards</span><span class="k-val">${jourData.value.retards}</span></div>
+      </div>`
+    const rows: any[] = jourData.value.rows || []
+    if (!rows.length) bodyHTML = `<div class="empty">Aucune absence enregistrée pour cette date.</div>`
+    else bodyHTML = `
+      <table class="abs-table">
+        <thead><tr>
+          <th>Étudiant</th><th>Classe</th><th>Séance / Matière</th><th>Horaire</th>
+          <th>Enseignant</th><th style="text-align:center">Statut</th>
+        </tr></thead>
+        <tbody>${rows.map(r => `
+          <tr>
+            <td><strong>${esc(r.prenom ?? r.etudiant?.prenom)} ${esc(r.nom ?? r.etudiant?.nom)}</strong></td>
+            <td>${esc(r.classe_nom ?? r.classe?.nom ?? '—')}</td>
+            <td>${esc(r.matiere ?? r.seance?.matiere ?? '—')}</td>
+            <td>${r.date_debut ? fmtHeure(r.date_debut) : '—'}</td>
+            <td>${esc(r.enseignant_nom ?? r.enseignant?.nom ?? '—')}</td>
+            <td style="text-align:center"><span class="chip ${r.statut === 'absent' ? 'chip-red' : 'chip-orange'}">${r.statut === 'absent' ? 'Absent' : 'Retard'}</span></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`
+  } else if (tab.value === 'semaine') {
+    if (!semaineData.value) { alert('Aucune donnée à exporter.'); return }
+    titre = 'Suivi des absences — Semaine'
+    periode = semaineLabel(filterSemaine.value)
+    kpisHTML = `
+      <div class="abs-kpis">
+        <div class="kpi ko"><span class="k-lbl">Absences</span><span class="k-val">${semaineData.value.total_absents}</span></div>
+        <div class="kpi warn"><span class="k-lbl">Retards</span><span class="k-val">${semaineData.value.total_retards}</span></div>
+        <div class="kpi"><span class="k-lbl">Jours avec absences</span><span class="k-val">${semaineData.value.par_jour.length} / 5</span></div>
+      </div>`
+    const parJour: any[] = semaineData.value.par_jour || []
+    const top: any[] = semaineData.value.top_absents || []
+    bodyHTML = `
+      <div class="grid2">
+        <div class="panel">
+          <h3>Absences par jour</h3>
+          ${parJour.length === 0 ? '<div class="empty">Aucune absence cette semaine.</div>' : `
+            <table class="abs-table compact">
+              <thead><tr><th>Jour</th><th style="text-align:center">Absents</th><th style="text-align:center">Retards</th></tr></thead>
+              <tbody>${parJour.map(r => `
+                <tr><td>${esc(fmtDate(r.jour))}</td><td style="text-align:center;color:#dc2626">${r.absents}</td><td style="text-align:center;color:#f59e0b">${r.retards}</td></tr>`).join('')}</tbody>
+            </table>`}
+        </div>
+        <div class="panel">
+          <h3>Top absentéistes</h3>
+          ${top.length === 0 ? '<div class="empty">Aucune absence cette semaine.</div>' : `
+            <table class="abs-table compact">
+              <thead><tr><th>#</th><th>Étudiant</th><th>Classe</th><th style="text-align:center">Abs.</th><th style="text-align:center">Ret.</th></tr></thead>
+              <tbody>${top.slice(0, 15).map((e, i) => `
+                <tr><td>${i + 1}</td><td><strong>${esc(e.prenom)} ${esc(e.nom)}</strong></td><td>${esc(e.classe?.nom ?? '—')}</td><td style="text-align:center;font-weight:700;color:#dc2626">${e.nb_absences}</td><td style="text-align:center;color:#f59e0b">${e.nb_retards ?? 0}</td></tr>`).join('')}</tbody>
+            </table>`}
+        </div>
+      </div>`
+  } else if (tab.value === 'mois') {
+    if (!moisData.value) { alert('Aucune donnée à exporter.'); return }
+    titre = 'Suivi des absences — Mois'
+    periode = fmtMois(filterMois.value)
+    kpisHTML = `
+      <div class="abs-kpis">
+        <div class="kpi ko"><span class="k-lbl">Total absences</span><span class="k-val">${moisData.value.total_absents}</span></div>
+        <div class="kpi warn"><span class="k-lbl">Total retards</span><span class="k-val">${moisData.value.total_retards}</span></div>
+        <div class="kpi"><span class="k-lbl">Jours avec absences</span><span class="k-val">${moisData.value.nb_jours}</span></div>
+        <div class="kpi"><span class="k-lbl">Étudiants concernés</span><span class="k-val">${moisData.value.classement.length}</span></div>
+      </div>`
+    const classement: any[] = moisData.value.classement || []
+    bodyHTML = classement.length === 0
+      ? `<div class="empty">Aucune absence ce mois.</div>`
+      : `<table class="abs-table">
+          <thead><tr>
+            <th style="width:30px">#</th><th>Étudiant</th><th>N° Étud.</th><th>Classe</th>
+            <th style="text-align:center">Absences</th><th style="text-align:center">Retards</th><th style="text-align:center">Taux abs.</th>
+          </tr></thead>
+          <tbody>${classement.map((e, i) => `
+            <tr>
+              <td>${i + 1}</td>
+              <td><strong>${esc(e.prenom)} ${esc(e.nom)}</strong></td>
+              <td>${esc(e.numero_etudiant ?? '—')}</td>
+              <td>${esc(e.classe?.nom ?? '—')}</td>
+              <td style="text-align:center;font-weight:700;color:#dc2626">${e.nb_absences}</td>
+              <td style="text-align:center;color:#f59e0b">${e.nb_retards}</td>
+              <td style="text-align:center"><span class="chip ${Number(e.taux_absence) >= 30 ? 'chip-red' : Number(e.taux_absence) >= 15 ? 'chip-orange' : 'chip-green'}">${e.taux_absence}%</span></td>
+            </tr>`).join('')}</tbody>
+        </table>`
+  } else {
+    if (!classeData.value) { alert('Aucune donnée à exporter.'); return }
+    titre = 'Suivi des absences — Par classe'
+    periode = fmtMois(filterMoisClasse.value)
+    const rows: any[] = classeData.value.rows || []
+    bodyHTML = rows.length === 0
+      ? `<div class="empty">Aucune donnée de présence pour ce mois.</div>`
+      : `<table class="abs-table">
+          <thead><tr>
+            <th>Classe</th><th>Filière</th><th style="text-align:center">Séances</th>
+            <th style="text-align:center">Étudiants</th><th style="text-align:center">Présents</th>
+            <th style="text-align:center">Absents</th><th style="text-align:center">Retards</th>
+            <th style="text-align:center">Taux présence</th><th style="text-align:center">Taux absence</th>
+          </tr></thead>
+          <tbody>${rows.map(r => `
+            <tr>
+              <td><strong>${esc(r.classe_nom)}</strong></td>
+              <td>${esc(r.filiere_nom ?? '—')}</td>
+              <td style="text-align:center">${r.nb_seances}</td>
+              <td style="text-align:center">${r.nb_etudiants}</td>
+              <td style="text-align:center;color:#16a34a;font-weight:700">${r.nb_presents}</td>
+              <td style="text-align:center;color:#dc2626;font-weight:700">${r.nb_absents}</td>
+              <td style="text-align:center;color:#f59e0b">${r.nb_retards}</td>
+              <td style="text-align:center"><span class="chip ${Number(r.taux_presence) >= 80 ? 'chip-green' : Number(r.taux_presence) >= 60 ? 'chip-orange' : 'chip-red'}">${r.taux_presence ?? '—'}%</span></td>
+              <td style="text-align:center"><span class="chip ${Number(r.taux_absence ?? 0) >= 30 ? 'chip-red' : Number(r.taux_absence ?? 0) >= 15 ? 'chip-orange' : 'chip-green'}">${r.taux_absence ?? '—'}%</span></td>
+            </tr>`).join('')}</tbody>
+        </table>`
+  }
+
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+    <title>${esc(titre)} — ${esc(periode)}</title>
+    <style>
+      ${uptechPrintCSS()}
+      @page{size:A4 landscape;margin:8mm}
+      .abs-sub{display:flex;justify-content:space-between;align-items:center;padding:4px 16px;background:#fafafa;border-bottom:1px solid #eee;font-size:9px;color:#666}
+      .abs-sub .left{font-weight:600;color:#E30613;text-transform:uppercase;letter-spacing:1px}
+      .abs-title{text-align:center;padding:6px 16px 2px;font-size:13px;font-weight:900;letter-spacing:1px;color:#111;text-transform:uppercase}
+      .abs-periode{text-align:center;padding:0 16px 6px;font-size:10px;color:#666}
+      .abs-kpis{display:flex;gap:8px;padding:0 16px 8px;flex-wrap:wrap}
+      .kpi{flex:1;min-width:120px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;display:flex;flex-direction:column}
+      .kpi .k-lbl{font-size:7px;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;margin-bottom:4px}
+      .kpi .k-val{font-size:18px;font-weight:800;color:#111}
+      .kpi.ko{background:#fef2f2;border-color:#fecaca}.kpi.ko .k-val{color:#dc2626}.kpi.ko .k-lbl{color:#991b1b}
+      .kpi.warn{background:#fffbeb;border-color:#fde68a}.kpi.warn .k-val{color:#f59e0b}.kpi.warn .k-lbl{color:#92400e}
+      .abs-table{width:calc(100% - 32px);margin:4px 16px 8px;border-collapse:collapse;font-size:9px}
+      .abs-table thead th{background:#1e293b;color:#fff;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:6px 5px;font-size:8px;border:1px solid #0f172a;text-align:left}
+      .abs-table tbody td{padding:5px 6px;border:1px solid #e5e7eb;vertical-align:top;line-height:1.4}
+      .abs-table tbody tr:nth-child(even) td{background:#fafafa}
+      .abs-table tbody tr{page-break-inside:avoid}
+      .abs-table.compact tbody td{padding:4px 6px}
+      .chip{display:inline-block;padding:2px 8px;border-radius:999px;font-size:8px;font-weight:700}
+      .chip-red{background:#fee2e2;color:#991b1b}
+      .chip-orange{background:#ffedd5;color:#9a3412}
+      .chip-green{background:#dcfce7;color:#166534}
+      .empty{padding:30px;text-align:center;color:#888;font-style:italic;font-size:11px}
+      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:0 16px 10px}
+      .panel{border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;background:#fff}
+      .panel h3{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:#E30613;margin-bottom:6px}
+      .panel .abs-table{margin:0;width:100%}
+    </style></head>
+    <body>
+      ${uptechHeaderHTML()}
+      <div class="abs-sub">
+        <span class="left">Pédagogie — Suivi des absences</span>
+        <span>Émis le ${emitDate}</span>
+      </div>
+      <div class="abs-title">${esc(titre)}</div>
+      <div class="abs-periode">${esc(periode)}</div>
+      ${kpisHTML}
+      ${bodyHTML}
+      ${uptechFooterHTML(esc(periode))}
+    </body></html>`
+
+  openPrintWindow(html)
+}
 </script>
 
 <template>
@@ -125,6 +306,9 @@ const maxAbsJour = computed(() => {
     <UcPageHeader title="Suivi des absences" subtitle="Par jour, semaine, mois et classe">
       <template #actions>
         <button @click="loadCurrent" class="uc-btn-outline">↺ Actualiser</button>
+        <button @click="exportPDF" class="uc-btn-primary" title="Exporter l'onglet courant au format PDF">
+          📄 Exporter PDF
+        </button>
       </template>
     </UcPageHeader>
 
