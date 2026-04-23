@@ -99,7 +99,7 @@ export function uptechPrintCSS(): string {
     .sign-area{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:18px;padding-top:8px;border-top:1px dashed #ddd}
     .sign-box{text-align:center}
     .sign-box .sign-title{font-size:9px;font-weight:700;color:#333;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px}
-    .sign-line{position:relative;border-bottom:1px solid #ccc;height:70px;margin-bottom:4px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    .sign-line{position:relative;border-bottom:1px solid #ccc;height:140px;margin-bottom:4px;display:flex;align-items:center;justify-content:center;overflow:hidden}
     .sign-line .sign-img{max-width:100%;max-height:100%;object-fit:contain;display:block;image-rendering:-webkit-optimize-contrast}
     .sign-box .sign-hint{font-size:7px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px}
 
