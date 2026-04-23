@@ -173,8 +173,60 @@ async function regenerateBackupCodes() {
   }
 }
 
+// ── Signature personnelle ──────────────────────────────────────────
+const signatureUrl = ref<string | null>(null)
+const signatureSaving = ref(false)
+const signatureError = ref('')
+
+async function loadSignature() {
+  try {
+    const { data } = await api.get('/auth/me')
+    signatureUrl.value = data.signature_data_url ?? null
+  } catch { /* silencieux */ }
+}
+
+function readFileAsDataUrl(f: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result))
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(f)
+  })
+}
+
+async function onSignatureFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  signatureError.value = ''
+  if (file.size > 2 * 1024 * 1024) {
+    signatureError.value = 'Image trop lourde (max 2 Mo).'
+    return
+  }
+  signatureSaving.value = true
+  try {
+    const dataUrl = await readFileAsDataUrl(file)
+    await api.put('/auth/me/signature', { signature_data_url: dataUrl })
+    signatureUrl.value = dataUrl
+  } catch (err: any) {
+    signatureError.value = err?.response?.data?.message ?? 'Erreur lors de l\'enregistrement.'
+  } finally {
+    signatureSaving.value = false
+    input.value = ''
+  }
+}
+
+async function removeSignature() {
+  if (!confirm('Supprimer votre signature enregistrée ?')) return
+  try {
+    await api.delete('/auth/me/signature')
+    signatureUrl.value = null
+  } catch { /* silencieux */ }
+}
+
 onMounted(() => {
   loadStatus()
+  loadSignature()
 })
 </script>
 
@@ -364,6 +416,41 @@ onMounted(() => {
         <li>En cas de perte de votre téléphone ET de vos codes de secours, contactez le DG pour réinitialisation.</li>
       </ul>
     </div>
+
+    <!-- ══════════ SIGNATURE NUMÉRIQUE ══════════ -->
+    <div class="sec-card" style="margin-top:24px;">
+      <div class="sec-card-head">
+        <h3>✍️ Ma signature &amp; mon cachet</h3>
+        <span v-if="signatureUrl" class="sec-badge sec-badge--on">Enregistrée</span>
+        <span v-else class="sec-badge sec-badge--off">Aucune</span>
+      </div>
+      <p class="sec-desc">
+        Déposez l'image scannée de votre signature (incluant éventuellement votre cachet).
+        Elle sera <strong>apposée automatiquement</strong> sur les PDFs d'autorisation
+        d'absence que vous approuvez. Aucune déformation : le ratio est préservé.
+      </p>
+
+      <!-- Aperçu -->
+      <div v-if="signatureUrl" class="sec-sig-preview">
+        <img :src="signatureUrl" alt="Ma signature" />
+      </div>
+
+      <!-- Upload -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px;">
+        <label class="sec-btn sec-btn-primary" style="cursor:pointer;">
+          <input type="file" accept="image/png,image/jpeg,image/webp" @change="onSignatureFile" style="display:none;" />
+          {{ signatureUrl ? "Remplacer l'image" : 'Choisir une image' }}
+        </label>
+        <button v-if="signatureUrl" @click="removeSignature" class="sec-btn sec-btn-danger-outline">
+          Supprimer
+        </button>
+        <span v-if="signatureError" style="font-size:12px;color:#dc2626;">{{ signatureError }}</span>
+        <span v-else-if="signatureSaving" style="font-size:12px;color:#64748b;">Enregistrement…</span>
+      </div>
+      <p style="font-size:11px;color:#94a3b8;margin-top:8px;">
+        Formats acceptés : PNG, JPG, WEBP — 2 Mo max. Préférez un PNG à fond transparent pour un rendu optimal.
+      </p>
+    </div>
   </div>
 </template>
 
@@ -373,6 +460,25 @@ onMounted(() => {
   max-width: 860px;
   margin: 0 auto;
   font-family: 'Poppins', sans-serif;
+}
+.sec-badge--on { background: #dcfce7; color: #166534; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.sec-badge--off { background: #f3f4f6; color: #6b7280; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.sec-sig-preview {
+  margin-top: 12px;
+  padding: 16px;
+  background: repeating-conic-gradient(#f8fafc 0% 25%, #e5e7eb 0% 50%) 0 0 / 16px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sec-sig-preview img {
+  max-width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  display: block;
 }
 
 .sec-header h2 {

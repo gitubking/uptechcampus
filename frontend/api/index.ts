@@ -1882,12 +1882,51 @@ app.post('/auth/logout', requireAuth, async (c) => {
 
 app.get('/auth/me', requireAuth, async (c) => {
   const user = u(c)
+  // Récupère la signature stockée (base64 data URL). Colonne créée à la volée
+  // par /auth/me/signature pour éviter une migration bloquante au boot.
+  let signature: string | null = null
+  try {
+    const { rows } = await pool.query('SELECT signature_data_url FROM users WHERE id=$1', [user.id])
+    signature = rows[0]?.signature_data_url ?? null
+  } catch { /* colonne pas encore créée */ }
   return c.json({
     id: user.id, nom: user.nom, prenom: user.prenom, email: user.email,
     role: user.role, statut: user.statut, telephone: user.telephone,
     photo_path: user.photo_path, premier_connexion: user.premier_connexion, cgu_acceptees: user.cgu_acceptees,
     totp_enabled: !!user.totp_enabled,
+    signature_data_url: signature,
   })
+})
+
+// PUT /auth/me/signature — enregistre une signature personnelle (image PNG/JPG
+// encodée en base64 data URL). La signature sera automatiquement apposée sur
+// les PDFs d'autorisation d'absence que l'utilisateur approuve.
+app.put('/auth/me/signature', requireAuth, async (c) => {
+  const user = u(c)
+  // Migration idempotente — première fois qu'un user upload sa signature
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS signature_data_url TEXT`)
+  const body = await c.req.json()
+  const dataUrl: string | null = body.signature_data_url ?? null
+  if (dataUrl) {
+    // Validation basique : doit être un data URL image, max ~2 Mo (base64 ≈ 2.7 Mo)
+    if (!/^data:image\/(png|jpe?g|webp);base64,/.test(dataUrl)) {
+      return c.json({ message: 'Format invalide : PNG, JPG ou WEBP attendu.' }, 422)
+    }
+    if (dataUrl.length > 2_800_000) {
+      return c.json({ message: 'Image trop lourde (max ~2 Mo).' }, 413)
+    }
+  }
+  await pool.query('UPDATE users SET signature_data_url=$1 WHERE id=$2', [dataUrl, user.id])
+  return c.json({ signature_data_url: dataUrl })
+})
+
+// DELETE /auth/me/signature — supprime sa propre signature
+app.delete('/auth/me/signature', requireAuth, async (c) => {
+  const user = u(c)
+  try {
+    await pool.query('UPDATE users SET signature_data_url=NULL WHERE id=$1', [user.id])
+  } catch { /* colonne pas créée */ }
+  return c.body(null, 204)
 })
 
 app.post('/auth/accept-cgu', requireAuth, async (c) => {
@@ -14431,10 +14470,18 @@ app.get('/demandes-absence', requireAuth, role(...ABSENCE_ROLES), async (c) => {
     conds.push(`da.statut = $${params.length}`)
   }
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  // On récupère aussi la signature scannée du décideur (signature_data_url)
+  // pour l'apposer sur le PDF d'autorisation d'absence côté front.
+  // Colonne lue via COALESCE pour gérer l'absence de migration initiale.
+  let hasSignatureCol = true
+  try {
+    await pool.query(`SELECT signature_data_url FROM users LIMIT 1`)
+  } catch { hasSignatureCol = false }
+  const decideurSigSelect = hasSignatureCol ? ', de.signature_data_url AS decideur_signature' : ''
   const { rows } = await pool.query(
     `SELECT da.*,
             d.nom AS demandeur_nom, d.prenom AS demandeur_prenom, d.role AS demandeur_role, d.email AS demandeur_email,
-            de.nom AS decideur_nom, de.prenom AS decideur_prenom, de.role AS decideur_role
+            de.nom AS decideur_nom, de.prenom AS decideur_prenom, de.role AS decideur_role${decideurSigSelect}
      FROM demandes_absence da
      LEFT JOIN users d ON d.id = da.demandeur_id
      LEFT JOIN users de ON de.id = da.decideur_id
