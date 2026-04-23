@@ -6,6 +6,9 @@ import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader, UcTable } from '@/compo
 
 const auth = useAuthStore()
 const canWrite = ['dg', 'dir_peda', 'coordinateur'].includes(auth.user?.role ?? '')
+// La secrétaire peut au minimum ajuster la date de début des cours
+// (demande métier : elle prépare la rentrée, confirme les débuts de session).
+const canEditStartDate = ['dg', 'dir_peda', 'coordinateur', 'resp_fin', 'secretariat'].includes(auth.user?.role ?? '')
 
 // ── Interfaces ───────────────────────────────────────────────────────
 interface TypeFormation { id: number; nom: string; code: string; has_niveau?: boolean }
@@ -1009,7 +1012,7 @@ onMounted(load)
                 style="font-size:11px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:10px;padding:2px 8px;font-weight:600;">
                 Non définie
               </span>
-              <button v-if="canWrite" @click="openQuickDate(c)"
+              <button v-if="canEditStartDate" @click="openQuickDate(c)"
                 :title="(c as any).date_debut_cours ? 'Modifier la date de début' : 'Définir la date de début des cours'"
                 style="padding:2px 6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;font-size:10px;cursor:pointer;color:#64748b;">
                 ✏️
