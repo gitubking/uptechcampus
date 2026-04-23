@@ -1079,6 +1079,25 @@ async function ensureDemandesAbsenceReady(): Promise<void> {
   return demandesAbsenceReady
 }
 
+// ─── Notifications in-app ───────────────────────────────────────────────────
+// Helper pour pousser des notifications dans la table user_notifications
+// (cloche dans l'en-tête, voir AppLayout.vue). Les messages sont visibles
+// instantanément au prochain polling côté client (toutes les 30 s).
+async function notifyUsers(userIds: number[], titre: string, message: string, link: string | null, type: string = 'info'): Promise<void> {
+  if (!userIds.length) return
+  try {
+    for (const uid of userIds) {
+      await pool.query(
+        `INSERT INTO user_notifications (user_id, type, titre, message, data)
+         VALUES ($1, $2, $3, $4, $5::jsonb)`,
+        [uid, type, titre.slice(0, 200), message.slice(0, 2000), JSON.stringify(link ? { link } : {})]
+      )
+    }
+  } catch (err) {
+    console.error('[notify] failed:', err)
+  }
+}
+
 // ─── Tables Jury ─────────────────────────────────────────────────────────────
 pool.query(`CREATE TABLE IF NOT EXISTS jurys (
   id SERIAL PRIMARY KEY,
@@ -13090,6 +13109,18 @@ app.post('/demandes-absence', requireAuth, role(...ABSENCE_ROLES), async (c) => 
      VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
     [user.id, type, dd, df, nb, motif, justif]
   )
+  // Notifier tous les décideurs actifs (en général le DG)
+  const { rows: decideurs } = await pool.query(
+    `SELECT id FROM users WHERE role = ANY($1::text[]) AND statut='actif'`,
+    [ABSENCE_DECIDEUR_ROLES]
+  )
+  const demandeurLabel = `${user.prenom ?? ''} ${user.nom ?? ''}`.trim() || user.email || 'Un agent'
+  await notifyUsers(
+    decideurs.map((d: any) => d.id).filter((id: number) => id !== user.id),
+    `📝 Nouvelle demande d'absence`,
+    `${demandeurLabel} a déposé une demande (${type.replace(/_/g, ' ')}, ${nb} j ouvrable${nb > 1 ? 's' : ''}).`,
+    '/demandes-absence',
+  )
   return c.json(rows[0], 201)
 })
 
@@ -13121,6 +13152,17 @@ app.put('/demandes-absence/:id/decision', requireAuth, role(...ABSENCE_DECIDEUR_
       RETURNING *`,
     [decision, user.id, commentaire, id]
   )
+  // Notifier le demandeur du verdict
+  const icone = decision === 'approuvee' ? '✅' : '❌'
+  const libelle = decision === 'approuvee' ? 'approuvée' : 'refusée'
+  await notifyUsers(
+    [existing[0].demandeur_id],
+    `${icone} Demande d'absence ${libelle}`,
+    commentaire
+      ? `Décision : ${libelle}. Commentaire : ${commentaire}`
+      : `Votre demande a été ${libelle} par la Direction.`,
+    '/demandes-absence',
+  )
   return c.json(rows[0])
 })
 
@@ -13143,8 +13185,31 @@ app.put('/demandes-absence/:id/annuler', requireAuth, role(...ABSENCE_ROLES), as
     `UPDATE demandes_absence SET statut='annulee', updated_at=NOW() WHERE id=$1 RETURNING *`,
     [id]
   )
+  // Si l'annulation est faite par le demandeur, notifier les décideurs.
+  // Si c'est un décideur qui annule, notifier le demandeur.
+  if (existing[0].demandeur_id === user.id) {
+    const { rows: decideurs } = await pool.query(
+      `SELECT id FROM users WHERE role = ANY($1::text[]) AND statut='actif'`,
+      [ABSENCE_DECIDEUR_ROLES]
+    )
+    const demandeurLabel = `${user.prenom ?? ''} ${user.nom ?? ''}`.trim() || user.email || 'Un agent'
+    await notifyUsers(
+      decideurs.map((d: any) => d.id).filter((id: number) => id !== user.id),
+      `↩️ Demande d'absence annulée`,
+      `${demandeurLabel} a annulé sa demande en attente.`,
+      '/demandes-absence',
+    )
+  } else {
+    await notifyUsers(
+      [existing[0].demandeur_id],
+      `↩️ Votre demande a été annulée`,
+      `La Direction a annulé votre demande en attente.`,
+      '/demandes-absence',
+    )
+  }
   return c.json(rows[0])
 })
+
 
 // DELETE /demandes-absence/reset — purge TOUTES les demandes (DG uniquement).
 // Usage : nettoyage des données de test après mise en production du module.

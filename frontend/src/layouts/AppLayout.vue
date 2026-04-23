@@ -455,11 +455,21 @@ async function markAllRead() {
 }
 
 async function markOneRead(id: number) {
+  const notif = userNotifs.value.find(n => n.id === id)
   try {
-    await api.post(`/user-notifications/${id}/read`)
-    const notif = userNotifs.value.find(n => n.id === id)
-    if (notif && !notif.lu) { notif.lu = true; unreadCount.value = Math.max(0, unreadCount.value - 1) }
+    if (notif && !notif.lu) {
+      await api.post(`/user-notifications/${id}/read`)
+      notif.lu = true
+      unreadCount.value = Math.max(0, unreadCount.value - 1)
+    }
   } catch { /* silencieux */ }
+  // Redirection si la notif embarque un lien dans data.link (cas absence,
+  // paiement, tâche, etc.) — ferme le panneau et navigue.
+  const link = notif?.data?.link
+  if (link) {
+    showNotifPanel.value = false
+    router.push(link)
+  }
 }
 
 function toggleNotifPanel() {
