@@ -28,6 +28,7 @@ interface DemandeAbsence {
   demandeur_email?: string
   decideur_nom?: string | null
   decideur_prenom?: string | null
+  decideur_signature?: string | null  // Data URL base64 pour apposer sur le PDF
 }
 
 interface SoldeAbsence {
@@ -302,7 +303,7 @@ function exportPDF(d: DemandeAbsence) {
         </div>
         <div class="sign-box">
           <div class="sign-title">Signature et cachet de la Direction</div>
-          <div class="sign-line"></div>
+          <div class="sign-line">${d.decideur_signature ? `<img src="${d.decideur_signature}" alt="Signature Direction" class="sign-img" />` : ''}</div>
           <div class="sign-hint">${decideurFull ? decideurFull : '—'}</div>
         </div>
       </div>
