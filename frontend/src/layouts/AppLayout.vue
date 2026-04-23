@@ -432,7 +432,9 @@ const userInitials = computed(() => {
   return (p + n).toUpperCase()
 })
 
-// Notifications in-app : désormais gérées par le composant UcNotificationBell
+// Notifications in-app : composant partagé UcNotificationBell.
+// La logique de navigation au clic sur une notification (data.link) est
+// implémentée dans le composant.
 </script>
 
 <template>
