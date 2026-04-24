@@ -2110,6 +2110,23 @@ app.put('/role-permissions', requireAuth, role('dg'), async (c) => {
 
 // ─── PARAMETRES ───────────────────────────────────────────────────────────────
 app.get('/parametres', requireAuth, role('dg'), async (c) => {
+  // Garantit la présence des paramètres seedés même si l'IIFE de démarrage
+  // a été interrompue par le cold-start Vercel — empêche la page d'être vide.
+  try {
+    const seeds: [string, string, string, string][] = [
+      ['agrement',                   '', 'etablissement', 'text'],
+      ['directeur_general',          '', 'etablissement', 'text'],
+      ['ministere_tutelle',          "Enseignement Supérieur, de la Recherche et de l'Innovation (MESRI)", 'etablissement', 'text'],
+      ['comptabilite_destinataire',  '',  'comptabilite', 'email'],
+      ['comptabilite_auto_envoi',    '0', 'comptabilite', 'bool'],
+    ]
+    for (const [cle, valeur, groupe, type] of seeds) {
+      await pool.query(
+        `INSERT INTO parametres_systeme (cle, valeur, groupe, type) VALUES ($1,$2,$3,$4) ON CONFLICT (cle) DO NOTHING`,
+        [cle, valeur, groupe, type]
+      )
+    }
+  } catch { /* table absente ou autre — on renvoie juste ce qu'on a */ }
   const { rows } = await pool.query('SELECT * FROM parametres_systeme ORDER BY groupe,cle')
   return c.json(rows)
 })
