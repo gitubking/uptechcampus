@@ -307,6 +307,10 @@ pool.query(`CREATE INDEX IF NOT EXISTS idx_user_notif_user_lu ON user_notificati
       ['agrement',          '', 'etablissement', 'text'],
       ['directeur_general', '', 'etablissement', 'text'],
       ['ministere_tutelle', 'Enseignement Supérieur, de la Recherche et de l\'Innovation (MESRI)', 'etablissement', 'text'],
+      ['envoi_releve_cabinet_actif', '0', 'comptabilite', 'boolean'],
+      ['email_cabinet_comptable',    '',  'comptabilite', 'email'],
+      ['email_cabinet_cc',           '',  'comptabilite', 'email'],
+      ['nom_cabinet_comptable',      '',  'comptabilite', 'text'],
     ]
     for (const [cle, valeur, groupe, type] of seeds) {
       await pool.query(
@@ -10939,6 +10943,235 @@ app.get('/cron/relances', async (c) => {
     }
 
     return c.json({ message: 'Cron relances terminé.', total: resultats.length, resultats })
+  } catch (err: any) {
+    return c.json({ message: err.message }, 500)
+  }
+})
+
+// ─── RELEVÉ COMPTABLE ENVOYÉ AU CABINET ──────────────────────────────────────
+// Construit le HTML du relevé du mois donné (YYYY-MM) : encaissements, dépenses,
+// solde, top catégories de dépenses, derniers paiements/dépenses.
+async function buildReleveComptableHtml(moisIso: string): Promise<{ sujet: string; html: string }> {
+  const [annee, moisNum] = moisIso.split('-').map(Number)
+  const debut = `${moisIso}-01`
+  const fin   = new Date(annee, moisNum, 1).toISOString().slice(0, 10) // 1er jour du mois suivant
+
+  const fmt = (n: number) => Math.round(Number(n) || 0).toLocaleString('fr-FR') + ' FCFA'
+  const moisLabel = new Date(debut).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+
+  // Récup nom établissement
+  const { rows: paramRows } = await pool.query(
+    `SELECT cle, valeur FROM parametres_systeme WHERE cle IN ('nom_etablissement','directeur_general')`
+  )
+  const nomEtab = paramRows.find(r => r.cle === 'nom_etablissement')?.valeur || 'UPTECH Campus'
+
+  // Totaux mois
+  const [encRes, depRes, impRes, catRes, cumEncRes, cumDepRes] = await Promise.all([
+    pool.query(
+      `SELECT COALESCE(SUM(montant),0)::float AS total, COUNT(*)::int AS nb
+       FROM paiements
+       WHERE statut='confirme' AND confirmed_at >= $1 AND confirmed_at < $2`,
+      [debut, fin]
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(montant),0)::float AS total, COUNT(*)::int AS nb
+       FROM depenses
+       WHERE statut='validee' AND COALESCE(date_depense, created_at) >= $1
+         AND COALESCE(date_depense, created_at) < $2`,
+      [debut, fin]
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(montant),0)::float AS total, COUNT(*)::int AS nb
+       FROM echeances
+       WHERE statut='non_paye' AND TO_CHAR(mois,'YYYY-MM') = $1`,
+      [moisIso]
+    ),
+    pool.query(
+      `SELECT COALESCE(categorie,'—') AS categorie,
+              COALESCE(SUM(montant),0)::float AS total, COUNT(*)::int AS nb
+       FROM depenses
+       WHERE statut='validee' AND COALESCE(date_depense, created_at) >= $1
+         AND COALESCE(date_depense, created_at) < $2
+       GROUP BY categorie
+       ORDER BY total DESC
+       LIMIT 10`,
+      [debut, fin]
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(montant),0)::float AS total
+       FROM paiements
+       WHERE statut='confirme' AND EXTRACT(YEAR FROM confirmed_at) = $1`,
+      [annee]
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(montant),0)::float AS total
+       FROM depenses
+       WHERE statut='validee'
+         AND EXTRACT(YEAR FROM COALESCE(date_depense, created_at)) = $1`,
+      [annee]
+    ),
+  ])
+
+  const enc = encRes.rows[0]
+  const dep = depRes.rows[0]
+  const imp = impRes.rows[0]
+  const cats = catRes.rows
+  const soldeMois = (enc.total as number) - (dep.total as number)
+  const soldeAnnee = (cumEncRes.rows[0].total as number) - (cumDepRes.rows[0].total as number)
+
+  const catsHtml = cats.length
+    ? cats.map((r: any) => `
+      <tr>
+        <td style="padding:8px 10px;border-bottom:1px solid #f1f5f9">${r.categorie || '—'}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #f1f5f9;text-align:center;color:#64748b">${r.nb}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600">${fmt(r.total)}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="3" style="padding:12px;text-align:center;color:#94a3b8;font-style:italic">Aucune dépense validée sur la période</td></tr>`
+
+  const sujet = `Relevé comptable — ${moisLabel} — ${nomEtab}`
+
+  const corps = `
+  <p style="margin:0 0 8px">Bonjour,</p>
+  <p style="margin:0 0 16px">Veuillez trouver ci-dessous le <strong>relevé comptable du mois de ${moisLabel}</strong> pour <strong>${nomEtab}</strong>.</p>
+
+  <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:13px">
+    <tr>
+      <td style="padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;width:50%">
+        <div style="font-size:11px;color:#15803d;text-transform:uppercase;font-weight:700;letter-spacing:0.05em">Encaissements du mois</div>
+        <div style="font-size:20px;font-weight:700;color:#14532d;margin-top:4px">${fmt(enc.total)}</div>
+        <div style="font-size:11px;color:#16a34a;margin-top:2px">${enc.nb} paiement${enc.nb > 1 ? 's' : ''} confirmé${enc.nb > 1 ? 's' : ''}</div>
+      </td>
+      <td style="width:8px"></td>
+      <td style="padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;width:50%">
+        <div style="font-size:11px;color:#b91c1c;text-transform:uppercase;font-weight:700;letter-spacing:0.05em">Dépenses du mois</div>
+        <div style="font-size:20px;font-weight:700;color:#7f1d1d;margin-top:4px">${fmt(dep.total)}</div>
+        <div style="font-size:11px;color:#dc2626;margin-top:2px">${dep.nb} dépense${dep.nb > 1 ? 's' : ''} validée${dep.nb > 1 ? 's' : ''}</div>
+      </td>
+    </tr>
+  </table>
+
+  <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:13px">
+    <tr>
+      <td style="padding:12px;background:${soldeMois >= 0 ? '#eff6ff' : '#fffbeb'};border:1px solid ${soldeMois >= 0 ? '#bfdbfe' : '#fde68a'};border-radius:6px">
+        <div style="font-size:11px;color:${soldeMois >= 0 ? '#1d4ed8' : '#b45309'};text-transform:uppercase;font-weight:700;letter-spacing:0.05em">Solde net du mois</div>
+        <div style="font-size:22px;font-weight:700;color:${soldeMois >= 0 ? '#1e3a8a' : '#78350f'};margin-top:4px">${soldeMois >= 0 ? '+' : ''}${fmt(soldeMois)}</div>
+      </td>
+    </tr>
+  </table>
+
+  <h3 style="font-size:14px;color:#111;margin:22px 0 10px">Dépenses par catégorie</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden">
+    <thead>
+      <tr style="background:#f8fafc">
+        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#475569;text-transform:uppercase;font-weight:700">Catégorie</th>
+        <th style="padding:8px 10px;text-align:center;font-size:11px;color:#475569;text-transform:uppercase;font-weight:700">Nb</th>
+        <th style="padding:8px 10px;text-align:right;font-size:11px;color:#475569;text-transform:uppercase;font-weight:700">Montant</th>
+      </tr>
+    </thead>
+    <tbody>${catsHtml}</tbody>
+  </table>
+
+  <h3 style="font-size:14px;color:#111;margin:22px 0 10px">Indicateurs complémentaires</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+    <tr>
+      <td style="padding:6px 0;color:#64748b">Impayés sur le mois</td>
+      <td style="padding:6px 0;text-align:right;font-weight:600;color:#b45309">${fmt(imp.total)} <span style="color:#94a3b8;font-weight:400">(${imp.nb} échéance${imp.nb > 1 ? 's' : ''})</span></td>
+    </tr>
+    <tr>
+      <td style="padding:6px 0;color:#64748b;border-top:1px solid #f1f5f9">Cumul encaissements ${annee}</td>
+      <td style="padding:6px 0;text-align:right;font-weight:600;border-top:1px solid #f1f5f9">${fmt(cumEncRes.rows[0].total)}</td>
+    </tr>
+    <tr>
+      <td style="padding:6px 0;color:#64748b;border-top:1px solid #f1f5f9">Cumul dépenses ${annee}</td>
+      <td style="padding:6px 0;text-align:right;font-weight:600;border-top:1px solid #f1f5f9">${fmt(cumDepRes.rows[0].total)}</td>
+    </tr>
+    <tr>
+      <td style="padding:6px 0;color:#64748b;border-top:1px solid #f1f5f9;font-weight:600">Solde net ${annee}</td>
+      <td style="padding:6px 0;text-align:right;font-weight:700;border-top:1px solid #f1f5f9;color:${soldeAnnee >= 0 ? '#15803d' : '#b91c1c'}">${soldeAnnee >= 0 ? '+' : ''}${fmt(soldeAnnee)}</td>
+    </tr>
+  </table>
+
+  <p style="margin:20px 0 0;font-size:12px;color:#64748b">
+    Pour obtenir le détail ligne par ligne ou le suivi comptabilité au format Excel (modèle ANAQ-Sup),
+    la direction peut l'exporter depuis la plateforme sur demande.
+  </p>`
+
+  return { sujet, html: emailHtml(corps, nomEtab) }
+}
+
+// Envoie le relevé au cabinet comptable configuré. Retourne { ok, error, sujet, destinataires }.
+async function envoyerReleveAuCabinet(moisIso: string): Promise<{ ok: boolean; error?: string; sujet?: string; destinataires?: string[] }> {
+  const { rows: params } = await pool.query(
+    `SELECT cle, valeur FROM parametres_systeme
+     WHERE cle IN ('envoi_releve_cabinet_actif','email_cabinet_comptable','email_cabinet_cc','nom_cabinet_comptable')`
+  )
+  const map: Record<string, string> = {}
+  for (const r of params) map[r.cle] = r.valeur || ''
+
+  const emailPrincipal = (map.email_cabinet_comptable || '').trim()
+  if (!emailPrincipal) return { ok: false, error: 'Aucun email de cabinet comptable configuré.' }
+
+  const emailsCc = (map.email_cabinet_cc || '')
+    .split(/[,;]/).map(s => s.trim()).filter(Boolean)
+
+  const destinataires = [emailPrincipal, ...emailsCc]
+  const { sujet, html } = await buildReleveComptableHtml(moisIso)
+
+  // Envoi individuel via sendBrevoEmail (simple, et évite les échecs partiels)
+  let lastErr: string | undefined
+  let atLeastOne = false
+  for (const to of destinataires) {
+    const res = await sendBrevoEmail(to, sujet, html)
+    if (res.ok) atLeastOne = true
+    else lastErr = res.error
+  }
+  if (!atLeastOne) return { ok: false, error: lastErr || 'Échec de tous les envois.', sujet, destinataires }
+  return { ok: true, sujet, destinataires }
+}
+
+// POST /comptabilite/envoi-cabinet-test — envoi immédiat au cabinet (DG)
+app.post('/comptabilite/envoi-cabinet-test', requireAuth, role('dg'), async (c) => {
+  try {
+    const moisIso = new Date().toISOString().slice(0, 7) // YYYY-MM
+    const res = await envoyerReleveAuCabinet(moisIso)
+    if (!res.ok) return c.json({ message: res.error || 'Envoi impossible.' }, 400)
+    return c.json({
+      message: 'Relevé envoyé avec succès.',
+      sujet: res.sujet,
+      destinataires: res.destinataires,
+      mois: moisIso,
+    })
+  } catch (err: any) {
+    return c.json({ message: err.message }, 500)
+  }
+})
+
+// GET /cron/releve-cabinet — appelé par Vercel cron. N'envoie que les 15 et dernier jour du mois.
+app.get('/cron/releve-cabinet', async (c) => {
+  const secret = c.req.header('x-vercel-cron-signature') || c.req.query('secret')
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret && secret !== cronSecret) {
+    return c.json({ message: 'Non autorisé.' }, 401)
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT valeur FROM parametres_systeme WHERE cle='envoi_releve_cabinet_actif'`
+    )
+    if (!rows[0] || rows[0].valeur !== '1') {
+      return c.json({ message: 'Envoi désactivé.', skipped: true })
+    }
+
+    const now = new Date()
+    const jour = now.getDate()
+    const dernierJour = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    if (jour !== 15 && jour !== dernierJour) {
+      return c.json({ message: `Jour ${jour} — envoi uniquement le 15 et le ${dernierJour}.`, skipped: true })
+    }
+
+    const moisIso = now.toISOString().slice(0, 7)
+    const res = await envoyerReleveAuCabinet(moisIso)
+    if (!res.ok) return c.json({ message: res.error || 'Échec envoi.', ok: false }, 500)
+    return c.json({ message: 'Relevé envoyé au cabinet.', ok: true, mois: moisIso, destinataires: res.destinataires })
   } catch (err: any) {
     return c.json({ message: err.message }, 500)
   }

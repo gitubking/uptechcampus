@@ -448,6 +448,7 @@ const groups = [
   { key: 'academique',    label: 'Académique',           icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
   { key: 'pedagogique',   label: 'Pédagogique',          icon: 'M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222' },
   { key: 'finance',       label: 'Finance & Paiements',  icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
+  { key: 'comptabilite',  label: 'Comptabilité',         icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
   { key: 'relances',      label: 'Relances',             icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' },
   { key: 'notifications', label: 'Notifications',        icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
   { key: 'danger',        label: 'Zone de danger',       icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' },
@@ -488,6 +489,10 @@ const fieldConfig: Record<string, { label: string; type?: string; textarea?: boo
   relance_j30:                { label: 'Relance J+30 (notification direction)', toggle: true },
   message_relance_j3:         { label: 'Modèle SMS J+3', textarea: true },
   message_relance_j7:         { label: 'Modèle SMS J+7', textarea: true },
+  envoi_releve_cabinet_actif: { label: 'Activer l\'envoi automatique au cabinet', toggle: true },
+  email_cabinet_comptable:    { label: 'Email du cabinet comptable', type: 'email' },
+  email_cabinet_cc:           { label: 'Email(s) en copie (séparés par des virgules)', type: 'text' },
+  nom_cabinet_comptable:      { label: 'Nom du cabinet (affiché dans l\'e-mail)' },
   heure_debut_notifications:  { label: 'Heure début envoi notifications (0-23)', type: 'number' },
   heure_fin_notifications:    { label: 'Heure fin envoi notifications (0-23)', type: 'number' },
   notif_nouveau_paiement:     { label: 'Notifier à chaque nouveau paiement', toggle: true },
@@ -510,6 +515,40 @@ const financeParamsHorsTenue = computed(() =>
     p.groupe === 'finance' && !['tenue_obligatoire', 'montant_tenue'].includes(p.cle)
   )
 )
+
+// Paramètres comptabilité (ordre explicite)
+const comptaOrder = ['envoi_releve_cabinet_actif', 'nom_cabinet_comptable', 'email_cabinet_comptable', 'email_cabinet_cc']
+const comptaParams = computed(() => {
+  const list = parametres.value.filter(p => p.groupe === 'comptabilite')
+  return list.slice().sort((a, b) => {
+    const ia = comptaOrder.indexOf(a.cle); const ib = comptaOrder.indexOf(b.cle)
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+  })
+})
+const comptaActif = computed(() => editValues.value['envoi_releve_cabinet_actif'] === '1')
+const comptaEmail = computed(() => (editValues.value['email_cabinet_comptable'] || '').trim())
+
+const testCompta = ref<'idle' | 'sending' | 'ok' | 'error'>('idle')
+const testComptaMsg = ref('')
+async function envoyerTestCabinet() {
+  if (!comptaEmail.value) {
+    testCompta.value = 'error'
+    testComptaMsg.value = 'Renseignez d\'abord l\'email du cabinet.'
+    return
+  }
+  testCompta.value = 'sending'
+  testComptaMsg.value = ''
+  try {
+    const { data } = await api.post('/comptabilite/envoi-cabinet-test', {})
+    testCompta.value = 'ok'
+    const dests = Array.isArray(data?.destinataires) ? data.destinataires.join(', ') : comptaEmail.value
+    testComptaMsg.value = `Relevé envoyé à ${dests}.`
+    setTimeout(() => { if (testCompta.value === 'ok') { testCompta.value = 'idle'; testComptaMsg.value = '' } }, 6000)
+  } catch (err: any) {
+    testCompta.value = 'error'
+    testComptaMsg.value = err?.response?.data?.message || err?.message || 'Échec de l\'envoi.'
+  }
+}
 
 // Paramètres tenue (si configurés dans la DB)
 const tenueObligatoire = computed(() =>
@@ -1705,6 +1744,78 @@ onMounted(() => {
           </template>
         </UcModal>
 
+      </template>
+
+      <!-- ═══ COMPTABILITÉ ═════════════════════════════════════════════ -->
+      <template v-else-if="activeGroup === 'comptabilite'">
+        <div class="pm-section-header">
+          <h1 class="pm-section-title">Comptabilité</h1>
+          <p class="pm-section-desc">Envoi automatique du relevé comptable au cabinet le <strong>15</strong> et le <strong>dernier jour</strong> du mois.</p>
+        </div>
+
+        <div v-if="loading" class="pm-empty">Chargement…</div>
+        <template v-else>
+          <div v-if="comptaParams.length === 0" class="pm-empty">Aucun paramètre dans cette catégorie.</div>
+          <div v-else class="pm-params-list">
+            <div v-for="p in comptaParams" :key="p.cle" class="pm-param-card">
+              <div v-if="fieldConfig[p.cle]?.toggle" class="pm-param-row">
+                <div>
+                  <p class="pm-param-label">{{ fieldConfig[p.cle]?.label ?? p.cle }}</p>
+                  <p v-if="p.cle === 'envoi_releve_cabinet_actif'" class="pm-hint">Lorsque activé, le relevé est envoyé automatiquement au cabinet les 15 et dernier jour du mois.</p>
+                  <p v-else-if="p.description" class="pm-hint">{{ p.description }}</p>
+                </div>
+                <button @click="toggleValue(p.cle)" :disabled="!isDG" class="pm-toggle" :class="editValues[p.cle] === '1' ? 'pm-toggle--on' : ''">
+                  <span class="pm-toggle-knob" :class="editValues[p.cle] === '1' ? 'pm-toggle-knob--on' : ''" />
+                </button>
+              </div>
+              <div v-else class="pm-param-row pm-param-row--field">
+                <div style="flex:1;min-width:0">
+                  <label :for="`param-${p.cle}`" class="pm-param-label">{{ fieldConfig[p.cle]?.label ?? p.cle }}</label>
+                  <p v-if="p.cle === 'email_cabinet_cc'" class="pm-hint">Facultatif — séparez plusieurs adresses par une virgule.</p>
+                  <p v-else-if="p.description" class="pm-hint">{{ p.description }}</p>
+                  <input :id="`param-${p.cle}`" v-model="editValues[p.cle]" :type="fieldConfig[p.cle]?.type ?? 'text'" :disabled="!isDG" class="pm-input pm-input--sm" />
+                </div>
+                <div style="flex-shrink:0">
+                  <button v-if="isDG" @click="save(p.cle)" :disabled="saving === p.cle || editValues[p.cle] === p.valeur" class="pm-btn-save" :class="saved === p.cle ? 'pm-btn-save--ok' : ''">
+                    <svg v-if="saved === p.cle" width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                    {{ saving === p.cle ? '…' : saved === p.cle ? 'Sauvegardé' : 'Sauvegarder' }}
+                  </button>
+                  <span v-else class="pm-readonly">Lecture seule</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bouton test -->
+          <div v-if="isDG" class="pm-param-card" style="margin-top:14px;background:#f8fafc;border-color:#e2e8f0">
+            <div class="pm-param-row pm-param-row--field" style="align-items:center">
+              <div style="flex:1;min-width:0">
+                <p class="pm-param-label">Envoyer un e-mail de test</p>
+                <p class="pm-hint">Envoie immédiatement le relevé du mois en cours à l'adresse configurée (et aux copies). Utile pour valider la configuration sans attendre l'envoi automatique.</p>
+                <p v-if="testComptaMsg" class="pm-hint" :style="{ color: testCompta === 'ok' ? '#15803d' : testCompta === 'error' ? '#b91c1c' : '#64748b', fontWeight: 600, marginTop:'6px' }">
+                  {{ testComptaMsg }}
+                </p>
+              </div>
+              <div style="flex-shrink:0">
+                <button
+                  @click="envoyerTestCabinet"
+                  :disabled="testCompta === 'sending' || !comptaEmail"
+                  class="pm-btn-save"
+                  :class="testCompta === 'ok' ? 'pm-btn-save--ok' : ''"
+                  :title="!comptaEmail ? 'Renseignez d\'abord l\'email du cabinet' : 'Envoyer maintenant'"
+                >
+                  <svg v-if="testCompta === 'ok'" width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                  <svg v-else width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                  {{ testCompta === 'sending' ? 'Envoi…' : testCompta === 'ok' ? 'Envoyé' : 'Envoyer un test' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <p v-if="comptaActif && !comptaEmail" class="pm-hint" style="margin-top:10px;color:#b45309;font-weight:600">
+            ⚠️ L'envoi automatique est activé mais aucun email n'est configuré — renseignez l'adresse du cabinet.
+          </p>
+        </template>
       </template>
 
       <!-- ═══ ZONE DE DANGER ══════════════════════════════════════════ -->
