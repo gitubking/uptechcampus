@@ -539,7 +539,10 @@ async function envoyerTestCabinet() {
   testCompta.value = 'sending'
   testComptaMsg.value = ''
   try {
-    const { data } = await api.post('/comptabilite/envoi-cabinet-test', {})
+    const { data } = await api.post('/comptabilite/envoi-cabinet-test', {
+      email: comptaEmail.value,
+      cc: (editValues.value['email_cabinet_cc'] || '').trim(),
+    })
     testCompta.value = 'ok'
     const dests = Array.isArray(data?.destinataires) ? data.destinataires.join(', ') : comptaEmail.value
     testComptaMsg.value = `Relevé envoyé à ${dests}.`

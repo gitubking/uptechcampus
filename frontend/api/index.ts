@@ -11119,7 +11119,11 @@ async function buildReleveComptableHtml(moisIso: string): Promise<{ sujet: strin
 }
 
 // Envoie le relevé au cabinet comptable configuré. Retourne { ok, error, sujet, destinataires }.
-async function envoyerReleveAuCabinet(moisIso: string): Promise<{ ok: boolean; error?: string; sujet?: string; destinataires?: string[] }> {
+// override permet d'utiliser des adresses passées en paramètre (ex. bouton test non sauvegardé).
+async function envoyerReleveAuCabinet(
+  moisIso: string,
+  override?: { email?: string; cc?: string }
+): Promise<{ ok: boolean; error?: string; sujet?: string; destinataires?: string[] }> {
   const { rows: params } = await pool.query(
     `SELECT cle, valeur FROM parametres_systeme
      WHERE cle IN ('envoi_releve_cabinet_actif','email_cabinet_comptable','email_cabinet_cc','nom_cabinet_comptable')`
@@ -11127,10 +11131,11 @@ async function envoyerReleveAuCabinet(moisIso: string): Promise<{ ok: boolean; e
   const map: Record<string, string> = {}
   for (const r of params) map[r.cle] = r.valeur || ''
 
-  const emailPrincipal = (map.email_cabinet_comptable || '').trim()
+  const emailPrincipal = (override?.email ?? map.email_cabinet_comptable ?? '').trim()
   if (!emailPrincipal) return { ok: false, error: 'Aucun email de cabinet comptable configuré.' }
 
-  const emailsCc = (map.email_cabinet_cc || '')
+  const ccSource = override?.cc ?? map.email_cabinet_cc ?? ''
+  const emailsCc = ccSource
     .split(/[,;]/).map(s => s.trim()).filter(Boolean)
 
   const destinataires = [emailPrincipal, ...emailsCc]
@@ -11149,10 +11154,15 @@ async function envoyerReleveAuCabinet(moisIso: string): Promise<{ ok: boolean; e
 }
 
 // POST /comptabilite/envoi-cabinet-test — envoi immédiat au cabinet (DG)
+// Accepte optionnellement { email, cc } pour tester avant sauvegarde.
 app.post('/comptabilite/envoi-cabinet-test', requireAuth, role('dg'), async (c) => {
   try {
+    const body = await c.req.json().catch(() => ({} as any))
     const moisIso = new Date().toISOString().slice(0, 7) // YYYY-MM
-    const res = await envoyerReleveAuCabinet(moisIso)
+    const res = await envoyerReleveAuCabinet(moisIso, {
+      email: typeof body?.email === 'string' ? body.email : undefined,
+      cc:    typeof body?.cc    === 'string' ? body.cc    : undefined,
+    })
     if (!res.ok) return c.json({ message: res.error || 'Envoi impossible.' }, 400)
     return c.json({
       message: 'Relevé envoyé avec succès.',
