@@ -8339,7 +8339,7 @@ app.get('/classes/:id/maquette-tc', requireAuth, async (c) => {
 })
 
 // Mise à jour rapide de la date de début des cours
-app.patch('/classes/:id/date-debut-cours', requireAuth, role('dg', 'coordinateur', 'resp_fin'), async (c) => {
+app.patch('/classes/:id/date-debut-cours', requireAuth, role('dg', 'coordinateur', 'resp_fin', 'secretariat', 'dir_peda'), async (c) => {
   const classeId = parseInt(c.req.param('id'))
   const { date_debut_cours } = await c.req.json()
   const { rows } = await pool.query(
