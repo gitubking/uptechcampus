@@ -493,7 +493,7 @@ const fieldConfig: Record<string, { label: string; type?: string; textarea?: boo
   email_cabinet_comptable:    { label: 'Email du cabinet comptable', type: 'email' },
   email_cabinet_cc:           { label: 'Email(s) en copie (séparés par des virgules)', type: 'text' },
   nom_cabinet_comptable:      { label: 'Nom du cabinet (affiché dans l\'e-mail)' },
-  envoi_retards_actif:        { label: 'Activer l\'envoi automatique du rapport de retards le 15', toggle: true },
+  envoi_retards_actif:        { label: 'Activer l\'envoi automatique du rapport de retards (15 et dernier jour)', toggle: true },
   email_destinataire_retards: { label: 'Email destinataire du rapport de retards', type: 'email' },
   email_retards_cc:           { label: 'Email(s) en copie du rapport de retards', type: 'text' },
   heure_debut_notifications:  { label: 'Heure début envoi notifications (0-23)', type: 'number' },
@@ -1927,11 +1927,11 @@ onMounted(() => {
             ⚠️ L'envoi automatique est activé mais aucun email n'est configuré — renseignez l'adresse du cabinet.
           </p>
 
-          <!-- ───── Rapport de retards (15 du mois) ───────────────────── -->
+          <!-- ───── Rapport de retards (15 + dernier jour du mois) ────── -->
           <div class="pm-section-header" style="margin-top:28px;">
             <h2 class="pm-section-title" style="font-size:15px;">Rapport de retards de paiement</h2>
             <p class="pm-section-desc">
-              Envoi automatique le <strong>15 de chaque mois</strong> de la liste des étudiants en
+              Envoi automatique le <strong>15</strong> et le <strong>dernier jour du mois</strong> de la liste des étudiants en
               <strong style="color:#b45309">retard léger</strong> et <strong style="color:#b91c1c">en retard</strong>,
               avec un fichier Excel détaillé en pièce jointe. Source : page Suivi des paiements.
             </p>
@@ -1943,7 +1943,7 @@ onMounted(() => {
               <div v-if="fieldConfig[p.cle]?.toggle" class="pm-param-row">
                 <div>
                   <p class="pm-param-label">{{ fieldConfig[p.cle]?.label ?? p.cle }}</p>
-                  <p v-if="p.cle === 'envoi_retards_actif'" class="pm-hint">Lorsque activé, le rapport part automatiquement le 15 du mois à l'adresse configurée ci-dessous.</p>
+                  <p v-if="p.cle === 'envoi_retards_actif'" class="pm-hint">Lorsque activé, le rapport part automatiquement le 15 et le dernier jour du mois à l'adresse configurée ci-dessous.</p>
                 </div>
                 <button @click="toggleValue(p.cle)" :disabled="!isDG" class="pm-toggle" :class="editValues[p.cle] === '1' ? 'pm-toggle--on' : ''">
                   <span class="pm-toggle-knob" :class="editValues[p.cle] === '1' ? 'pm-toggle-knob--on' : ''" />

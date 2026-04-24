@@ -12149,7 +12149,8 @@ app.post('/comptabilite/envoi-retards-test', requireAuth, role('dg'), async (c) 
   }
 })
 
-// GET /cron/rapport-retards — cron Vercel le 15 du mois
+// GET /cron/rapport-retards — cron Vercel quotidien, n'envoie que le 15 et
+// le dernier jour du mois.
 app.get('/cron/rapport-retards', async (c) => {
   const secret = c.req.header('x-vercel-cron-signature') || c.req.query('secret')
   const cronSecret = process.env.CRON_SECRET
@@ -12164,8 +12165,10 @@ app.get('/cron/rapport-retards', async (c) => {
       return c.json({ message: 'Envoi désactivé.', skipped: true })
     }
     const now = new Date()
-    if (now.getDate() !== 15) {
-      return c.json({ message: `Jour ${now.getDate()} — envoi uniquement le 15.`, skipped: true })
+    const jour = now.getDate()
+    const dernierJour = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    if (jour !== 15 && jour !== dernierJour) {
+      return c.json({ message: `Jour ${jour} — envoi uniquement le 15 et le ${dernierJour}.`, skipped: true })
     }
     const res = await envoyerRapportRetards()
     if (!res.ok) return c.json({ message: res.error || 'Échec envoi.', ok: false }, 500)
