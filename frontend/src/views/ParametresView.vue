@@ -448,6 +448,7 @@ const groups = [
   { key: 'academique',    label: 'Académique',           icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
   { key: 'pedagogique',   label: 'Pédagogique',          icon: 'M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222' },
   { key: 'finance',       label: 'Finance & Paiements',  icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
+  { key: 'comptabilite',  label: 'Comptabilité',         icon: 'M9 17v-2a2 2 0 012-2h2a2 2 0 012 2v2m-6 0h6m-3-7V7m0 0h.01M3 12a9 9 0 1018 0 9 9 0 00-18 0z' },
   { key: 'relances',      label: 'Relances',             icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' },
   { key: 'notifications', label: 'Notifications',        icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
   { key: 'danger',        label: 'Zone de danger',       icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' },
@@ -464,6 +465,9 @@ const fieldConfig: Record<string, { label: string; type?: string; textarea?: boo
   telephone:                  { label: 'Téléphone', type: 'tel' },
   email_contact:              { label: 'Email de contact', type: 'email' },
   site_web:                   { label: 'Site web', type: 'url' },
+  // Envoi auto comptabilité
+  comptabilite_destinataire:  { label: 'Email du cabinet comptable', type: 'email' },
+  comptabilite_auto_envoi:    { label: 'Envoi automatique 2x/mois (15 et dernier jour)', toggle: true },
   devise:                     { label: 'Devise (ex: XOF)' },
   fuseau_horaire:             { label: 'Fuseau horaire' },
   cgu_texte:                  { label: 'Texte des CGU', textarea: true },
@@ -544,6 +548,25 @@ async function save(cle: string) {
     setTimeout(() => { if (saved.value === cle) saved.value = null }, 2000)
   } finally {
     saving.value = null
+  }
+}
+
+// Déclenche manuellement l'envoi du relevé comptable pour tester le flux.
+const testingComptaEnvoi = ref(false)
+async function testEnvoyerComptabilite() {
+  if (!confirm("Envoyer maintenant l'état comptable du mois en cours ? Un email part immédiatement au destinataire enregistré.")) return
+  testingComptaEnvoi.value = true
+  try {
+    const { data } = await api.post('/comptabilite/envoyer-maintenant')
+    alert(
+      `✅ ${data.message}\n\n` +
+      `Recettes : ${data.details?.nb_paiements ?? 0}  ·  Dépenses : ${data.details?.nb_depenses ?? 0}\n` +
+      `Solde net : ${(data.details?.solde ?? 0).toLocaleString('fr-FR')} FCFA`
+    )
+  } catch (e: any) {
+    alert(`❌ ${e?.response?.data?.message ?? 'Erreur d\'envoi.'}`)
+  } finally {
+    testingComptaEnvoi.value = false
   }
 }
 
@@ -1733,7 +1756,12 @@ onMounted(() => {
       <template v-else>
         <div class="pm-section-header">
           <h1 class="pm-section-title">{{ groups.find(g => g.key === activeGroup)?.label }}</h1>
-          <p class="pm-section-desc">Configuration de la plateforme</p>
+          <p class="pm-section-desc">
+            <template v-if="activeGroup === 'comptabilite'">
+              Envoi automatique du relevé comptable au cabinet le <strong>15</strong> et le <strong>dernier jour</strong> du mois.
+            </template>
+            <template v-else>Configuration de la plateforme</template>
+          </p>
         </div>
 
         <div v-if="loading" class="pm-empty">Chargement…</div>
@@ -1763,6 +1791,18 @@ onMounted(() => {
                 </button>
                 <span v-else class="pm-readonly">Lecture seule</span>
               </div>
+            </div>
+          </div>
+          <!-- Bouton test + hint pour le groupe Comptabilité -->
+          <div v-if="activeGroup === 'comptabilite' && isDG" class="pm-param-card" style="margin-top:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+              <div style="flex:1;min-width:240px;">
+                <p class="pm-param-label">Tester l'envoi maintenant</p>
+                <p class="pm-hint">Envoie immédiatement le relevé du mois en cours au destinataire enregistré, sans attendre le prochain cron.</p>
+              </div>
+              <button @click="testEnvoyerComptabilite" :disabled="testingComptaEnvoi" class="pm-btn-save">
+                {{ testingComptaEnvoi ? 'Envoi…' : '📤 Envoyer maintenant' }}
+              </button>
             </div>
           </div>
         </div>

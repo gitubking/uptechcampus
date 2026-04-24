@@ -307,6 +307,9 @@ pool.query(`CREATE INDEX IF NOT EXISTS idx_user_notif_user_lu ON user_notificati
       ['agrement',          '', 'etablissement', 'text'],
       ['directeur_general', '', 'etablissement', 'text'],
       ['ministere_tutelle', 'Enseignement Supérieur, de la Recherche et de l\'Innovation (MESRI)', 'etablissement', 'text'],
+      // Envoi automatique de l'état comptable au cabinet comptable
+      ['comptabilite_destinataire',  '',  'comptabilite', 'email'],
+      ['comptabilite_auto_envoi',    '0', 'comptabilite', 'bool'],
     ]
     for (const [cle, valeur, groupe, type] of seeds) {
       await pool.query(
@@ -11188,6 +11191,207 @@ app.get('/cron/relances', async (c) => {
   } catch (err: any) {
     return c.json({ message: err.message }, 500)
   }
+})
+
+// ─── ENVOI AUTOMATIQUE DE L'ÉTAT COMPTABLE AU CABINET COMPTABLE ──────────────
+// Déclenché quotidiennement par Vercel Cron, l'endpoint ne fait rien
+// sauf si la date du jour est le 15 ou le dernier jour du mois.
+// Peut aussi être déclenché manuellement avec ?force=1 (DG uniquement).
+// Génère un email HTML récapitulatif + un CSV détaillé en pièce jointe.
+
+function estDernierJourDuMois(d: Date): boolean {
+  const demain = new Date(d)
+  demain.setDate(d.getDate() + 1)
+  return demain.getDate() === 1
+}
+
+// Construit le CSV des mouvements du mois (recettes + dépenses confirmées).
+async function buildComptabiliteCsv(annee: number, mois: number): Promise<{ csv: string; totaux: { recettes: number; depenses: number; solde: number; nb_paiements: number; nb_depenses: number } }> {
+  const moisStr = `${annee}-${String(mois).padStart(2, '0')}`
+  const debut = `${moisStr}-01`
+  const finDate = new Date(annee, mois, 0)
+  const fin = finDate.toISOString().slice(0, 10)
+
+  const { rows: paiements } = await pool.query(
+    `SELECT p.id, p.numero_recu, p.created_at, p.confirmed_at,
+            p.type_paiement, p.montant, p.mode_paiement, p.reference,
+            COALESCE(e.nom || ' ' || e.prenom, '—') AS etudiant
+     FROM paiements p
+     LEFT JOIN inscriptions i ON i.id = p.inscription_id
+     LEFT JOIN etudiants e    ON e.id = i.etudiant_id
+     WHERE p.statut = 'confirme'
+       AND COALESCE(p.confirmed_at, p.created_at)::date BETWEEN $1 AND $2
+     ORDER BY COALESCE(p.confirmed_at, p.created_at)`,
+    [debut, fin]
+  )
+
+  let depenses: any[] = []
+  try {
+    const res = await pool.query(
+      `SELECT d.id, d.date_depense, d.categorie, d.description, d.montant, d.mode_paiement, d.reference
+       FROM depenses d
+       WHERE d.statut IN ('validee','payee')
+         AND d.date_depense BETWEEN $1 AND $2
+       ORDER BY d.date_depense`,
+      [debut, fin]
+    )
+    depenses = res.rows
+  } catch {
+    depenses = []  // table peut-être absente dans très anciennes bases
+  }
+
+  const totalR = paiements.reduce((s: number, p: any) => s + Number(p.montant || 0), 0)
+  const totalD = depenses.reduce((s: number, d: any) => s + Number(d.montant || 0), 0)
+
+  const esc = (s: any) => {
+    const str = String(s ?? '')
+    return /[",;\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
+  }
+  const lignes: string[] = []
+  lignes.push(['Type', 'Date', 'Réf.', 'Libellé', 'Mode', 'Montant (FCFA)'].join(';'))
+  for (const p of paiements) {
+    const date = new Date(p.confirmed_at ?? p.created_at).toISOString().slice(0, 10)
+    lignes.push([
+      'RECETTE', date, p.numero_recu ?? p.reference ?? '',
+      `${p.type_paiement} — ${p.etudiant}`, p.mode_paiement ?? '', String(Number(p.montant))
+    ].map(esc).join(';'))
+  }
+  for (const d of depenses) {
+    const date = new Date(d.date_depense).toISOString().slice(0, 10)
+    lignes.push([
+      'DEPENSE', date, d.reference ?? '',
+      `${d.categorie ?? ''} — ${d.description ?? ''}`, d.mode_paiement ?? '', String(-Number(d.montant))
+    ].map(esc).join(';'))
+  }
+  lignes.push('')
+  lignes.push(['', '', '', 'TOTAL RECETTES', '', String(totalR)].map(esc).join(';'))
+  lignes.push(['', '', '', 'TOTAL DEPENSES', '', String(-totalD)].map(esc).join(';'))
+  lignes.push(['', '', '', 'SOLDE NET',      '', String(totalR - totalD)].map(esc).join(';'))
+
+  const csv = '﻿' + lignes.join('\n')  // BOM UTF-8 pour qu'Excel ouvre les accents correctement
+  return {
+    csv,
+    totaux: {
+      recettes: totalR,
+      depenses: totalD,
+      solde: totalR - totalD,
+      nb_paiements: paiements.length,
+      nb_depenses: depenses.length,
+    },
+  }
+}
+
+async function envoyerEtatComptable(): Promise<{ ok: boolean; message: string; details?: any }> {
+  // Lire destinataire + activation
+  const { rows: params } = await pool.query(
+    `SELECT cle, valeur FROM parametres_systeme WHERE cle IN ('comptabilite_destinataire','comptabilite_auto_envoi','nom_etablissement')`
+  )
+  const pmap: Record<string, string> = {}
+  for (const p of params) pmap[p.cle] = p.valeur ?? ''
+  const destinataire = (pmap['comptabilite_destinataire'] ?? '').trim()
+  if (!destinataire || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(destinataire)) {
+    return { ok: false, message: 'Destinataire non configuré (Paramètres → Comptabilité).' }
+  }
+  const apiKey = process.env.BREVO_API_KEY
+  if (!apiKey) {
+    return { ok: false, message: 'BREVO_API_KEY manquant — email non envoyé.' }
+  }
+  const nomEtab = pmap['nom_etablissement'] || "UPTECH Campus"
+
+  const now = new Date()
+  const annee = now.getFullYear()
+  const mois = now.getMonth() + 1
+  const moisLabel = now.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+  const dateJour = now.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+  const momentLabel = now.getDate() === 15 ? 'mi-mois' : 'fin de mois'
+
+  const { csv, totaux } = await buildComptabiliteCsv(annee, mois)
+  const csvBase64 = Buffer.from(csv, 'utf-8').toString('base64')
+  const fmt = (n: number) => Math.round(n).toLocaleString('fr-FR').replace(/ | /g, ' ') + ' FCFA'
+
+  const html = `<!DOCTYPE html><html lang="fr"><body style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:20px;color:#111">
+    <div style="background:linear-gradient(135deg,#E30613,#a10510);color:#fff;padding:18px 22px;border-radius:10px 10px 0 0">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;opacity:.85">${nomEtab}</div>
+      <h2 style="margin:4px 0 0;font-size:20px">État comptable — ${moisLabel}</h2>
+      <div style="font-size:12px;opacity:.85;margin-top:3px">Envoi automatique ${momentLabel} · ${dateJour}</div>
+    </div>
+    <div style="border:1px solid #e5e7eb;border-top:none;padding:22px 22px 18px;border-radius:0 0 10px 10px">
+      <p style="margin:0 0 14px;font-size:14px">Bonjour,</p>
+      <p style="margin:0 0 14px;font-size:13px;color:#444">
+        Veuillez trouver ci-joint le détail des mouvements comptables du mois en cours,
+        généré automatiquement par UPTECH Campus. Le fichier CSV peut être ouvert dans Excel ou Google Sheets.
+      </p>
+      <table style="width:100%;border-collapse:collapse;margin:18px 0 8px;font-size:13px">
+        <tr>
+          <td style="padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;font-weight:700;width:40%">Total recettes (${totaux.nb_paiements})</td>
+          <td style="padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;font-weight:700;text-align:right">${fmt(totaux.recettes)}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-weight:700">Total dépenses (${totaux.nb_depenses})</td>
+          <td style="padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-weight:700;text-align:right">− ${fmt(totaux.depenses)}</td>
+        </tr>
+        <tr>
+          <td style="padding:12px;background:#1e293b;color:#fff;font-weight:800;font-size:14px">SOLDE NET</td>
+          <td style="padding:12px;background:#1e293b;color:#fff;font-weight:800;font-size:16px;text-align:right">${fmt(totaux.solde)}</td>
+        </tr>
+      </table>
+      <p style="margin:16px 0 0;font-size:11px;color:#888;font-style:italic">
+        Cet email est envoyé automatiquement par UPTECH Campus le 15 et le dernier jour de chaque mois.
+        Pour changer le destinataire ou désactiver cet envoi : Paramètres → Comptabilité.
+      </p>
+    </div>
+  </body></html>`
+
+  const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+    body: JSON.stringify({
+      sender: {
+        name: process.env.BREVO_FROM_NAME  || nomEtab,
+        email: process.env.BREVO_FROM_EMAIL || 'noreply@uptechcampus.com',
+      },
+      to: [{ email: destinataire }],
+      subject: `[${nomEtab}] État comptable ${moisLabel} (${momentLabel})`,
+      htmlContent: html,
+      attachment: [{
+        name: `comptabilite_${annee}-${String(mois).padStart(2, '0')}.csv`,
+        content: csvBase64,
+      }],
+    }),
+  })
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => '')
+    return { ok: false, message: `Brevo ${resp.status}: ${errBody.slice(0, 300)}`, details: totaux }
+  }
+  return { ok: true, message: `Envoyé à ${destinataire}`, details: totaux }
+}
+
+// Cron : vérifie la date et déclenche l'envoi si on est le 15 ou dernier jour du mois.
+app.get('/cron/comptabilite-mensuelle', async (c) => {
+  const secret = c.req.header('x-vercel-cron-signature') || c.req.query('secret')
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret && secret !== cronSecret) {
+    return c.json({ message: 'Non autorisé.' }, 401)
+  }
+  // Vérifier activation + date
+  const { rows: actif } = await pool.query(`SELECT valeur FROM parametres_systeme WHERE cle='comptabilite_auto_envoi'`)
+  if ((actif[0]?.valeur ?? '0') !== '1') {
+    return c.json({ message: 'Envoi automatique désactivé (comptabilite_auto_envoi=0).' })
+  }
+  const force = c.req.query('force') === '1'
+  const today = new Date()
+  const estCible = today.getDate() === 15 || estDernierJourDuMois(today)
+  if (!force && !estCible) {
+    return c.json({ message: `Rien à faire (${today.toISOString().slice(0, 10)}) — l'envoi n'a lieu que le 15 et le dernier jour du mois.` })
+  }
+  const res = await envoyerEtatComptable()
+  return c.json(res, res.ok ? 200 : 500)
+})
+
+// Déclencher manuellement (test depuis la page Paramètres — DG uniquement).
+app.post('/comptabilite/envoyer-maintenant', requireAuth, role('dg'), async (_c) => {
+  const res = await envoyerEtatComptable()
+  return _c.json(res, res.ok ? 200 : 500)
 })
 
 // ─── ÉMARGEMENT PAR QR CODE ──────────────────────────────────────────────────
