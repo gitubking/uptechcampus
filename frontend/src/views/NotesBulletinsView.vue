@@ -2912,7 +2912,8 @@ watch(filterSession, () => {
           <button @click="filterSession='rattrapage'" :class="['nb-session-btn', filterSession==='rattrapage' ? 'nb-session-btn--rattrapage' : '']">Rattrapage</button>
         </div>
       </div>
-      <button v-if="canWrite && filterClasse" @click="openUeCreate" class="nb-btn-ues">⚙ Matières & Groupes</button>
+      <!-- Le bouton "Matières & Groupes" a migré en flottant (Teleport plus bas),
+           toujours visible au défilement comme "Enregistrer tout". -->
     </div>
 
     <!-- Tabs pill modernes -->
@@ -2950,16 +2951,21 @@ watch(filterSession, () => {
           </div>
         </div>
 
-        <!-- Bouton flottant Enregistrer tout – toujours visible -->
+        <!-- Barre flottante — toujours visible au défilement.
+             Regroupe "Matières & Groupes" (tous onglets) et "Enregistrer tout"
+             (saisie uniquement). -->
         <Teleport to="body">
-          <div v-if="canWrite && filterClasse && activeTab === 'saisie'" class="nb-save-float">
-            <transition name="nb-fade">
-              <span v-if="saved" class="nb-saved-badge" style="white-space:nowrap;">✓ Enregistré</span>
-            </transition>
-            <button @click="enregistrerNotes" :disabled="saving" class="nb-btn-save-notes nb-btn-save-float-btn">
-              <span style="font-size:16px;line-height:1;">💾</span>
-              {{ saving ? 'Enregistrement…' : 'Enregistrer tout' }}
-            </button>
+          <div v-if="canWrite && filterClasse" class="nb-save-float">
+            <button @click="openUeCreate" class="nb-btn-ues nb-btn-float-ues">⚙ Matières &amp; Groupes</button>
+            <template v-if="activeTab === 'saisie'">
+              <transition name="nb-fade">
+                <span v-if="saved" class="nb-saved-badge" style="white-space:nowrap;">✓ Enregistré</span>
+              </transition>
+              <button @click="enregistrerNotes" :disabled="saving" class="nb-btn-save-notes nb-btn-save-float-btn">
+                <span style="font-size:16px;line-height:1;">💾</span>
+                {{ saving ? 'Enregistrement…' : 'Enregistrer tout' }}
+              </button>
+            </template>
           </div>
         </Teleport>
         <div v-if="!ues.length" class="nb-empty-ues">
@@ -4998,6 +5004,16 @@ watch(filterSession, () => {
   align-items: center;
   gap: 8px;
   box-shadow: 0 4px 16px rgba(227,6,19,0.35);
+}
+/* Variante du bouton "Matières & Groupes" quand il est dans la barre flottante :
+   rendu cohérent avec "Enregistrer tout" (même hauteur, même padding). */
+.nb-btn-float-ues {
+  padding: 10px 16px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 4px 14px rgba(30,41,59,0.18);
 }
 .nb-fade-enter-active, .nb-fade-leave-active { transition: opacity 0.3s; }
 .nb-fade-enter-from, .nb-fade-leave-to { opacity: 0; }
