@@ -3,11 +3,13 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { useToast } from '@/composables/useToast'
 import QRCode from 'qrcode'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const toast = useToast()
 
 const canWrite = computed(() => ['dg', 'secretariat'].includes(auth.user?.role ?? ''))
 const canDelete = computed(() => auth.user?.role === 'dg')
@@ -46,7 +48,7 @@ async function confirmDeleteEtudiant() {
     await api.delete(`/etudiants/${etudiant.value.id}`)
     router.push('/etudiants')
   } catch (err: any) {
-    alert(err?.response?.data?.message || 'Erreur lors de la suppression')
+    toast.apiError(err, 'Erreur lors de la suppression')
     deletingEtudiant.value = false
   }
 }
@@ -480,7 +482,7 @@ async function uploadPhoto(e: Event) {
     const { data } = await api.post(`/etudiants/${etudiant.value.id}/photo`, { photo_base64: dataUrl })
     etudiant.value.photo_path = data.photo_path
   } catch (err: any) {
-    alert(err?.response?.data?.message || 'Erreur upload photo')
+    toast.apiError(err, 'Erreur upload photo')
   } finally {
     photoLoading.value = false
     if (photoInput.value) photoInput.value.value = ''
@@ -530,7 +532,7 @@ async function openWebcam() {
       webcamVideo.value.play()
     }
   } catch {
-    alert('Impossible d\'accéder à la webcam. Vérifiez les permissions du navigateur.')
+    toast.error('Impossible d\'accéder à la webcam. Vérifiez les permissions du navigateur.')
     closeWebcam()
   }
 }
@@ -567,7 +569,7 @@ async function saveWebcamPhoto() {
     etudiant.value.photo_path = data.photo_path
     closeWebcam()
   } catch (err: any) {
-    alert(err?.response?.data?.message || 'Erreur enregistrement photo')
+    toast.apiError(err, 'Erreur enregistrement photo')
   } finally {
     webcamLoading.value = false
   }
@@ -1148,7 +1150,7 @@ function printFicheDetail() {
   const etd = etudiant.value
   const insc = etd.inscriptions?.[0]
   const fi = fiData.value
-  if (!etd || (!insc && !fi)) { alert("Aucune inscription trouvée pour cet étudiant."); return }
+  if (!etd || (!insc && !fi)) { toast.warning("Aucune inscription trouvée pour cet étudiant."); return }
   const fmt = (n: number | null | undefined) =>
     n != null ? new Intl.NumberFormat('fr-FR').format(n) + ' FCFA' : '—'
   const val = (v: any) => v || '—'
@@ -1282,7 +1284,7 @@ function printCertificatDetail() {
   const etd = etudiant.value
   const insc = etd.inscriptions?.[0]
   const fi = fiData.value
-  if (!etd || (!insc && !fi)) { alert("Aucune inscription trouvée pour cet étudiant."); return }
+  if (!etd || (!insc && !fi)) { toast.warning("Aucune inscription trouvée pour cet étudiant."); return }
   const val = (v: any) => v || '—'
   const fmtDate = (d: string | null | undefined) => {
     if (!d) return '—'
@@ -1412,7 +1414,7 @@ async function toggleDoc(item: ChecklistItem) {
     item.recu = data.recu
     item.date_reception = data.date_reception
   } catch {
-    alert('Erreur lors de la mise à jour')
+    toast.warning('Erreur lors de la mise à jour')
   } finally {
     item.toggling = false
   }
@@ -1480,7 +1482,7 @@ async function submitCommentaire() {
     newCommentaire.value = ''
     newCategorie.value = 'general'
   } catch (err: any) {
-    alert(err?.response?.data?.message || 'Erreur lors de l\'ajout du commentaire.')
+    toast.apiError(err, 'Erreur lors de l\'ajout du commentaire.')
   } finally {
     commentaireSubmitting.value = false
   }
@@ -1508,7 +1510,7 @@ async function saveEdit(c: Commentaire) {
     if (idx !== -1) commentaires.value[idx] = data
     editingCommentId.value = null
   } catch (err: any) {
-    alert(err?.response?.data?.message || 'Erreur lors de la modification.')
+    toast.apiError(err, 'Erreur lors de la modification.')
   }
 }
 
@@ -1519,7 +1521,7 @@ async function deleteCommentaire(id: number) {
     await api.delete(`/commentaires/${id}`)
     commentaires.value = commentaires.value.filter(c => c.id !== id)
   } catch (err: any) {
-    alert(err?.response?.data?.message || 'Erreur lors de la suppression.')
+    toast.apiError(err, 'Erreur lors de la suppression.')
   } finally {
     commentaireDeleting.value = null
   }
@@ -1602,14 +1604,14 @@ async function sendManualRelance(inscriptionId: number) {
     const msg = data.simulated
       ? 'Relance simulée (configurez BREVO_API_KEY pour envoi réel).'
       : 'Relance envoyée avec succès.'
-    alert(msg)
+    toast.warning(msg)
     await loadRelances(inscriptionId)
     // Recharger la timeline si active
     if (activeTab.value === 'timeline') await loadTimeline()
   } catch (err: any) {
-    const msg = err?.response?.data?.message || 'Erreur lors de l\'envoi de la relance.'
     const simulated = err?.response?.data?.simulated
-    alert(simulated ? `Simulation — ${msg}` : msg)
+    if (simulated) toast.warning('Simulation — ' + (err?.response?.data?.message || 'relance simulée'))
+    else toast.apiError(err, 'Erreur lors de l\'envoi de la relance.')
   } finally {
     relanceSending.value = { ...relanceSending.value, [inscriptionId]: false }
   }
@@ -1740,7 +1742,7 @@ async function validerExo(e: any) {
       } catch { /* noop */ }
     }
   } catch (err: any) {
-    alert(err.response?.data?.message ?? 'Erreur')
+    toast.apiError(err, 'Erreur')
   }
 }
 
@@ -1749,7 +1751,7 @@ async function rejeterExo(e: any) {
   try {
     await api.post(`/exonerations/${e.id}/rejeter`, { motif: motif || null })
     await loadExonerations()
-  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
+  } catch (err: any) { toast.apiError(err, 'Erreur') }
 }
 
 async function annulerExo(e: any) {
@@ -1764,7 +1766,7 @@ async function annulerExo(e: any) {
         echeancesMap.value = { ...echeancesMap.value, [e.inscription_id]: echs }
       } catch { /* noop */ }
     }
-  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
+  } catch (err: any) { toast.apiError(err, 'Erreur') }
 }
 
 async function supprimerExo(e: any) {
@@ -1772,7 +1774,7 @@ async function supprimerExo(e: any) {
   try {
     await api.delete(`/exonerations/${e.id}`)
     await loadExonerations()
-  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
+  } catch (err: any) { toast.apiError(err, 'Erreur') }
 }
 
 function switchTab(key: string) {
@@ -2211,7 +2213,7 @@ async function lierParent() {
     newParentUserId.value = ''
     await loadParents()
   } catch (e: any) {
-    alert(e?.response?.data?.message ?? 'Erreur lors du lien.')
+    toast.apiError(e, 'Erreur lors du lien.')
   } finally { lieurParent.value = false }
 }
 

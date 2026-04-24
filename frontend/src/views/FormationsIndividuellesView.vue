@@ -3,12 +3,14 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { useToast } from '@/composables/useToast'
 import UcModal from '@/components/ui/UcModal.vue'
 import UcFormGroup from '@/components/ui/UcFormGroup.vue'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 import QRCode from 'qrcode'
 
 const router = useRouter()
+const toast = useToast()
 
 const auth = useAuthStore()
 const canWrite = computed(() => ['dg', 'coordinateur'].includes(auth.user?.role ?? ''))
@@ -175,11 +177,11 @@ function removeModule(i: number) {
 
 async function save() {
   if (form.value.modules.some(m => !m.matiere_id)) {
-    alert('Chaque module doit avoir une matière')
+    toast.warning('Chaque module doit avoir une matière')
     return
   }
   if (!form.value.cout_total || form.value.modules.length === 0) {
-    alert('Veuillez remplir le coût et au moins un module')
+    toast.warning('Veuillez remplir le coût et au moins un module')
     return
   }
 
@@ -187,7 +189,7 @@ async function save() {
   if (isGroupMode.value && !editingFI.value) {
     const validNew = groupNewParticipants.value.filter(p => p.nom && p.prenom)
     if (groupEtudiantIds.value.length === 0 && validNew.length === 0) {
-      alert('Ajoutez au moins un participant')
+      toast.warning('Ajoutez au moins un participant')
       return
     }
     saving.value = true
@@ -208,18 +210,18 @@ async function save() {
       showModal.value = false
       await load()
     } catch (e: any) {
-      alert(e?.response?.data?.error || 'Erreur')
+      toast.apiError(e, 'Erreur')
     } finally { saving.value = false }
     return
   }
 
   // Mode individuel
   if (!form.value.etudiant_id && !createNewEtudiant.value) {
-    alert('Veuillez sélectionner un étudiant ou créer un nouveau')
+    toast.warning('Veuillez sélectionner un étudiant ou créer un nouveau')
     return
   }
   if (createNewEtudiant.value && (!newEtudiant.value.nom || !newEtudiant.value.prenom)) {
-    alert('Le nom et prénom du nouvel étudiant sont requis')
+    toast.warning('Le nom et prénom du nouvel étudiant sont requis')
     return
   }
   saving.value = true
@@ -237,7 +239,7 @@ async function save() {
     showModal.value = false
     await load()
   } catch (e: any) {
-    alert(e?.response?.data?.error || 'Erreur')
+    toast.apiError(e, 'Erreur')
   } finally { saving.value = false }
 }
 
@@ -247,7 +249,7 @@ async function deleteFI(fi: FI) {
     await api.delete(`/formations-individuelles/${fi.id}`)
     await load()
   } catch (e: any) {
-    alert(e?.response?.data?.error || 'Erreur')
+    toast.apiError(e, 'Erreur')
   }
 }
 
@@ -262,7 +264,7 @@ async function updateHeures(mod: FIModule, newHeures: number) {
       await load()
     }
   } catch (e: any) {
-    alert(e?.response?.data?.error || 'Erreur')
+    toast.apiError(e, 'Erreur')
   }
 }
 
@@ -372,11 +374,11 @@ async function submitPlan() {
   if (!planModule.value || !selectedFI.value) return
   const mod = planModule.value
   if (!mod.enseignant_id) {
-    alert('Ce module n\'a pas de formateur assigné')
+    toast.warning('Ce module n\'a pas de formateur assigné')
     return
   }
   if (planForm.value.jours.length === 0) {
-    alert('Sélectionnez au moins un jour')
+    toast.warning('Sélectionnez au moins un jour')
     return
   }
   planLoading.value = true
@@ -417,7 +419,7 @@ async function submitPlan() {
     }
     planResult.value = data
   } catch (e: any) {
-    alert(e?.response?.data?.error || 'Erreur lors de la planification')
+    toast.apiError(e, 'Erreur lors de la planification')
   } finally { planLoading.value = false }
 }
 
@@ -448,7 +450,7 @@ async function confirmPay() {
     const updated = formations.value.find(f => f.id === selectedFI.value!.id)
     if (updated) selectedFI.value = updated
   } catch (e: any) {
-    alert(e?.response?.data?.error || 'Erreur')
+    toast.apiError(e, 'Erreur')
   } finally { payingLoading.value = false }
 }
 
@@ -476,7 +478,7 @@ function fmtMoney(n: number) {
 // ── Impression ──────────────────────────────────────────────────────
 function openPrintWindow(html: string) {
   const w = window.open('', '_blank', 'width=800,height=600')
-  if (!w) { alert('Popup bloquée — autorisez les popups.'); return }
+  if (!w) { toast.warning('Popup bloquée — autorisez les popups.'); return }
   w.document.write(html)
   w.document.close()
   w.onload = () => { w.focus(); w.print() }

@@ -4,6 +4,9 @@ import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
 import UcModal from '@/components/ui/UcModal.vue'
 import UcFormGroup from '@/components/ui/UcFormGroup.vue'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 // ── Interfaces ──────────────────────────────────────────────────────
 interface Parametre {
@@ -130,7 +133,7 @@ async function saveType() {
     }
     showModalType.value = false
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Erreur lors de la sauvegarde')
+    toast.apiError(e, 'Erreur lors de la sauvegarde')
   } finally {
     savingType.value = false
   }
@@ -143,7 +146,7 @@ async function deleteType(t: TypeFormation) {
     await api.delete(`/types-formation/${t.id}`)
     typesFormation.value = typesFormation.value.filter(x => x.id !== t.id)
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Suppression impossible')
+    toast.apiError(e, 'Suppression impossible')
   } finally {
     deletingTypeId.value = null
   }
@@ -254,16 +257,15 @@ async function nettoyerDoublonsMatieres() {
     counts[key] = (counts[key] || 0) + 1
   }
   const nbDoublons = Object.values(counts).filter(n => n > 1).reduce((a, n) => a + (n - 1), 0)
-  if (nbDoublons === 0) { alert('Aucun doublon détecté.'); return }
+  if (nbDoublons === 0) { toast.warning('Aucun doublon détecté.'); return }
   if (!confirm(`${nbDoublons} doublon(s) de matière(s) détecté(s). Supprimer automatiquement ? (Les affiliations filières seront conservées sur la matière originale.)`)) return
   nettoyageDoublonsMatieres.value = true
   try {
     const { data } = await api.post('/matieres/nettoyer-doublons')
-    alert(typeof data?.message === 'string' ? data.message : JSON.stringify(data))
+    toast.success(typeof data?.message === 'string' ? data.message : 'Doublons nettoyés.')
     await loadMatieres()
   } catch (e: any) {
-    const msg = e.response?.data?.error || e.response?.data?.message || e.message || 'Erreur lors du nettoyage'
-    alert(typeof msg === 'string' ? msg : JSON.stringify(msg))
+    toast.apiError(e, 'Erreur lors du nettoyage')
   } finally {
     nettoyageDoublonsMatieres.value = false
   }
@@ -287,7 +289,7 @@ async function saveMatiere() {
     }
     showModalMatiere.value = false
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Erreur lors de la sauvegarde')
+    toast.apiError(e, 'Erreur lors de la sauvegarde')
   } finally {
     savingMatiere.value = false
   }
@@ -300,7 +302,7 @@ async function deleteMatiere(m: Matiere) {
     await api.delete(`/matieres/${m.id}`)
     matieres.value = matieres.value.filter(x => x.id !== m.id)
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Suppression impossible')
+    toast.apiError(e, 'Suppression impossible')
   } finally {
     deletingMatiereId.value = null
   }
@@ -355,7 +357,7 @@ async function saveNiveauEntree() {
     }
     showModalNiveauEntree.value = false
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Erreur lors de la sauvegarde')
+    toast.apiError(e, 'Erreur lors de la sauvegarde')
   } finally {
     savingNiveauEntree.value = false
   }
@@ -368,7 +370,7 @@ async function deleteNiveauEntree(n: NiveauEntree) {
     await api.delete(`/niveaux-entree/${n.id}`)
     niveauxEntree.value = niveauxEntree.value.filter(x => x.id !== n.id)
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Suppression impossible')
+    toast.apiError(e, 'Suppression impossible')
   } finally {
     deletingNiveauEntreeId.value = null
   }
@@ -423,7 +425,7 @@ async function saveNiveauBourse() {
     }
     showModalNiveauBourse.value = false
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Erreur lors de la sauvegarde')
+    toast.apiError(e, 'Erreur lors de la sauvegarde')
   } finally {
     savingNiveauBourse.value = false
   }
@@ -436,7 +438,7 @@ async function deleteNiveauBourse(b: NiveauBourse) {
     await api.delete(`/niveaux-bourse/${b.id}`)
     niveauxBourse.value = niveauxBourse.value.filter(x => x.id !== b.id)
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Suppression impossible')
+    toast.apiError(e, 'Suppression impossible')
   } finally {
     deletingNiveauBourseId.value = null
   }
@@ -742,7 +744,7 @@ async function saveCatDep() {
     }
     showModalCatDep.value = false
   } catch (e: unknown) {
-    alert((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Erreur')
+    toast.apiError(e, 'Erreur')
   } finally { savingCatDep.value = false }
 }
 async function toggleCatDep(c: CategorieDep) {
@@ -757,7 +759,7 @@ async function deleteCatDep(c: CategorieDep) {
     await api.delete(`/categories-depenses/${c.id}`)
     categoriesDep.value = categoriesDep.value.filter(x => x.id !== c.id)
   } catch (e: unknown) {
-    alert((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Suppression impossible')
+    toast.apiError(e, 'Suppression impossible')
   } finally { deletingCatDepId.value = null }
 }
 
@@ -812,7 +814,7 @@ async function saveTypeDoc() {
     }
     showModalTypeDoc.value = false
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Erreur lors de la sauvegarde')
+    toast.apiError(e, 'Erreur lors de la sauvegarde')
   } finally {
     savingTypeDoc.value = false
   }
@@ -825,7 +827,7 @@ async function deleteTypeDoc(t: TypeDocument) {
     await api.delete(`/types-documents/${t.id}`)
     typesDocuments.value = typesDocuments.value.filter(x => x.id !== t.id)
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Suppression impossible')
+    toast.apiError(e, 'Suppression impossible')
   } finally {
     deletingTypeDocId.value = null
   }
@@ -887,7 +889,7 @@ async function saveConge() {
     }
     showModalConge.value = false
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Erreur lors de la sauvegarde')
+    toast.apiError(e, 'Erreur lors de la sauvegarde')
   } finally {
     savingConge.value = false
   }
@@ -900,7 +902,7 @@ async function deleteConge(c: CongeInstitut) {
     await api.delete(`/conges-institut/${c.id}`)
     conges.value = conges.value.filter(x => x.id !== c.id)
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Suppression impossible')
+    toast.apiError(e, 'Suppression impossible')
   } finally {
     deletingCongeId.value = null
   }

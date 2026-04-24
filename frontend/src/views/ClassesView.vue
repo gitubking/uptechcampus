@@ -3,8 +3,10 @@ import { ref, computed, watch, onMounted } from 'vue'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader, UcTable } from '@/components/ui'
+import { useToast } from '@/composables/useToast'
 
 const auth = useAuthStore()
+const toast = useToast()
 const canWrite = ['dg', 'dir_peda', 'coordinateur'].includes(auth.user?.role ?? '')
 // Édition de la date de début des cours : le secrétariat en a aussi besoin
 // (utile lors des inscriptions et du pilotage des échéances).
@@ -117,7 +119,7 @@ async function saveQuickDate(c: any) {
     c.date_debut_cours = quickDateValue.value || null
     quickDateClasseId.value = null
   } catch (e: any) {
-    alert(e.response?.data?.error || 'Erreur')
+    toast.apiError(e, 'Erreur')
   } finally {
     quickDateSaving.value = false
   }
@@ -389,7 +391,7 @@ async function deleteClasse() {
     classes.value = classes.value.filter(c => c.id !== confirmDelete.value!.id)
     confirmDelete.value = null
   } catch (e: any) {
-    alert(e.response?.data?.message ?? 'Impossible de supprimer cette classe')
+    toast.apiError(e, 'Impossible de supprimer cette classe')
   }
 }
 
@@ -519,7 +521,7 @@ async function deleteUe(ue: UE) {
     await api.delete(`/ues/${ue.id}`)
     uesForClasse.value = uesForClasse.value.filter(u => u.id !== ue.id)
   } catch (e: any) {
-    alert(e.response?.data?.message ?? 'Erreur')
+    toast.apiError(e, 'Erreur')
   } finally {
     deletingUeId.value = null
   }
@@ -600,7 +602,7 @@ async function openTcMaquette() {
     // Pré-sélectionner toutes
     tcSelected.value = new Set(tcMatieres.value.map((m: any) => m.matiere_id))
   } catch (e: any) {
-    alert(e.response?.data?.error || 'Erreur chargement maquettes')
+    toast.apiError(e, 'Erreur chargement maquettes')
     showTcModal.value = false
   } finally { loadingTc.value = false }
 }
@@ -624,11 +626,11 @@ async function genererUesTc() {
     const { data } = await api.post(`/classes/${classeForStudents.value.id}/generer-ues`, {
       matiere_ids: Array.from(tcSelected.value)
     })
-    alert(`${data.total} UE(s) générée(s) pour le tronc commun.`)
+    toast.success(`${data.total} UE(s) générée(s) pour le tronc commun.`)
     showTcModal.value = false
     await loadUes()
   } catch (e: any) {
-    alert(e.response?.data?.error || 'Erreur')
+    toast.apiError(e, 'Erreur')
   } finally { generatingMaquette.value = false }
 }
 
@@ -651,10 +653,10 @@ async function genererUesMaquette() {
   generatingMaquette.value = true
   try {
     const { data } = await api.post(`/classes/${cls.id}/generer-ues`)
-    alert(`${data.total} UE(s) générée(s) depuis la maquette.`)
+    toast.success(`${data.total} UE(s) générée(s) depuis la maquette.`)
     await loadUes()
   } catch (e: any) {
-    alert(e.response?.data?.error || 'Erreur lors de la génération')
+    toast.apiError(e, 'Erreur lors de la génération')
   } finally {
     generatingMaquette.value = false
   }
@@ -669,16 +671,15 @@ async function nettoyerDoublonsUes() {
       return acc
     }, {} as Record<number, number>)
   const nbDoublons = Object.values(doublons).filter(n => n > 1).reduce((a, n) => a + (n - 1), 0)
-  if (nbDoublons === 0) { alert('Aucun doublon détecté.'); return }
+  if (nbDoublons === 0) { toast.warning('Aucun doublon détecté.'); return }
   if (!confirm(`${nbDoublons} doublon(s) détecté(s). Supprimer automatiquement ? (Les enseignants affectés seront conservés sur la première occurrence.)`) ) return
   nettoyageDoublons.value = true
   try {
     const { data } = await api.post(`/classes/${classeForStudents.value.id}/nettoyer-doublons`)
-    alert(typeof data?.message === 'string' ? data.message : JSON.stringify(data))
+    toast.success(typeof data?.message === 'string' ? data.message : 'Doublons nettoyés.')
     await loadUes()
   } catch (e: any) {
-    const msg = e.response?.data?.error || e.response?.data?.message || e.message || 'Erreur lors du nettoyage'
-    alert(typeof msg === 'string' ? msg : JSON.stringify(msg))
+    toast.apiError(e, 'Erreur lors du nettoyage')
   } finally {
     nettoyageDoublons.value = false
   }
@@ -741,7 +742,7 @@ async function saveDebutCours() {
     // Recharger le suivi avec la nouvelle ancre
     await loadSuiviPaiements()
   } catch (e: any) {
-    alert(e.response?.data?.error || 'Erreur')
+    toast.apiError(e, 'Erreur')
   } finally {
     savingDateDebut.value = false
   }
@@ -886,7 +887,7 @@ async function affecterEtudiant(inscriptionId: number) {
     })
     await refreshStudents()
   } catch (e: any) {
-    alert(e.response?.data?.message ?? 'Erreur lors de l\'affectation')
+    toast.apiError(e, 'Erreur lors de l\'affectation')
   } finally {
     affectingId.value = null
   }
@@ -899,7 +900,7 @@ async function retirerEtudiant(inscriptionId: number) {
     await api.put(`/inscriptions/${inscriptionId}/affecter-classe`, { classe_id: null })
     await refreshStudents()
   } catch (e: any) {
-    alert(e.response?.data?.message ?? 'Erreur lors du retrait')
+    toast.apiError(e, 'Erreur lors du retrait')
   } finally {
     affectingId.value = null
   }

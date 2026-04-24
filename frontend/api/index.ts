@@ -1806,6 +1806,126 @@ app.post('/auth/change-password', requireAuth, async (c) => {
   return c.json({ message: 'Mot de passe modifié avec succès.' })
 })
 
+// ─── RECHERCHE GLOBALE (palette Ctrl+K) ──────────────────────────────────────
+// Retourne des résultats multi-entités pour un terme court (≥ 2 car). Chaque
+// entrée contient { type, id, label, sublabel, route } pour une navigation
+// directe côté client.
+app.get('/search', requireAuth, async (c) => {
+  const q = (c.req.query('q') || '').trim()
+  if (q.length < 2) return c.json({ query: q, results: [] })
+
+  const user = u(c) as any
+  const role = user?.role as string
+  const like = `%${q}%`
+  const likeStart = `${q}%`
+  const results: Array<{ type: string; id: number | string; label: string; sublabel?: string; route: string; icon: string }> = []
+
+  // Étudiants — accessibles aux staff (pas aux enseignants/étudiants)
+  if (['dg', 'dir_peda', 'coordinateur', 'secretariat', 'resp_fin'].includes(role)) {
+    const { rows } = await pool.query(
+      `SELECT id, nom, prenom, numero_etudiant, email
+       FROM etudiants
+       WHERE LOWER(nom) LIKE LOWER($1)
+          OR LOWER(prenom) LIKE LOWER($1)
+          OR LOWER(CONCAT(prenom,' ',nom)) LIKE LOWER($1)
+          OR LOWER(numero_etudiant) LIKE LOWER($2)
+          OR LOWER(email) LIKE LOWER($1)
+       ORDER BY
+         CASE WHEN LOWER(numero_etudiant) LIKE LOWER($2) THEN 0 ELSE 1 END,
+         nom, prenom
+       LIMIT 8`,
+      [like, likeStart]
+    ).catch(() => ({ rows: [] }))
+    for (const e of rows) {
+      results.push({
+        type: 'etudiant',
+        id: e.id,
+        label: `${e.prenom || ''} ${e.nom || ''}`.trim(),
+        sublabel: [e.numero_etudiant, e.email].filter(Boolean).join(' • '),
+        route: `/etudiants/${e.id}`,
+        icon: 'user',
+      })
+    }
+  }
+
+  // Classes
+  if (['dg', 'dir_peda', 'coordinateur', 'secretariat', 'resp_fin', 'enseignant'].includes(role)) {
+    const { rows } = await pool.query(
+      `SELECT c.id, c.nom, f.nom as filiere_nom
+       FROM classes c
+       LEFT JOIN filieres f ON c.filiere_id = f.id
+       WHERE LOWER(c.nom) LIKE LOWER($1) OR LOWER(f.nom) LIKE LOWER($1)
+       ORDER BY c.nom
+       LIMIT 5`,
+      [like]
+    ).catch(() => ({ rows: [] }))
+    for (const cl of rows) {
+      results.push({
+        type: 'classe',
+        id: cl.id,
+        label: cl.nom,
+        sublabel: cl.filiere_nom || undefined,
+        route: `/classes`,
+        icon: 'classe',
+      })
+    }
+  }
+
+  // Enseignants
+  if (['dg', 'dir_peda', 'coordinateur', 'secretariat'].includes(role)) {
+    const { rows } = await pool.query(
+      `SELECT id, nom, prenom, numero_contrat, email, specialite
+       FROM enseignants
+       WHERE LOWER(nom) LIKE LOWER($1)
+          OR LOWER(prenom) LIKE LOWER($1)
+          OR LOWER(CONCAT(prenom,' ',nom)) LIKE LOWER($1)
+          OR LOWER(email) LIKE LOWER($1)
+          OR LOWER(numero_contrat) LIKE LOWER($1)
+       ORDER BY nom, prenom
+       LIMIT 5`,
+      [like]
+    ).catch(() => ({ rows: [] }))
+    for (const e of rows) {
+      results.push({
+        type: 'enseignant',
+        id: e.id,
+        label: `${e.prenom || ''} ${e.nom || ''}`.trim(),
+        sublabel: [e.specialite, e.email].filter(Boolean).join(' • '),
+        route: `/enseignants/${e.id}`,
+        icon: 'teacher',
+      })
+    }
+  }
+
+  // Paiements par numéro de reçu ou référence
+  if (['dg', 'resp_fin', 'secretariat'].includes(role)) {
+    const { rows } = await pool.query(
+      `SELECT p.id, p.numero_recu, p.reference, p.montant, p.type_paiement,
+              e.nom, e.prenom
+       FROM paiements p
+       LEFT JOIN inscriptions i ON p.inscription_id = i.id
+       LEFT JOIN etudiants e ON i.etudiant_id = e.id
+       WHERE LOWER(p.numero_recu) LIKE LOWER($1)
+          OR LOWER(p.reference)   LIKE LOWER($1)
+       ORDER BY p.id DESC
+       LIMIT 5`,
+      [like]
+    ).catch(() => ({ rows: [] }))
+    for (const p of rows) {
+      results.push({
+        type: 'paiement',
+        id: p.id,
+        label: `Paiement ${p.numero_recu || p.reference || '#' + p.id}`,
+        sublabel: `${p.prenom || ''} ${p.nom || ''} — ${Math.round(Number(p.montant) || 0).toLocaleString('fr-FR')} FCFA`,
+        route: `/paiements`,
+        icon: 'payment',
+      })
+    }
+  }
+
+  return c.json({ query: q, results })
+})
+
 // ─── USERS ────────────────────────────────────────────────────────────────────
 app.get('/users', requireAuth, role('dg', 'secretariat', 'dir_peda', 'resp_fin', 'coordinateur'), async (c) => {
   const roleFilter = c.req.query('role')

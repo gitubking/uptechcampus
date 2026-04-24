@@ -5,12 +5,14 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { useToast } from '@/composables/useToast'
 import UcModal from '@/components/ui/UcModal.vue'
 import UcFormGroup from '@/components/ui/UcFormGroup.vue'
 import UcFormGrid from '@/components/ui/UcFormGrid.vue'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 
 const auth = useAuthStore()
+const toast = useToast()
 const canWrite    = ['resp_fin', 'dg'].includes(auth.user?.role ?? '')
 const canValidate = auth.user?.role === 'dg'
 
@@ -131,7 +133,7 @@ async function doExportComptabilite() {
     await exportSuiviComptabilite(Number(exportAnnee.value), Number(exportSoldeInitial.value) || 0)
     showExportCompta.value = false
   } catch (e: any) {
-    alert(e?.response?.data?.message || e?.message || 'Erreur lors de la génération de l\'export')
+    toast.apiError(e, 'Erreur lors de la génération de l\'export')
   } finally {
     exportingCompta.value = false
   }
@@ -344,11 +346,11 @@ async function genererMois() {
   generating.value = true
   try {
     const { data } = await api.post('/depenses/generer-mois', { mois: moisGen.value })
-    alert(`✓ ${data.message}`)
+    toast.success(`${data.message}`)
     await load()
   } catch (e: unknown) {
     const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Erreur lors de la génération.'
-    alert(msg)
+    toast.warning(msg)
   } finally { generating.value = false }
 }
 
@@ -356,11 +358,11 @@ async function calculerVacations() {
   generating.value = true
   try {
     const { data } = await api.post('/depenses/calculer-vacations', { mois: moisGen.value })
-    alert(`✓ ${data.generated} vacation(s) calculée(s) pour ${moisGen.value}`)
+    toast.success(`${data.generated} vacation(s) calculée(s) pour ${moisGen.value}`)
     await load()
   } catch (e: unknown) {
     const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Erreur lors du calcul.'
-    alert(msg)
+    toast.warning(msg)
   } finally { generating.value = false }
 }
 
@@ -412,9 +414,9 @@ async function saveEditDep() {
     showEditDepModal.value = false
   } catch(e: unknown) {
     if ((e as any)?.response?.status === 423) {
-      alert('Cette période est clôturée. Déverrouillez-la d\'abord.')
+      toast.warning('Cette période est clôturée. Déverrouillez-la d\'abord.')
     } else {
-      alert((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Erreur lors de la modification.')
+      toast.apiError(e, 'Erreur lors de la modification.')
     }
   } finally {
     savingEditDep.value = false
@@ -431,9 +433,9 @@ async function supprimerDepense(d: Depense) {
     await load(); showDetailModal.value = false
   } catch (e: unknown) {
     if ((e as any)?.response?.status === 423) {
-      alert('Cette période est clôturée. Déverrouillez-la d\'abord.')
+      toast.warning('Cette période est clôturée. Déverrouillez-la d\'abord.')
     } else {
-      alert((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Erreur lors de la suppression.')
+      toast.apiError(e, 'Erreur lors de la suppression.')
     }
   }
 }
@@ -904,11 +906,11 @@ async function validerMasse(idsArg?: number[]) {
   try {
     const payload = toValidate.length > 0 ? { ids: toValidate } : {}
     const { data } = await api.post('/depenses/valider-masse', payload)
-    alert(`✓ ${data.message}`)
+    toast.success(`${data.message}`)
     selectedIds.value = new Set()
     await load()
   } catch (e: unknown) {
-    alert((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Erreur lors de la validation.')
+    toast.apiError(e, 'Erreur lors de la validation.')
   } finally { validatingMasse.value = false }
 }
 
@@ -981,7 +983,7 @@ function triggerImportFile() {
       if (data.created > 0) await load()
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Erreur lors de l\'import.'
-      alert(msg)
+      toast.warning(msg)
     } finally { importing.value = false }
   }
   input.click()
@@ -1003,7 +1005,7 @@ async function saveCloture() {
     showClotureModal.value = false
     await loadClotures()
   } catch (e: unknown) {
-    alert((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Erreur lors de la clôture.')
+    toast.apiError(e, 'Erreur lors de la clôture.')
   } finally { savingCloture.value = false }
 }
 
@@ -1013,7 +1015,7 @@ async function unlockCloture(c: Cloture) {
     await api.delete(`/clotures/${c.id}`)
     await loadClotures()
   } catch (e: unknown) {
-    alert((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Erreur.')
+    toast.apiError(e, 'Erreur.')
   }
 }
 
