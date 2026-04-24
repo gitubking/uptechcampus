@@ -3,9 +3,11 @@ import { inject, computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
 import QRCode from 'qrcode'
+import { useToast } from '@/composables/useToast'
 
 const dashboardData = inject<any>('dashboardData')
 const auth = useAuthStore()
+const toast = useToast()
 
 // ── Onglet actif (mobile) ────────────────────────────────────────────
 const activeTab = ref<'planning' | 'notes' | 'finances' | 'absences'>('planning')
@@ -322,6 +324,106 @@ function printRecu(p: any) {
   const w = window.open(url, '_blank')
   if (w) { w.addEventListener('load', () => { setTimeout(() => { w.print() }, 300); w.addEventListener('afterprint', () => { try { w.close() } catch { /* noop */ }; URL.revokeObjectURL(url) }) }) }
   else URL.revokeObjectURL(url)
+}
+
+// ── Relevé annuel des paiements (PDF téléchargeable) ─────────────────
+const generatingReleve = ref(false)
+async function telechargerReleveAnnuel() {
+  generatingReleve.value = true
+  try {
+    const [{ default: jsPDF }, autoTable] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable').then(m => m.default),
+    ])
+    const etud = dashboardData?.value?.etudiant
+    const insc = dashboardData?.value?.inscription
+    const paiements = (dashboardData?.value?.paiements ?? []).slice() as any[]
+    if (!paiements.length) {
+      toast.warning('Aucun paiement à inclure dans le relevé.')
+      return
+    }
+    const annee = new Date().getFullYear()
+    paiements.sort((a, b) => new Date(a.confirmed_at ?? a.created_at).getTime() - new Date(b.confirmed_at ?? b.created_at).getTime())
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const W = doc.internal.pageSize.getWidth()
+    const fmt = (n: number) => Math.round(n).toLocaleString('fr-FR') + ' FCFA'
+    const typeL = (t: string) => ({
+      frais_inscription: 'Frais d\'inscription', mensualite: 'Mensualité',
+      tenue: 'Tenue', rattrapage: 'Rattrapage', tranche: 'Tranche',
+      inscription: 'Inscription',
+    } as any)[t] ?? (t || '—')
+
+    // En-tête rouge
+    doc.setFillColor(227, 6, 19)
+    doc.rect(0, 0, W, 22, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(15)
+    doc.text('UPTECH CAMPUS', 14, 13)
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Relevé annuel des paiements — ${annee}`, 14, 19)
+
+    // Bloc identité
+    doc.setTextColor(15, 23, 42)
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'bold')
+    doc.text(`${etud?.prenom ?? ''} ${etud?.nom ?? ''}`, 14, 33)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9.5)
+    doc.setTextColor(71, 85, 105)
+    let y = 39
+    if (etud?.numero_etudiant) { doc.text(`Matricule : ${etud.numero_etudiant}`, 14, y); y += 5 }
+    if (insc?.filiere)         { doc.text(`Filière : ${insc.filiere}`, 14, y); y += 5 }
+    if (insc?.classe)          { doc.text(`Classe : ${insc.classe}`, 14, y); y += 5 }
+    doc.text(`Date d'édition : ${new Date().toLocaleDateString('fr-FR')}`, 14, y); y += 8
+
+    // Tableau des paiements
+    const rows = paiements.map((p: any) => [
+      p.numero_recu || '—',
+      new Date(p.confirmed_at ?? p.created_at).toLocaleDateString('fr-FR'),
+      typeL(p.type_paiement),
+      p.mois_concerne ? new Date(p.mois_concerne).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) : '—',
+      p.mode_paiement || '—',
+      fmt(Number(p.montant) || 0),
+    ])
+    const total = paiements.reduce((s: number, p: any) => s + (Number(p.montant) || 0), 0)
+
+    autoTable(doc, {
+      startY: y,
+      head: [['N° reçu', 'Date', 'Type', 'Mois', 'Mode', 'Montant']],
+      body: rows,
+      foot: [['', '', '', '', 'TOTAL', fmt(total)]],
+      theme: 'striped',
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
+      footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 10 },
+      bodyStyles: { fontSize: 9, textColor: [30, 41, 59] },
+      columnStyles: {
+        0: { cellWidth: 26, fontStyle: 'bold' },
+        5: { halign: 'right', fontStyle: 'bold' },
+      },
+      margin: { left: 14, right: 14 },
+    })
+
+    // Pied de page
+    const finalY = (doc as any).lastAutoTable?.finalY ?? y + 60
+    doc.setFontSize(8)
+    doc.setTextColor(148, 163, 184)
+    doc.text(
+      `Document officiel — généré depuis l'espace étudiant le ${new Date().toLocaleString('fr-FR')}`,
+      14, Math.min(finalY + 15, 285)
+    )
+    doc.text('Pour toute question : contactez le service comptabilité.', 14, Math.min(finalY + 20, 290))
+
+    const filename = `releve-paiements-${etud?.numero_etudiant ?? 'uptech'}-${annee}.pdf`
+    doc.save(filename)
+    toast.success('Votre relevé annuel a été téléchargé.')
+  } catch (e: any) {
+    toast.apiError(e, 'Impossible de générer le relevé pour le moment.')
+  } finally {
+    generatingReleve.value = false
+  }
 }
 
 // ── Ma Carte Étudiant (Canvas — même design que admin) ───────────────
@@ -1434,7 +1536,17 @@ async function soumettreAvis(seanceId: number) {
 
                 <!-- Historique paiements -->
                 <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px;">
-                  <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Historique des paiements</div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+                    <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;">Historique des paiements</div>
+                    <button v-if="dashboardData.paiements?.length"
+                      @click="telechargerReleveAnnuel"
+                      :disabled="generatingReleve"
+                      style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:#0f172a;color:#fff;border:none;border-radius:6px;font-size:11.5px;font-weight:600;cursor:pointer;"
+                      title="Télécharger le relevé PDF de tous mes paiements de l'année">
+                      <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+                      {{ generatingReleve ? 'Génération…' : 'Mon relevé annuel (PDF)' }}
+                    </button>
+                  </div>
                   <div v-if="!dashboardData.paiements?.length" class="ee-empty-state"><span>📂</span><p>Aucun paiement enregistré</p></div>
                   <div v-else style="overflow-x:auto;">
                     <table style="width:100%;font-size:12px;border-collapse:collapse;">

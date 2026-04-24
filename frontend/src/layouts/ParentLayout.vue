@@ -3,6 +3,7 @@ import { ref, computed, provide, onMounted } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
+import { UcNotificationBell } from '@/components/ui'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -48,6 +49,7 @@ async function logout() {
           </div>
         </div>
         <div class="flex items-center gap-3">
+          <UcNotificationBell variant="light" />
           <div class="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center">
             <span class="text-xs font-bold text-white">{{ initials }}</span>
           </div>
