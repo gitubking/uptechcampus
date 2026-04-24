@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import UcModal from '@/components/ui/UcModal.vue'
 import UcFormGroup from '@/components/ui/UcFormGroup.vue'
 import UcFormGrid from '@/components/ui/UcFormGrid.vue'
@@ -10,6 +11,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
 const auth = useAuthStore()
+const toast = useToast()
 
 const isEnseignant = computed(() => auth.user?.role === 'enseignant')
 const isEtudiant = computed(() => auth.user?.role === 'etudiant')
@@ -549,7 +551,7 @@ async function saveSerie() {
     showSerieModal.value = false
     await load()
   } catch (e: any) {
-    alert(e.response?.data?.message || 'Erreur')
+    toast.apiError(e, 'Erreur')
   } finally {
     savingSerie.value = false
   }
@@ -571,7 +573,7 @@ async function deleteSerie(gid: string) {
     showSerieModal.value = false
     await load()
   } catch (e: any) {
-    alert(e.response?.data?.message || 'Erreur')
+    toast.apiError(e, 'Erreur')
   }
 }
 

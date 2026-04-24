@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+const toast = useToast()
 const isDG = computed(() => auth.user?.role === 'dg')
 
 interface User {
@@ -133,10 +135,10 @@ async function bulkCreateEtudiants() {
   bulkCreating.value = true
   try {
     const { data } = await api.post('/users/bulk-etudiants', {})
-    alert(data.message)
+    toast.success(data.message || 'Opération réussie.')
     await load()
   } catch (e: any) {
-    alert(e.response?.data?.message ?? 'Erreur lors de la création des comptes.')
+    toast.apiError(e, 'Erreur lors de la création des comptes.')
   } finally {
     bulkCreating.value = false
   }
@@ -151,7 +153,7 @@ async function toggleStatut(u: User) {
     const idx = users.value.findIndex(x => x.id === data.id)
     if (idx !== -1) users.value[idx] = data
   } catch (e: any) {
-    alert(e.response?.data?.message ?? 'Erreur')
+    toast.apiError(e, 'Erreur')
   }
 }
 
@@ -160,7 +162,7 @@ async function resetPassword(u: User) {
   resetting.value = u.id
   try {
     await api.post(`/users/${u.id}/reset-password`)
-    alert(`Mot de passe réinitialisé : Uptech@2026`)
+    toast.success('Mot de passe réinitialisé à « Uptech@2026 ».', { title: 'Réinitialisation effectuée' })
   } finally {
     resetting.value = null
   }

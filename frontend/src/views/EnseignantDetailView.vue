@@ -2,11 +2,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const toast = useToast()
 const canWrite = computed(() => ['dg', 'dir_peda', 'secretariat'].includes(auth.user?.role ?? ''))
 
 const activeTab = ref<'infos'|'classes'|'seances'|'vacations'|'fi'>('infos')
@@ -97,7 +99,7 @@ async function telechargerContrat() {
     a.click()
     URL.revokeObjectURL(url)
   } catch (e: any) {
-    alert('Erreur lors de la génération du contrat')
+    toast.warning('Erreur lors de la génération du contrat')
   } finally {
     contratLoading.value = false
   }

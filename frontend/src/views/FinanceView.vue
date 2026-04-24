@@ -10,6 +10,9 @@ import {
   ArcElement,
 } from 'chart.js'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement)
 
@@ -295,9 +298,9 @@ function toggleSelectAll() {
 async function copyMessage() {
   try {
     await navigator.clipboard.writeText(relanceForm.value.message)
-    alert('Message copié !')
+    toast.warning('Message copié !')
   } catch {
-    alert('Impossible de copier (HTTPS requis).')
+    toast.warning('Impossible de copier (HTTPS requis).')
   }
 }
 

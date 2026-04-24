@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
+
+const toast = useToast()
 
 // ── State ──
 const loading = ref(true)
@@ -123,7 +126,7 @@ const classesUniques = computed(() => {
 // ── Export PDF ──
 async function exportPDF(parEns = false) {
   const data = seancesFiltrees.value
-  if (!data.length) { alert('Aucune séance à exporter.'); return }
+  if (!data.length) { toast.warning('Aucune séance à exporter.'); return }
 
   const { jsPDF } = await import('jspdf')
   const { default: autoTable } = await import('jspdf-autotable')

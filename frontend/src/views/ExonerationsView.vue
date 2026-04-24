@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader } from '@/components/ui'
 
 const auth = useAuthStore()
+const toast = useToast()
 const canWrite    = ['secretariat', 'resp_fin', 'dg'].includes(auth.user?.role ?? '')
 const canValidate = ['resp_fin', 'dg'].includes(auth.user?.role ?? '')
 const canCancel   = auth.user?.role === 'dg'
@@ -246,7 +248,7 @@ async function valider(e: Exoneration) {
     await api.post(`/exonerations/${e.id}/valider`)
     await load()
   } catch (err: any) {
-    alert(err.response?.data?.message ?? 'Erreur')
+    toast.apiError(err, 'Erreur')
   }
 }
 
@@ -257,7 +259,7 @@ async function confirmRejet() {
     await api.post(`/exonerations/${rejetId.value}/rejeter`, { motif: rejetMotif.value || null })
     showRejet.value = false
     await load()
-  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
+  } catch (err: any) { toast.apiError(err, 'Erreur') }
 }
 
 function openAnnuler(e: Exoneration) { annulerId.value = e.id; annulerMotif.value = ''; showAnnuler.value = true }
@@ -267,7 +269,7 @@ async function confirmAnnuler() {
     await api.post(`/exonerations/${annulerId.value}/annuler`, { motif: annulerMotif.value || null })
     showAnnuler.value = false
     await load()
-  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
+  } catch (err: any) { toast.apiError(err, 'Erreur') }
 }
 
 async function supprimer(e: Exoneration) {
@@ -278,7 +280,7 @@ async function supprimer(e: Exoneration) {
   try {
     await api.delete(`/exonerations/${e.id}`)
     await load()
-  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
+  } catch (err: any) { toast.apiError(err, 'Erreur') }
 }
 
 async function openDetail(e: Exoneration) {
@@ -286,7 +288,7 @@ async function openDetail(e: Exoneration) {
     const { data } = await api.get(`/exonerations/${e.id}`)
     detail.value = data
     showDetail.value = true
-  } catch (err: any) { alert(err.response?.data?.message ?? 'Erreur') }
+  } catch (err: any) { toast.apiError(err, 'Erreur') }
 }
 
 onMounted(async () => {

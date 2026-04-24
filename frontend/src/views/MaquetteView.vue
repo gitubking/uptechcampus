@@ -2,9 +2,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 
 const route  = useRoute()
 const router = useRouter()
+const toast = useToast()
 const filiereId = computed(() => Number(route.params.id))
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -168,7 +170,7 @@ function openEdit(l: LigneMaquette) {
   showModal.value = true
 }
 async function save() {
-  if (!form.value.nom_matiere.trim()) { alert('Saisissez le nom de la matière (EC)') ; return }
+  if (!form.value.nom_matiere.trim()) { toast.warning('Saisissez le nom de la matière (EC)') ; return }
   saving.value = true
   try {
     if (editTarget.value) {
@@ -179,7 +181,7 @@ async function save() {
     showModal.value = false
     await load()
   } catch (e: any) {
-    alert(e?.response?.data?.error || 'Erreur lors de l\'enregistrement')
+    toast.apiError(e, 'Erreur lors de l\'enregistrement')
   } finally { saving.value = false }
 }
 
@@ -194,7 +196,7 @@ async function confirmDelete() {
     deleteTarget.value = null
     await load()
   } catch (e: any) {
-    alert(e?.response?.data?.error || 'Erreur lors de la suppression')
+    toast.apiError(e, 'Erreur lors de la suppression')
   } finally { deleting.value = false }
 }
 </script>

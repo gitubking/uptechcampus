@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader } from '@/components/ui'
 
 const auth = useAuthStore()
+const toast = useToast()
 const canWrite    = ['secretariat', 'resp_fin', 'dg'].includes(auth.user?.role ?? '')
 const canValidate = ['resp_fin', 'dg'].includes(auth.user?.role ?? '')
 const canDelete   = auth.user?.role === 'dg'
@@ -198,7 +200,7 @@ async function valider(r: Recette) {
     await api.post(`/autres-recettes/${r.id}/valider`)
     await load()
   } catch (e: any) {
-    alert(e.response?.data?.message ?? 'Erreur')
+    toast.apiError(e, 'Erreur')
   }
 }
 
@@ -214,7 +216,7 @@ async function confirmRejet() {
     showRejet.value = false
     await load()
   } catch (e: any) {
-    alert(e.response?.data?.message ?? 'Erreur')
+    toast.apiError(e, 'Erreur')
   }
 }
 
@@ -224,7 +226,7 @@ async function supprimer(r: Recette) {
     await api.delete(`/autres-recettes/${r.id}`)
     await load()
   } catch (e: any) {
-    alert(e.response?.data?.message ?? 'Erreur')
+    toast.apiError(e, 'Erreur')
   }
 }
 

@@ -2,10 +2,12 @@
 import { ref, onMounted, computed } from 'vue'
 import * as XLSX from 'xlsx'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader, UcTable } from '@/components/ui'
 
 const auth = useAuthStore()
+const toast = useToast()
 const canWrite = computed(() => auth.user?.role === 'dg')
 
 // ── Interfaces ───────────────────────────────────────────────────────
@@ -208,7 +210,7 @@ async function attachMatiere() {
     showAttachForm.value = false
     formAttach.value = { matiere_id: null, coefficient: 1, credits: 0, ordre: 0 }
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Erreur lors de l\'ajout')
+    toast.apiError(e, 'Erreur lors de l\'ajout')
   } finally {
     attachingMatiere.value = false
   }
@@ -227,7 +229,7 @@ async function detachMatiere(matiereId: number) {
     const idx = filieres.value.findIndex(f => f.id === filiereForMatieres.value!.id)
     if (idx >= 0) filieres.value[idx] = { ...filieres.value[idx]!, matieres: filiereForMatieres.value!.matieres }
   } catch (e: any) {
-    alert(e?.response?.data?.message || 'Erreur lors de la suppression')
+    toast.apiError(e, 'Erreur lors de la suppression')
   } finally {
     detachingMatiereId.value = null
   }
@@ -420,7 +422,7 @@ async function exportMaquetteFiliere(f: Filiere) {
     }
 
     if (rows.length <= 1) {
-      alert('Aucune maquette à exporter pour cette filière.')
+      toast.warning('Aucune maquette à exporter pour cette filière.')
       return
     }
 
@@ -433,7 +435,7 @@ async function exportMaquetteFiliere(f: Filiere) {
     XLSX.utils.book_append_sheet(wb, ws, 'Maquette')
     XLSX.writeFile(wb, `maquette_${f.code || f.nom}.xlsx`)
   } catch (e: any) {
-    alert(e?.response?.data?.error || 'Erreur lors de l\'export')
+    toast.apiError(e, 'Erreur lors de l\'export')
   }
 }
 

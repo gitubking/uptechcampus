@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 
 interface Tache {
@@ -45,6 +46,7 @@ interface ProductivityStat {
 }
 
 const auth = useAuthStore()
+const toast = useToast()
 // Seul le DG peut créer / assigner / éditer les tâches.
 const MANAGER_ROLES = ['dg']
 const isManager = computed(() => MANAGER_ROLES.includes(auth.user?.role ?? ''))
@@ -239,7 +241,7 @@ async function removeTache(t: Tache) {
     await api.delete(`/taches/${t.id}`)
     taches.value = taches.value.filter(x => x.id !== t.id)
   } catch (e: any) {
-    alert(e.response?.data?.message ?? 'Erreur')
+    toast.apiError(e, 'Erreur')
   }
 }
 

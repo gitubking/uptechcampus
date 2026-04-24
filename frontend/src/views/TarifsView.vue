@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader } from '@/components/ui'
+
+const toast = useToast()
 
 interface TypeFormation { id: number; nom: string; code: string }
 interface AnneeAcademique { id: number; libelle: string; actif: boolean }
@@ -109,7 +112,7 @@ async function supprimerTarif(t: Tarif) {
     await api.delete(`/tarifs/${t.id}`)
     tarifs.value = tarifs.value.filter(x => x.id !== t.id)
   } catch (e: any) {
-    alert(e.response?.data?.error ?? 'Erreur')
+    toast.apiError(e, 'Erreur')
   }
 }
 

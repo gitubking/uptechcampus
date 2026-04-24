@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import QRCode from 'qrcode'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+const toast = useToast()
 
 // ── État 2FA ────────────────────────────────────────────────────────
 interface Status {
@@ -105,8 +107,8 @@ async function verifySetup() {
 
 function copyBackupCodes() {
   navigator.clipboard.writeText(backupCodesText.value).then(
-    () => alert('Codes copiés dans le presse-papiers ✓'),
-    () => alert('Impossible de copier. Sélectionnez-les manuellement.'),
+    () => toast.warning('Codes copiés dans le presse-papiers ✓'),
+    () => toast.warning('Impossible de copier. Sélectionnez-les manuellement.'),
   )
 }
 

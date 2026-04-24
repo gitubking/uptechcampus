@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import * as XLSX from 'xlsx'
+
+const toast = useToast()
 
 // ── Types ───────────────────────────────────────────────────────────
 interface AuditLog {
@@ -182,7 +185,7 @@ async function exportExcel() {
     XLSX.writeFile(wb, `journal-audit-${date}.xlsx`)
   } catch (e) {
     console.error('Export error', e)
-    alert('Erreur lors de l\'export')
+    toast.error('Erreur lors de l\'export')
   }
 }
 

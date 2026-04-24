@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader } from '@/components/ui'
 import jsPDF from 'jspdf'
@@ -9,6 +10,7 @@ import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 
 const auth = useAuthStore()
+const toast = useToast()
 const router = useRouter()
 const canValidate = computed(() => ['dg', 'resp_fin'].includes(auth.user?.role ?? ''))
 
@@ -283,7 +285,7 @@ async function saveManuel() {
     manuelForm.value = { enseignant_id: null, mois: new Date().toISOString().slice(0, 7), nb_heures: '', tarif_horaire: '', note: '' }
     await load()
   } catch (err: any) {
-    alert(err?.response?.data?.error || 'Erreur')
+    toast.apiError(err, 'Erreur')
   } finally {
     manuelLoading.value = false
   }
@@ -306,7 +308,7 @@ async function saveEdit() {
     showEditModal.value = false
     await load()
   } catch (err: any) {
-    alert(err?.response?.data?.error || 'Erreur')
+    toast.apiError(err, 'Erreur')
   } finally {
     editLoading.value = false
   }
@@ -319,7 +321,7 @@ async function valider(v: Vacation) {
     await api.post(`/vacations/${v.id}/valider`, {})
     await load()
   } catch (err: any) {
-    alert(err?.response?.data?.error || 'Erreur')
+    toast.apiError(err, 'Erreur')
   } finally {
     actionLoading.value = null
   }
@@ -339,7 +341,7 @@ async function confirmerPaiement() {
     showPayerModal.value = false
     await load()
   } catch (err: any) {
-    alert(err?.response?.data?.error || 'Erreur')
+    toast.apiError(err, 'Erreur')
   } finally {
     payerLoading.value = false
   }
@@ -380,7 +382,7 @@ async function confirmerPaiementGroupe() {
     showPayerGroupeModal.value = false
     await load()
   } catch (err: any) {
-    alert(err?.response?.data?.error || 'Erreur')
+    toast.apiError(err, 'Erreur')
   } finally {
     payerGroupeLoading.value = false
   }
@@ -393,7 +395,7 @@ async function supprimer(v: Vacation) {
     await api.delete(`/vacations/${v.id}`)
     await load()
   } catch (err: any) {
-    alert(err?.response?.data?.error || 'Erreur')
+    toast.apiError(err, 'Erreur')
   } finally {
     actionLoading.value = null
   }
@@ -413,7 +415,7 @@ async function corrigerTarif() {
     showTarifModal.value = false
     await load()
   } catch (err: any) {
-    alert(err?.response?.data?.error || 'Erreur')
+    toast.apiError(err, 'Erreur')
   } finally {
     tarifLoading.value = false
   }

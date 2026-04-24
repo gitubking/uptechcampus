@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import UcModal from '@/components/ui/UcModal.vue'
 import UcFormGroup from '@/components/ui/UcFormGroup.vue'
 import UcFormGrid from '@/components/ui/UcFormGrid.vue'
@@ -9,6 +10,7 @@ import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 import UcTable from '@/components/ui/UcTable.vue'
 
 const auth = useAuthStore()
+const toast = useToast()
 const isEnseignant = computed(() => auth.user?.role === 'enseignant')
 const isDG = computed(() => auth.user?.role === 'dg')
 const canWrite = computed(() =>
@@ -611,7 +613,7 @@ async function nettoyerDoublons() {
     const sansGroupe = groupe.filter(u => !(u as any).categorie_ue)
     if (avecGroupe.length > 0 && sansGroupe.length > 0) toDelete.push(...sansGroupe)
   }
-  if (!toDelete.length) { alert('Aucun doublon automatiquement résolvable. Supprimez manuellement.'); return }
+  if (!toDelete.length) { toast.warning('Aucun doublon automatiquement résolvable. Supprimez manuellement.'); return }
   for (const ue of toDelete) await api.delete(`/ues/${ue.id}`)
   await loadNotes()
 }
@@ -1606,7 +1608,7 @@ async function rouvrirJury() {
     juryData.value = data
     juryStep.value = 1
   } catch (e: any) {
-    alert(e?.response?.data?.error ?? 'Erreur lors de la réouverture')
+    toast.apiError(e, 'Erreur lors de la réouverture')
   } finally { savingJury.value = false }
 }
 
@@ -1622,7 +1624,7 @@ async function supprimerJury() {
     juryDateDeliberation.value = ''
     juryDecisions.value = {}
   } catch (e: any) {
-    alert(e?.response?.data?.error ?? 'Erreur lors de la suppression')
+    toast.apiError(e, 'Erreur lors de la suppression')
   } finally { savingJury.value = false }
 }
 
@@ -1865,7 +1867,7 @@ async function generateFicheNotes(ue: any) {
       .replace(/\s+/g, '_').toLowerCase()
     doc.save(filename)
   } catch (e: any) {
-    alert('Erreur génération fiche : ' + (e?.response?.data?.error ?? e.message))
+    toast.apiError(e, 'Erreur génération fiche')
   } finally {
     generatingFiche.value = null
   }
@@ -2037,7 +2039,7 @@ async function exportAttestations() {
   const admisInscriptions = [...inscriptions.value]
     .sort((a, b) => (moyennePonderee(b.id) ?? -1) - (moyennePonderee(a.id) ?? -1))
     .filter(i => getJuryDecision(i.id) === 'admis')
-  if (!admisInscriptions.length) { alert('Aucun étudiant admis.'); return }
+  if (!admisInscriptions.length) { toast.warning('Aucun étudiant admis.'); return }
 
   const { jsPDF } = await import('jspdf')
   const QRCode = (await import('qrcode')).default
@@ -2321,7 +2323,7 @@ async function exportCertificatsFC() {
   const admisInscriptions = [...inscriptions.value]
     .sort((a, b) => (moyennePonderee(b.id) ?? -1) - (moyennePonderee(a.id) ?? -1))
     .filter(i => getJuryDecision(i.id) === 'admis')
-  if (!admisInscriptions.length) { alert('Aucun étudiant admis.'); return }
+  if (!admisInscriptions.length) { toast.warning('Aucun étudiant admis.'); return }
 
   const { jsPDF } = await import('jspdf')
   const QRCode = (await import('qrcode')).default
@@ -2605,7 +2607,7 @@ async function exportAttestationsFA() {
   const inscritsActifs = inscriptions.value.filter((i: any) =>
     ['inscrit_actif', 'pre_inscrit'].includes(i.statut)
   )
-  if (!inscritsActifs.length) { alert('Aucun étudiant inscrit dans cette classe.'); return }
+  if (!inscritsActifs.length) { toast.warning('Aucun étudiant inscrit dans cette classe.'); return }
 
   const { jsPDF } = await import('jspdf')
   const QRCode = (await import('qrcode')).default

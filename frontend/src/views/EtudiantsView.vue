@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 import UcTable from '@/components/ui/UcTable.vue'
@@ -9,6 +10,7 @@ import EtudiantsImportModal from '@/components/EtudiantsImportModal.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
+const toast = useToast()
 const canWrite = computed(() => ['dg', 'secretariat'].includes(auth.user?.role ?? ''))
 
 // Import CSV modal
@@ -55,7 +57,7 @@ async function confirmDeleteEtudiant() {
     deleteTargetEtudiant.value = null
     await fetchEtudiants()
   } catch (err: any) {
-    alert(err?.response?.data?.message || 'Erreur lors de la suppression')
+    toast.apiError(err, 'Erreur lors de la suppression')
   } finally {
     deletingEtudiant.value = false
   }

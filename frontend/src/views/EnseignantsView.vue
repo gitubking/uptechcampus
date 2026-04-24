@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/services/api'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import UcModal from '@/components/ui/UcModal.vue'
 import UcFormGroup from '@/components/ui/UcFormGroup.vue'
@@ -9,6 +10,7 @@ import UcFormGrid from '@/components/ui/UcFormGrid.vue'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 
 const auth = useAuthStore()
+const toast = useToast()
 const router = useRouter()
 const canWrite = computed(() => ['dg', 'dir_peda', 'secretariat'].includes(auth.user?.role ?? ''))
 
@@ -153,7 +155,7 @@ async function deleteEnseignant(i: Enseignant) {
     enseignants.value = enseignants.value.filter(e => e.id !== i.id)
     total.value--
   } catch (e: any) {
-    alert(e.response?.data?.message ?? 'Impossible de supprimer')
+    toast.apiError(e, 'Impossible de supprimer')
   }
 }
 
