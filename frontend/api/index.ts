@@ -10142,11 +10142,25 @@ app.post('/annonces/:id/publier', requireAuth, annonceRoles, async (c) => {
 app.get('/espace-etudiant/dashboard', requireAuth, role('etudiant'), async (c) => {
   const currentUser = u(c) as any
 
-  // 1. Find student by email
-  const { rows: etudRows } = await pool.query(
-    `SELECT * FROM etudiants WHERE email = $1`,
-    [currentUser.email]
+  // 1. Find student — prioritairement par user_id, puis fallback email insensible
+  // à la casse. Auto-répare le lien etudiants.user_id si trouvé par email.
+  let { rows: etudRows } = await pool.query(
+    `SELECT * FROM etudiants WHERE user_id = $1 ORDER BY id DESC LIMIT 1`,
+    [currentUser.id]
   )
+  if (!etudRows[0] && currentUser.email) {
+    const byEmail = await pool.query(
+      `SELECT * FROM etudiants WHERE LOWER(email) = LOWER($1) ORDER BY id DESC LIMIT 1`,
+      [currentUser.email]
+    )
+    etudRows = byEmail.rows
+    if (etudRows[0]) {
+      await pool.query(
+        `UPDATE etudiants SET user_id=$1 WHERE id=$2 AND (user_id IS NULL OR user_id<>$1)`,
+        [currentUser.id, etudRows[0].id]
+      ).catch(() => {})
+    }
+  }
   if (!etudRows[0]) return c.json({ message: 'Aucun étudiant lié à ce compte.' }, 404)
   const etudiant = etudRows[0]
 
@@ -10501,7 +10515,14 @@ app.get('/espace-etudiant/dashboard', requireAuth, role('etudiant'), async (c) =
 // ─── GET /espace-etudiant/absences ────────────────────────────────────────────
 app.get('/espace-etudiant/absences', requireAuth, role('etudiant'), async (c) => {
   const currentUser = u(c) as any
-  const { rows: etudRows } = await pool.query('SELECT * FROM etudiants WHERE email=$1', [currentUser.email])
+  let { rows: etudRows } = await pool.query('SELECT * FROM etudiants WHERE user_id=$1 ORDER BY id DESC LIMIT 1', [currentUser.id])
+  if (!etudRows[0] && currentUser.email) {
+    const byEmail = await pool.query('SELECT * FROM etudiants WHERE LOWER(email)=LOWER($1) ORDER BY id DESC LIMIT 1', [currentUser.email])
+    etudRows = byEmail.rows
+    if (etudRows[0]) {
+      await pool.query('UPDATE etudiants SET user_id=$1 WHERE id=$2 AND (user_id IS NULL OR user_id<>$1)', [currentUser.id, etudRows[0].id]).catch(() => {})
+    }
+  }
   if (!etudRows[0]) return c.json({ message: 'Étudiant introuvable.' }, 404)
   const { rows: inscRows } = await pool.query(
     `SELECT * FROM inscriptions WHERE etudiant_id=$1 ORDER BY CASE WHEN statut='inscrit_actif' THEN 0 ELSE 1 END, id DESC LIMIT 1`,
