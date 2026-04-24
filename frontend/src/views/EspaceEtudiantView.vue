@@ -413,6 +413,133 @@ function printRecu(p: any) {
   else URL.revokeObjectURL(url)
 }
 
+// ── Téléchargement du reçu d'un paiement (PDF) ──────────────────────
+const downloadingRecuId = ref<number | null>(null)
+async function telechargerRecuPdf(p: any) {
+  downloadingRecuId.value = p.id
+  try {
+    const [{ default: jsPDF }] = await Promise.all([import('jspdf')])
+    const etud = dashboardData?.value?.etudiant
+    const inscData = dashboardData?.value?.inscription
+    const fiInfo = dashboardData?.value?.formation_individuelle
+    const filiereLabel = inscData?.filiere ?? fiInfo?.type_formation ?? '—'
+    const classeLabel = inscData?.classe ?? '—'
+
+    const typeL = (t: string) => ({
+      frais_inscription: "Frais d'inscription",
+      mensualite: 'Mensualité', tenue: 'Tenue scolaire',
+      rattrapage: 'Rattrapage', tranche: 'Tranche', inscription: 'Inscription',
+    } as any)[t] ?? (t || '—')
+    const moisL = (m: string) => m
+      ? new Date(m.length === 7 ? m + '-01' : m).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+      : ''
+    const modeL = (m: string) => ({
+      especes: 'Espèces', wave: 'Wave', orange_money: 'Orange Money',
+      virement: 'Virement', cheque: 'Chèque',
+    } as any)[m] ?? (m || '—')
+
+    const montant = Number(p.montant ?? p.montant_paye ?? 0)
+    const dateRecu = p.confirmed_at ?? p.created_at ?? p.date_paiement
+      ? new Date(p.confirmed_at ?? p.created_at ?? p.date_paiement)
+      : new Date()
+    const dateLabel = dateRecu.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+    const numeroRecu = p.numero_recu || p.reference || `REÇU-${p.id}`
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    let y = await uptechPdfHeader(doc, { title: `Reçu de paiement N° ${numeroRecu}` })
+
+    // Bandeau étudiant
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.setTextColor(15, 23, 42)
+    doc.text(`${etud?.prenom ?? ''} ${etud?.nom ?? ''}`.trim() || '—', 14, y)
+    y += 5
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9.5)
+    doc.setTextColor(71, 85, 105)
+    if (etud?.numero_etudiant) { doc.text(`Matricule : ${etud.numero_etudiant}`, 14, y); y += 4.5 }
+    doc.text(`Filière : ${filiereLabel}`, 14, y); y += 4.5
+    if (inscData) { doc.text(`Classe : ${classeLabel}`, 14, y); y += 4.5 }
+    y += 3
+
+    // Tableau infos paiement (2 colonnes simples)
+    const W = doc.internal.pageSize.getWidth()
+    const colX1 = 14
+    const colX2 = W / 2 + 5
+    const labelStyle = () => { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(148, 163, 184) }
+    const valueStyle = () => { doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(15, 23, 42) }
+
+    function infoLine(yPos: number, l1: string, v1: string, l2?: string, v2?: string) {
+      labelStyle(); doc.text(l1.toUpperCase(), colX1, yPos)
+      valueStyle(); doc.text(v1, colX1, yPos + 5)
+      if (l2 && v2 !== undefined) {
+        labelStyle(); doc.text(l2.toUpperCase(), colX2, yPos)
+        valueStyle(); doc.text(v2, colX2, yPos + 5)
+      }
+    }
+
+    infoLine(y, 'N° de reçu', numeroRecu, 'Date', dateLabel)
+    y += 13
+    infoLine(y, 'Objet', typeL(p.type_paiement ?? p.type ?? '—'),
+      p.mois_concerne ? 'Période' : 'Mode de paiement',
+      p.mois_concerne ? moisL(p.mois_concerne) : modeL(p.mode_paiement ?? p.mode ?? ''))
+    y += 13
+    if (p.mois_concerne) {
+      infoLine(y, 'Mode de paiement', modeL(p.mode_paiement ?? p.mode ?? ''),
+        p.reference ? 'Référence' : '', p.reference ?? '')
+      y += 13
+    } else if (p.reference) {
+      infoLine(y, 'Référence', p.reference)
+      y += 13
+    }
+
+    // Bloc montant encadré
+    y += 4
+    doc.setDrawColor(15, 23, 42)
+    doc.setLineWidth(0.6)
+    doc.roundedRect(colX1, y, W - colX1 - 14, 22, 2, 2)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(85, 85, 85)
+    doc.text('MONTANT PAYÉ', W / 2, y + 6, { align: 'center' })
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(20)
+    doc.setTextColor(15, 23, 42)
+    doc.text(`${montant.toLocaleString('fr-FR')} FCFA`, W / 2, y + 16, { align: 'center' })
+    y += 30
+
+    // Mention
+    doc.setFontSize(9)
+    doc.setTextColor(85, 85, 85)
+    doc.setFont('helvetica', 'italic')
+    doc.text('Ce document est un justificatif officiel de paiement.', 14, y)
+    y += 5
+    doc.setFont('helvetica', 'normal')
+    doc.text('Conservez-le pour vos archives.', 14, y)
+
+    // Cadre signatures
+    y += 14
+    doc.setDrawColor(204, 204, 204)
+    doc.setLineWidth(0.2)
+    doc.line(colX1, y + 12, colX1 + 60, y + 12)
+    doc.line(W - 14 - 60, y + 12, W - 14, y + 12)
+    doc.setFontSize(8)
+    doc.setTextColor(148, 163, 184)
+    doc.text('Signature du caissier', colX1, y + 16)
+    doc.text("Cachet de l'établissement", W - 14 - 60, y + 16)
+
+    uptechPdfFooter(doc)
+
+    const filename = `recu-${numeroRecu}.pdf`
+    doc.save(filename)
+    toast.success('Reçu téléchargé.', { duration: 3000 })
+  } catch (e: any) {
+    toast.apiError(e, 'Impossible de générer le reçu pour le moment.')
+  } finally {
+    downloadingRecuId.value = null
+  }
+}
+
 // ── Relevé annuel des paiements (PDF téléchargeable) ─────────────────
 const generatingReleve = ref(false)
 async function telechargerReleveAnnuel() {
@@ -1740,6 +1867,7 @@ async function soumettreAvis(seanceId: number) {
                           <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Mode</th>
                           <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Montant</th>
                           <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Statut</th>
+                          <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;">Reçu</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1757,6 +1885,17 @@ async function soumettreAvis(seanceId: number) {
                             <span :style="{ fontSize:'10px', padding:'2px 8px', borderRadius:'999px', fontWeight:'600', background: p.statut==='confirme'?'#f0fdf4':p.statut==='en_attente'?'#fffbeb':'#fef2f2', color: p.statut==='confirme'?'#15803d':p.statut==='en_attente'?'#b45309':'#dc2626' }">
                               {{ p.statut === 'confirme' ? 'Confirmé' : p.statut === 'en_attente' ? 'En attente' : 'Rejeté' }}
                             </span>
+                          </td>
+                          <td style="padding:7px 8px;text-align:center;">
+                            <button v-if="p.statut === 'confirme'" @click="telechargerRecuPdf(p)"
+                              :disabled="downloadingRecuId === p.id"
+                              class="ee-recu-btn"
+                              title="Télécharger mon reçu (PDF)">
+                              <svg v-if="downloadingRecuId === p.id" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9" stroke-width="2" stroke-dasharray="40 60"><animateTransform attributeName="transform" type="rotate" dur="1s" repeatCount="indefinite" from="0 12 12" to="360 12 12"/></circle></svg>
+                              <svg v-else width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+                              PDF
+                            </button>
+                            <span v-else style="font-size:10px;color:#cbd5e1;">—</span>
                           </td>
                         </tr>
                       </tbody>
@@ -1801,8 +1940,8 @@ async function soumettreAvis(seanceId: number) {
                   <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Tranches de paiement</div>
                   <div v-if="!fi?.paiements?.length" class="ee-empty-state"><span>📂</span><p>Aucun paiement enregistré</p></div>
                   <div v-else>
-                    <div v-for="p in fi?.paiements ?? []" :key="p.id" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9;">
-                      <div>
+                    <div v-for="p in fi?.paiements ?? []" :key="p.id" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;">
+                      <div style="flex:1;min-width:0;">
                         <div style="font-size:12px;font-weight:600;color:#334155;">{{ p.type === 'inscription' ? 'Inscription' : p.type === 'tranche' ? 'Tranche' : p.type }}</div>
                         <div v-if="p.date_echeance" style="font-size:11px;color:#94a3b8;margin-top:2px;">Échéance : {{ new Date(p.date_echeance).toLocaleDateString('fr-FR') }}</div>
                       </div>
@@ -1812,6 +1951,13 @@ async function soumettreAvis(seanceId: number) {
                           {{ p.statut === 'paye' ? 'Payé' : p.statut === 'partiel' ? 'Partiel' : 'En attente' }}
                         </span>
                       </div>
+                      <button v-if="p.statut === 'paye' || p.statut === 'partiel'" @click="telechargerRecuPdf(p)"
+                        :disabled="downloadingRecuId === p.id"
+                        class="ee-recu-btn"
+                        title="Télécharger mon reçu (PDF)">
+                        <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+                        PDF
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -2312,6 +2458,20 @@ async function soumettreAvis(seanceId: number) {
   background: #fffbeb; border: 1px solid #fde68a;
   border-radius: 12px; padding: 14px 18px; margin-bottom: 14px;
 }
+
+/* ── Bouton "Reçu PDF" sur chaque ligne de paiement ─────────────────── */
+.ee-recu-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 8px;
+  background: #f1f5f9; color: #0f172a;
+  border: 1px solid #e2e8f0; border-radius: 5px;
+  font-size: 11px; font-weight: 600; cursor: pointer;
+  transition: all .15s; font-family: inherit;
+}
+.ee-recu-btn:hover {
+  background: #0f172a; color: #fff; border-color: #0f172a;
+}
+.ee-recu-btn:disabled { opacity: .55; cursor: wait; }
 .ee-alert-pay-body strong { font-size: 14px; font-weight: 700; color: #b45309; }
 .ee-alert-pay-body span   { font-size: 12.5px; color: #92400e; }
 .ee-alert-pay-icon { color: #d97706; }
