@@ -17,6 +17,7 @@ import { createReport } from 'docx-templates'
 import { readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import ExcelJS from 'exceljs'
 
 // ─── DB ──────────────────────────────────────────────────────────────────────
 // Strip sslmode from URL to avoid conflict with explicit ssl option
@@ -10968,6 +10969,291 @@ app.get('/cron/relances', async (c) => {
 })
 
 // ─── RELEVÉ COMPTABLE ENVOYÉ AU CABINET ──────────────────────────────────────
+
+// Construit le classeur Excel « Suivi comptabilité annuel » pour l'année donnée.
+// Une feuille par mois : recettes + dépenses côte à côte, totaux et solde.
+// Une feuille RÉCAPITULATIF : totaux mensuels + cumul annuel.
+// Retourne un Buffer XLSX prêt à joindre (base64) à un email.
+async function buildSuiviComptabiliteAnnuelXlsx(annee: number): Promise<Buffer> {
+  const MOIS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
+  const FMT_FCFA = '#,##0 "FCFA";[Red]-#,##0 "FCFA";"—"'
+  const THIN: Partial<ExcelJS.Borders> = {
+    top:    { style: 'thin', color: { argb: 'FFBFBFBF' } },
+    left:   { style: 'thin', color: { argb: 'FFBFBFBF' } },
+    bottom: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+    right:  { style: 'thin', color: { argb: 'FFBFBFBF' } },
+  }
+  const fillSolid = (argb: string): ExcelJS.FillPattern => ({
+    type: 'pattern', pattern: 'solid', fgColor: { argb },
+  })
+
+  // Récup nom établissement
+  const { rows: pRows } = await pool.query(
+    `SELECT cle, valeur FROM parametres_systeme WHERE cle IN ('nom_etablissement','agrement')`
+  )
+  const nomEtab = pRows.find(r => r.cle === 'nom_etablissement')?.valeur || 'UPTECH Campus'
+  const agrement = pRows.find(r => r.cle === 'agrement')?.valeur || ''
+
+  // Toutes les données de l'année en une seule requête par source
+  const { rows: paiements } = await pool.query(
+    `SELECT p.id, p.numero_recu, p.type_paiement, p.montant, p.mode_paiement,
+            p.reference, p.confirmed_at,
+            e.nom AS etu_nom, e.prenom AS etu_prenom
+     FROM paiements p
+     LEFT JOIN inscriptions i ON p.inscription_id = i.id
+     LEFT JOIN etudiants e ON i.etudiant_id = e.id
+     WHERE p.statut='confirme'
+       AND EXTRACT(YEAR FROM p.confirmed_at) = $1
+     ORDER BY p.confirmed_at ASC`,
+    [annee]
+  )
+  const { rows: autresRecettes } = await pool.query(
+    `SELECT id, date_recette, libelle, client, nature, montant,
+            mode_encaissement, reference_piece
+     FROM autres_recettes
+     WHERE statut='validee' AND EXTRACT(YEAR FROM date_recette) = $1
+     ORDER BY date_recette ASC`,
+    [annee]
+  ).catch(() => ({ rows: [] as any[] }))
+  const { rows: depenses } = await pool.query(
+    `SELECT id, libelle, categorie, montant, mode_paiement, beneficiaire,
+            reference_facture, COALESCE(date_depense, created_at) AS date_depense
+     FROM depenses
+     WHERE statut='validee'
+       AND EXTRACT(YEAR FROM COALESCE(date_depense, created_at)) = $1
+     ORDER BY COALESCE(date_depense, created_at) ASC`,
+    [annee]
+  )
+
+  // Regrouper par mois (0-11)
+  type Row = { date: Date; ref: string; tiers: string; nature: string; mode: string; montant: number }
+  const recettesParMois: Row[][] = Array.from({ length: 12 }, () => [])
+  const depensesParMois: Row[][] = Array.from({ length: 12 }, () => [])
+
+  for (const p of paiements) {
+    if (!p.confirmed_at) continue
+    const d = new Date(p.confirmed_at)
+    const idx = d.getMonth()
+    const nomEtu = [p.etu_prenom, p.etu_nom].filter(Boolean).join(' ').trim() || '—'
+    recettesParMois[idx].push({
+      date: d,
+      ref: p.numero_recu || p.reference || `P-${p.id}`,
+      tiers: nomEtu,
+      nature: p.type_paiement || 'Paiement étudiant',
+      mode: p.mode_paiement || '',
+      montant: Number(p.montant) || 0,
+    })
+  }
+  for (const r of autresRecettes) {
+    const d = new Date(r.date_recette)
+    recettesParMois[d.getMonth()].push({
+      date: d,
+      ref: r.reference_piece || `R-${r.id}`,
+      tiers: r.client || '—',
+      nature: r.libelle || r.nature || 'Autre recette',
+      mode: r.mode_encaissement || '',
+      montant: Number(r.montant) || 0,
+    })
+  }
+  for (const dep of depenses) {
+    const d = new Date(dep.date_depense)
+    depensesParMois[d.getMonth()].push({
+      date: d,
+      ref: dep.reference_facture || `D-${dep.id}`,
+      tiers: dep.beneficiaire || '—',
+      nature: dep.libelle || dep.categorie || 'Dépense',
+      mode: dep.mode_paiement || '',
+      montant: Number(dep.montant) || 0,
+    })
+  }
+
+  const wb = new ExcelJS.Workbook()
+  wb.creator = nomEtab
+  wb.created = new Date()
+  wb.title = `Suivi comptabilité ${annee}`
+
+  // Feuilles mensuelles
+  const totauxMensuels: { recettes: number; depenses: number }[] = []
+  for (let m = 0; m < 12; m++) {
+    const ws = wb.addWorksheet(MOIS_FR[m], {
+      pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, paperSize: 9 },
+      headerFooter: { oddHeader: `&L&"Calibri,Bold"&14${nomEtab} — Suivi comptabilité ${annee}&R&"Calibri,Italic"${MOIS_FR[m]}` },
+      views: [{ state: 'frozen', ySplit: 3 }],
+    })
+    ws.columns = [
+      { width: 12 }, { width: 14 }, { width: 26 }, { width: 28 }, { width: 14 }, { width: 16 },
+      { width: 3 },
+      { width: 12 }, { width: 14 }, { width: 26 }, { width: 28 }, { width: 14 }, { width: 16 },
+    ]
+
+    // Titre de la section RECETTES / DÉPENSES
+    ws.mergeCells('A1:F1')
+    ws.getCell('A1').value = `RECETTES — ${MOIS_FR[m]} ${annee}`
+    ws.getCell('A1').font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFFFFFFF' } }
+    ws.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' }
+    ws.getCell('A1').fill = fillSolid('FF375623')
+
+    ws.mergeCells('H1:M1')
+    ws.getCell('H1').value = `DÉPENSES — ${MOIS_FR[m]} ${annee}`
+    ws.getCell('H1').font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFFFFFFF' } }
+    ws.getCell('H1').alignment = { horizontal: 'center', vertical: 'middle' }
+    ws.getCell('H1').fill = fillSolid('FF9C0006')
+
+    // En-têtes
+    const headers = ['Date', 'N° pièce', 'Client / Étudiant', 'Nature', 'Mode', 'Montant']
+    const headersDep = ['Date', 'N° pièce', 'Bénéficiaire', 'Nature', 'Mode', 'Montant']
+    headers.forEach((h, i) => {
+      const cell = ws.getCell(3, i + 1)
+      cell.value = h
+      cell.font = { name: 'Calibri', size: 11, bold: true }
+      cell.fill = fillSolid('FFE2EFDA')
+      cell.alignment = { horizontal: 'center', vertical: 'middle' }
+      cell.border = THIN
+    })
+    headersDep.forEach((h, i) => {
+      const cell = ws.getCell(3, i + 8)
+      cell.value = h
+      cell.font = { name: 'Calibri', size: 11, bold: true }
+      cell.fill = fillSolid('FFFCE4D6')
+      cell.alignment = { horizontal: 'center', vertical: 'middle' }
+      cell.border = THIN
+    })
+
+    // Lignes : recettes (cols A-F), dépenses (cols H-M)
+    const recs = recettesParMois[m]
+    const deps = depensesParMois[m]
+    const maxRows = Math.max(recs.length, deps.length)
+    const START = 4
+    for (let i = 0; i < maxRows; i++) {
+      const row = START + i
+      const r = recs[i]
+      const d = deps[i]
+      if (r) {
+        ws.getCell(row, 1).value = r.date
+        ws.getCell(row, 1).numFmt = 'dd/mm/yyyy'
+        ws.getCell(row, 2).value = r.ref
+        ws.getCell(row, 3).value = r.tiers
+        ws.getCell(row, 4).value = r.nature
+        ws.getCell(row, 5).value = r.mode
+        ws.getCell(row, 6).value = r.montant
+        ws.getCell(row, 6).numFmt = FMT_FCFA
+      }
+      if (d) {
+        ws.getCell(row, 8).value  = d.date
+        ws.getCell(row, 8).numFmt = 'dd/mm/yyyy'
+        ws.getCell(row, 9).value  = d.ref
+        ws.getCell(row, 10).value = d.tiers
+        ws.getCell(row, 11).value = d.nature
+        ws.getCell(row, 12).value = d.mode
+        ws.getCell(row, 13).value = d.montant
+        ws.getCell(row, 13).numFmt = FMT_FCFA
+      }
+      for (let col = 1; col <= 13; col++) {
+        if (col === 7) continue
+        ws.getCell(row, col).border = THIN
+      }
+    }
+
+    const totalRow = START + maxRows + 1
+    ws.getCell(`E${totalRow}`).value = 'TOTAL'
+    ws.getCell(`E${totalRow}`).font = { bold: true }
+    ws.getCell(`E${totalRow}`).alignment = { horizontal: 'right' }
+    const totalRecettes = recs.reduce((s, r) => s + r.montant, 0)
+    const totalDepenses = deps.reduce((s, d) => s + d.montant, 0)
+    ws.getCell(`F${totalRow}`).value = totalRecettes
+    ws.getCell(`F${totalRow}`).numFmt = FMT_FCFA
+    ws.getCell(`F${totalRow}`).font = { bold: true }
+    ws.getCell(`F${totalRow}`).fill = fillSolid('FFE2EFDA')
+    ws.getCell(`F${totalRow}`).border = THIN
+
+    ws.getCell(`L${totalRow}`).value = 'TOTAL'
+    ws.getCell(`L${totalRow}`).font = { bold: true }
+    ws.getCell(`L${totalRow}`).alignment = { horizontal: 'right' }
+    ws.getCell(`M${totalRow}`).value = totalDepenses
+    ws.getCell(`M${totalRow}`).numFmt = FMT_FCFA
+    ws.getCell(`M${totalRow}`).font = { bold: true }
+    ws.getCell(`M${totalRow}`).fill = fillSolid('FFFCE4D6')
+    ws.getCell(`M${totalRow}`).border = THIN
+
+    const soldeRow = totalRow + 2
+    ws.getCell(`E${soldeRow}`).value = 'SOLDE DU MOIS'
+    ws.getCell(`E${soldeRow}`).font = { bold: true, color: { argb: 'FF1F3864' } }
+    ws.getCell(`E${soldeRow}`).alignment = { horizontal: 'right' }
+    ws.getCell(`F${soldeRow}`).value  = totalRecettes - totalDepenses
+    ws.getCell(`F${soldeRow}`).numFmt = FMT_FCFA
+    ws.getCell(`F${soldeRow}`).font   = { bold: true, size: 12, color: { argb: 'FF1F3864' } }
+    ws.getCell(`F${soldeRow}`).fill   = fillSolid('FFDDEBF7')
+    ws.getCell(`F${soldeRow}`).border = THIN
+
+    totauxMensuels.push({ recettes: totalRecettes, depenses: totalDepenses })
+  }
+
+  // Feuille RECAPITULATIF
+  const wsRecap = wb.addWorksheet('RECAPITULATIF', {
+    pageSetup: { orientation: 'portrait', fitToPage: true, fitToWidth: 1, paperSize: 9 },
+  })
+  wsRecap.columns = [
+    { width: 18 }, { width: 20 }, { width: 20 }, { width: 20 },
+  ]
+
+  wsRecap.mergeCells('A1:D1')
+  wsRecap.getCell('A1').value = `${nomEtab} — SUIVI COMPTABILITÉ ${annee}`
+  wsRecap.getCell('A1').font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }
+  wsRecap.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' }
+  wsRecap.getCell('A1').fill = fillSolid('FFE30613')
+  wsRecap.getRow(1).height = 26
+
+  if (agrement) {
+    wsRecap.mergeCells('A2:D2')
+    wsRecap.getCell('A2').value = `Agrément : ${agrement}`
+    wsRecap.getCell('A2').font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF595959' } }
+    wsRecap.getCell('A2').alignment = { horizontal: 'center' }
+  }
+
+  const recapHeadRow = 4
+  const recapHeaders = ['Mois', 'Recettes', 'Dépenses', 'Solde']
+  recapHeaders.forEach((h, i) => {
+    const cell = wsRecap.getCell(recapHeadRow, i + 1)
+    cell.value = h
+    cell.font = { bold: true }
+    cell.fill = fillSolid('FFE7E6E6')
+    cell.alignment = { horizontal: 'center' }
+    cell.border = THIN
+  })
+
+  let cumulR = 0, cumulD = 0
+  for (let m = 0; m < 12; m++) {
+    const row = recapHeadRow + 1 + m
+    const r = totauxMensuels[m].recettes
+    const d = totauxMensuels[m].depenses
+    cumulR += r; cumulD += d
+    wsRecap.getCell(row, 1).value = MOIS_FR[m]
+    wsRecap.getCell(row, 2).value = r; wsRecap.getCell(row, 2).numFmt = FMT_FCFA
+    wsRecap.getCell(row, 3).value = d; wsRecap.getCell(row, 3).numFmt = FMT_FCFA
+    wsRecap.getCell(row, 4).value = r - d; wsRecap.getCell(row, 4).numFmt = FMT_FCFA
+    for (let c = 1; c <= 4; c++) wsRecap.getCell(row, c).border = THIN
+  }
+  const cumulRow = recapHeadRow + 13
+  wsRecap.getCell(cumulRow, 1).value = `TOTAL ${annee}`
+  wsRecap.getCell(cumulRow, 1).font = { bold: true }
+  wsRecap.getCell(cumulRow, 2).value = cumulR
+  wsRecap.getCell(cumulRow, 2).numFmt = FMT_FCFA
+  wsRecap.getCell(cumulRow, 2).font = { bold: true }
+  wsRecap.getCell(cumulRow, 2).fill = fillSolid('FFE2EFDA')
+  wsRecap.getCell(cumulRow, 3).value = cumulD
+  wsRecap.getCell(cumulRow, 3).numFmt = FMT_FCFA
+  wsRecap.getCell(cumulRow, 3).font = { bold: true }
+  wsRecap.getCell(cumulRow, 3).fill = fillSolid('FFFCE4D6')
+  wsRecap.getCell(cumulRow, 4).value = cumulR - cumulD
+  wsRecap.getCell(cumulRow, 4).numFmt = FMT_FCFA
+  wsRecap.getCell(cumulRow, 4).font = { bold: true, color: { argb: 'FF1F3864' } }
+  wsRecap.getCell(cumulRow, 4).fill = fillSolid('FFDDEBF7')
+  for (let c = 1; c <= 4; c++) wsRecap.getCell(cumulRow, c).border = THIN
+
+  const buf = await wb.xlsx.writeBuffer()
+  return Buffer.from(buf as ArrayBuffer)
+}
+
 // Construit le HTML du relevé du mois donné (YYYY-MM) : encaissements, dépenses,
 // solde, top catégories de dépenses, derniers paiements/dépenses.
 async function buildReleveComptableHtml(moisIso: string): Promise<{ sujet: string; html: string }> {
@@ -11141,11 +11427,25 @@ async function envoyerReleveAuCabinet(
   const destinataires = [emailPrincipal, ...emailsCc]
   const { sujet, html } = await buildReleveComptableHtml(moisIso)
 
+  // Pièce jointe : classeur Excel "Suivi comptabilité annuel"
+  const annee = Number(moisIso.slice(0, 4))
+  let attachments: { name: string; content: string }[] = []
+  try {
+    const xlsxBuf = await buildSuiviComptabiliteAnnuelXlsx(annee)
+    attachments = [{
+      name: `suivi_comptabilite_UPTECH_${annee}.xlsx`,
+      content: xlsxBuf.toString('base64'),
+    }]
+  } catch (e: any) {
+    // On n'échoue pas l'envoi si la génération Excel plante : on envoie le HTML seul.
+    console.error('[releve-cabinet] Échec génération XLSX :', e?.message || e)
+  }
+
   // Envoi individuel via sendBrevoEmail (simple, et évite les échecs partiels)
   let lastErr: string | undefined
   let atLeastOne = false
   for (const to of destinataires) {
-    const res = await sendBrevoEmail(to, sujet, html)
+    const res = await sendBrevoEmail(to, sujet, html, attachments)
     if (res.ok) atLeastOne = true
     else lastErr = res.error
   }
@@ -12257,21 +12557,30 @@ app.post('/jurys/:id/decisions', requireAuth, async (c) => {
 // ─── NOTIFICATIONS ───────────────────────────────────────────────────────────
 
 // Helper générique Brevo
-async function sendBrevoEmail(to: string, subject: string, htmlContent: string): Promise<{ ok: boolean; error?: string }> {
+async function sendBrevoEmail(
+  to: string,
+  subject: string,
+  htmlContent: string,
+  attachments?: { name: string; content: string }[],
+): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.BREVO_API_KEY
   if (!apiKey) return { ok: false, error: 'BREVO_API_KEY non configuré' }
   const fromEmail = process.env.BREVO_FROM_EMAIL || 'noreply@uptech.edu'
   const fromName  = process.env.BREVO_FROM_NAME  || 'UPTECH Campus'
   try {
+    const body: any = {
+      sender: { name: fromName, email: fromEmail },
+      to: [{ email: to }],
+      subject,
+      htmlContent,
+    }
+    if (attachments && attachments.length > 0) {
+      body.attachment = attachments
+    }
     const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({
-        sender: { name: fromName, email: fromEmail },
-        to: [{ email: to }],
-        subject,
-        htmlContent,
-      }),
+      body: JSON.stringify(body),
     })
     if (!resp.ok) {
       const err = await resp.text()
