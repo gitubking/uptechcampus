@@ -1227,7 +1227,9 @@ app.post('/auth/login', async (c) => {
   const { email, password } = await c.req.json()
   if (!email || !password) return c.json({ message: 'Champs requis.' }, 422)
 
-  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email])
+  // Recherche insensible à la casse sur l'email pour éviter les faux négatifs
+  // dus à une saisie avec majuscules côté admin ou côté utilisateur.
+  const { rows } = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email])
   const user = rows[0]
   if (!user) {
     logAudit(c, {
@@ -1571,7 +1573,7 @@ app.post('/auth/check-email', async (c) => {
   if (!email) return c.json({ message: 'Email requis.' }, 422)
 
   const { rows } = await pool.query(
-    'SELECT id, telephone FROM users WHERE email=$1 AND statut=$2',
+    'SELECT id, telephone FROM users WHERE LOWER(email)=LOWER($1) AND statut=$2',
     [email, 'actif']
   )
   if (!rows[0]) return c.json({ message: 'Aucun compte actif trouvé avec cet email.' }, 404)
@@ -1594,7 +1596,7 @@ app.post('/auth/forgot-password', async (c) => {
 
   // Vérifier que l'email existe
   const { rows } = await pool.query(
-    'SELECT id, telephone FROM users WHERE email=$1 AND statut=$2',
+    'SELECT id, telephone FROM users WHERE LOWER(email)=LOWER($1) AND statut=$2',
     [email, 'actif']
   )
   if (!rows[0]) {
