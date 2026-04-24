@@ -304,18 +304,18 @@ pool.query(`CREATE INDEX IF NOT EXISTS idx_user_notif_user_lu ON user_notificati
 ;(async () => {
   try {
     const seeds = [
-      ['agrement',          '', 'etablissement', 'text'],
-      ['directeur_general', '', 'etablissement', 'text'],
-      ['ministere_tutelle', 'Enseignement Supérieur, de la Recherche et de l\'Innovation (MESRI)', 'etablissement', 'text'],
-      ['envoi_releve_cabinet_actif', '0', 'comptabilite', 'boolean'],
-      ['email_cabinet_comptable',    '',  'comptabilite', 'email'],
-      ['email_cabinet_cc',           '',  'comptabilite', 'email'],
-      ['nom_cabinet_comptable',      '',  'comptabilite', 'text'],
+      ['agrement',          '', 'etablissement'],
+      ['directeur_general', '', 'etablissement'],
+      ['ministere_tutelle', 'Enseignement Supérieur, de la Recherche et de l\'Innovation (MESRI)', 'etablissement'],
+      ['envoi_releve_cabinet_actif', '0', 'comptabilite'],
+      ['email_cabinet_comptable',    '',  'comptabilite'],
+      ['email_cabinet_cc',           '',  'comptabilite'],
+      ['nom_cabinet_comptable',      '',  'comptabilite'],
     ]
-    for (const [cle, valeur, groupe, type] of seeds) {
+    for (const [cle, valeur, groupe] of seeds) {
       await pool.query(
-        `INSERT INTO parametres_systeme (cle, valeur, groupe, type) VALUES ($1,$2,$3,$4) ON CONFLICT (cle) DO NOTHING`,
-        [cle, valeur, groupe, type]
+        `INSERT INTO parametres_systeme (cle, valeur, groupe) VALUES ($1,$2,$3) ON CONFLICT (cle) DO NOTHING`,
+        [cle, valeur, groupe]
       )
     }
   } catch { /* ignore */ }
@@ -1945,15 +1945,15 @@ app.put('/role-permissions', requireAuth, role('dg'), async (c) => {
 // de seed n'aurait pas eu le temps de s'exécuter avant la première requête.
 async function ensureComptabiliteSeed() {
   const seeds = [
-    ['envoi_releve_cabinet_actif', '0', 'comptabilite', 'boolean'],
-    ['email_cabinet_comptable',    '',  'comptabilite', 'email'],
-    ['email_cabinet_cc',           '',  'comptabilite', 'email'],
-    ['nom_cabinet_comptable',      '',  'comptabilite', 'text'],
+    ['envoi_releve_cabinet_actif', '0', 'comptabilite'],
+    ['email_cabinet_comptable',    '',  'comptabilite'],
+    ['email_cabinet_cc',           '',  'comptabilite'],
+    ['nom_cabinet_comptable',      '',  'comptabilite'],
   ]
-  for (const [cle, valeur, groupe, type] of seeds) {
+  for (const [cle, valeur, groupe] of seeds) {
     await pool.query(
-      `INSERT INTO parametres_systeme (cle, valeur, groupe, type) VALUES ($1,$2,$3,$4) ON CONFLICT (cle) DO NOTHING`,
-      [cle, valeur, groupe, type]
+      `INSERT INTO parametres_systeme (cle, valeur, groupe) VALUES ($1,$2,$3) ON CONFLICT (cle) DO NOTHING`,
+      [cle, valeur, groupe]
     ).catch(() => {})
   }
 }
