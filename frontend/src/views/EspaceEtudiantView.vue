@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
 import QRCode from 'qrcode'
 import { useToast } from '@/composables/useToast'
+import { uptechPdfHeader, uptechPdfFooter, uptechHeaderHtml, UPTECH_HEADER_CSS, UPTECH_BRANDING } from '@/utils/uptechBranding'
 
 const dashboardData = inject<any>('dashboardData')
 const auth = useAuthStore()
@@ -317,8 +318,11 @@ function printRecu(p: any) {
   const montantRecu = Number(p.montant ?? p.montant_paye ?? 0).toLocaleString('fr-FR')
   const objetRecu = typeL(p.type_paiement ?? p.type ?? '—')
   const dateRecu = p.created_at ? new Date(p.created_at).toLocaleDateString('fr-FR') : p.date_paiement ? new Date(p.date_paiement).toLocaleDateString('fr-FR') : '—'
-  const block = (ex: string) => `<div class="rb"><div class="hd"><div class="lc">U</div><div class="si"><div class="sn">UPTECH CAMPUS</div><div class="sm">NINEA : 008595312 | Agrément : 006547/MEN/DEST</div><div class="sm">Liberté 6 Extension, Dakar – Sénégal</div></div><div class="rr"><div class="rn">${p.numero_recu||'—'}</div><div class="rd">${dateRecu}</div></div></div><div class="dv"></div><div class="tr"><span class="tt">REÇU DE PAIEMENT</span><span class="ex">${ex}</span></div><div class="sr"><div class="sf"><span class="sl">Étudiant</span><span class="sv">${etud?.prenom??''} ${etud?.nom??''}</span></div><div class="sf"><span class="sl">N°</span><span class="sv">${etud?.numero_etudiant??'—'}</span></div><div class="sf"><span class="sl">Filière</span><span class="sv">${filiereLabel}</span></div>${p.mois_concerne?`<div class="sf"><span class="sl">Mois</span><span class="sv">${moisL(p.mois_concerne)}</span></div>`:''}</div><div class="mb"><div class="ml">Montant payé</div><div class="ma">${montantRecu} FCFA</div></div><div class="to"><strong>Objet :</strong> ${objetRecu}</div><div class="fb">Ce reçu est un justificatif officiel de paiement — Uptech Campus · Dakar, Sénégal</div></div>`
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Reçu</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;background:#f5f5f5;padding:20px}.rb{background:#fff;border:1px solid #ddd;border-radius:8px;padding:18px 20px;width:420px;margin:0 auto}.hd{display:flex;align-items:center;gap:12px;margin-bottom:10px}.lc{width:42px;height:42px;background:#E30613;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;font-weight:900}.sn{font-size:13px;font-weight:900;color:#111;letter-spacing:1px}.sm{font-size:8px;color:#777;margin-top:1px}.si{flex:1}.rr{text-align:right}.rn{font-size:11px;font-weight:700;color:#E30613}.rd{font-size:9px;color:#aaa;margin-top:2px}.dv{border-top:1.5px solid #E30613;margin:8px 0}.tr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.tt{font-size:13px;font-weight:900;color:#111;letter-spacing:1px;text-transform:uppercase}.ex{font-size:9px;color:#aaa;font-style:italic}.sr{display:flex;flex-wrap:wrap;gap:6px 16px;margin-bottom:10px}.sf{display:flex;flex-direction:column}.sl{font-size:8px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px}.sv{font-size:11px;font-weight:600;color:#111}.mb{border:1.5px solid #111;border-radius:6px;padding:8px 16px;text-align:center;margin:10px 0}.ml{font-size:8px;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:2px}.ma{font-size:20px;font-weight:900;color:#111}.to{font-size:10px;color:#555;margin-bottom:8px}.fb{border-top:1px solid #ccc;color:#777;font-size:7px;text-align:center;padding:4px 0;margin-top:10px}.cut{text-align:center;font-size:11px;color:#aaa;margin:14px 0;letter-spacing:2px;border-top:1px dashed #ccc;padding-top:8px}@media print{body{background:#fff;padding:0}}</style></head><body>${block('Exemplaire établissement')}<div class="cut">✂ &nbsp; Découper ici &nbsp; ✂</div>${block('Exemplaire étudiant')}</body></html>`
+  // En-tête institutionnel partagé (identique au reçu de paiement administratif)
+  const headerBlock = uptechHeaderHtml()
+
+  const block = (ex: string) => `<div class="rb">${headerBlock}<div class="exemplaire">${ex}</div><div class="tr"><span class="tt">REÇU DE PAIEMENT</span><span class="rn">${p.numero_recu||'—'}</span></div><div class="sr"><div class="sf"><span class="sl">Étudiant</span><span class="sv">${etud?.prenom??''} ${etud?.nom??''}</span></div><div class="sf"><span class="sl">N°</span><span class="sv">${etud?.numero_etudiant??'—'}</span></div><div class="sf"><span class="sl">Filière</span><span class="sv">${filiereLabel}</span></div><div class="sf"><span class="sl">Date</span><span class="sv">${dateRecu}</span></div>${p.mois_concerne?`<div class="sf"><span class="sl">Mois</span><span class="sv">${moisL(p.mois_concerne)}</span></div>`:''}</div><div class="mb"><div class="ml">Montant payé</div><div class="ma">${montantRecu} FCFA</div></div><div class="to"><strong>Objet :</strong> ${objetRecu}</div><div class="uptech-footer">${UPTECH_BRANDING.footerLine}</div></div>`
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Reçu</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;background:#f5f5f5;padding:20px}.rb{background:#fff;border:1px solid #ddd;border-radius:8px;width:520px;margin:0 auto;overflow:hidden}${UPTECH_HEADER_CSS}.exemplaire{text-align:right;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#aaa;padding:6px 16px 0}.tr{display:flex;justify-content:space-between;align-items:center;padding:8px 16px 10px}.tt{font-size:13px;font-weight:900;color:#111;letter-spacing:1px;text-transform:uppercase}.rn{font-size:11px;font-weight:700;color:${UPTECH_BRANDING.primaryColor};font-family:monospace}.sr{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;padding:0 16px 10px}.sf{display:flex;flex-direction:column}.sl{font-size:8px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px}.sv{font-size:11px;font-weight:600;color:#111}.mb{border:1.5px solid #111;border-radius:6px;padding:8px 16px;text-align:center;margin:0 16px 10px}.ml{font-size:8px;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:2px}.ma{font-size:20px;font-weight:900;color:#111}.to{font-size:10px;color:#555;padding:0 16px 10px}.cut{text-align:center;font-size:11px;color:#aaa;margin:14px 0;letter-spacing:2px;border-top:1px dashed #ccc;padding-top:8px}@media print{body{background:#fff;padding:0}}</style></head><body>${block('Exemplaire établissement')}<div class="cut">✂ &nbsp; Découper ici &nbsp; ✂</div>${block('Exemplaire étudiant')}</body></html>`
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const w = window.open(url, '_blank')
@@ -346,7 +350,6 @@ async function telechargerReleveAnnuel() {
     paiements.sort((a, b) => new Date(a.confirmed_at ?? a.created_at).getTime() - new Date(b.confirmed_at ?? b.created_at).getTime())
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    const W = doc.internal.pageSize.getWidth()
     const fmt = (n: number) => Math.round(n).toLocaleString('fr-FR') + ' FCFA'
     const typeL = (t: string) => ({
       frais_inscription: 'Frais d\'inscription', mensualite: 'Mensualité',
@@ -354,30 +357,22 @@ async function telechargerReleveAnnuel() {
       inscription: 'Inscription',
     } as any)[t] ?? (t || '—')
 
-    // En-tête rouge
-    doc.setFillColor(227, 6, 19)
-    doc.rect(0, 0, W, 22, 'F')
-    doc.setTextColor(255, 255, 255)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(15)
-    doc.text('UPTECH CAMPUS', 14, 13)
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Relevé annuel des paiements — ${annee}`, 14, 19)
+    // En-tête institutionnel officiel (identique au reçu de paiement)
+    let y = await uptechPdfHeader(doc, { title: `Relevé annuel des paiements — ${annee}` })
 
-    // Bloc identité
-    doc.setTextColor(15, 23, 42)
-    doc.setFontSize(11)
+    // Bloc identité étudiant
     doc.setFont('helvetica', 'bold')
-    doc.text(`${etud?.prenom ?? ''} ${etud?.nom ?? ''}`, 14, 33)
+    doc.setFontSize(11)
+    doc.setTextColor(15, 23, 42)
+    doc.text(`${etud?.prenom ?? ''} ${etud?.nom ?? ''}`, 14, y)
+    y += 5
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9.5)
     doc.setTextColor(71, 85, 105)
-    let y = 39
-    if (etud?.numero_etudiant) { doc.text(`Matricule : ${etud.numero_etudiant}`, 14, y); y += 5 }
-    if (insc?.filiere)         { doc.text(`Filière : ${insc.filiere}`, 14, y); y += 5 }
-    if (insc?.classe)          { doc.text(`Classe : ${insc.classe}`, 14, y); y += 5 }
-    doc.text(`Date d'édition : ${new Date().toLocaleDateString('fr-FR')}`, 14, y); y += 8
+    if (etud?.numero_etudiant) { doc.text(`Matricule : ${etud.numero_etudiant}`, 14, y); y += 4.5 }
+    if (insc?.filiere)         { doc.text(`Filière : ${insc.filiere}`, 14, y); y += 4.5 }
+    if (insc?.classe)          { doc.text(`Classe : ${insc.classe}`, 14, y); y += 4.5 }
+    doc.text(`Date d'édition : ${new Date().toLocaleDateString('fr-FR')}`, 14, y); y += 6
 
     // Tableau des paiements
     const rows = paiements.map((p: any) => [
@@ -406,15 +401,17 @@ async function telechargerReleveAnnuel() {
       margin: { left: 14, right: 14 },
     })
 
-    // Pied de page
+    // Mention légale + pied de page institutionnel
     const finalY = (doc as any).lastAutoTable?.finalY ?? y + 60
     doc.setFontSize(8)
     doc.setTextColor(148, 163, 184)
     doc.text(
       `Document officiel — généré depuis l'espace étudiant le ${new Date().toLocaleString('fr-FR')}`,
-      14, Math.min(finalY + 15, 285)
+      14, Math.min(finalY + 12, 270)
     )
-    doc.text('Pour toute question : contactez le service comptabilité.', 14, Math.min(finalY + 20, 290))
+    doc.text('Pour toute question : contactez le service comptabilité.', 14, Math.min(finalY + 17, 275))
+
+    uptechPdfFooter(doc)
 
     const filename = `releve-paiements-${etud?.numero_etudiant ?? 'uptech'}-${annee}.pdf`
     doc.save(filename)
