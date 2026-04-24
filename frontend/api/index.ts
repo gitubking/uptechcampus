@@ -1940,7 +1940,26 @@ app.put('/role-permissions', requireAuth, role('dg'), async (c) => {
 })
 
 // ─── PARAMETRES ───────────────────────────────────────────────────────────────
+// Seed idempotent appelé à chaque GET /parametres pour garantir que les clés
+// essentielles (comptabilité) sont présentes même après un cold start où l'IIFE
+// de seed n'aurait pas eu le temps de s'exécuter avant la première requête.
+async function ensureComptabiliteSeed() {
+  const seeds = [
+    ['envoi_releve_cabinet_actif', '0', 'comptabilite', 'boolean'],
+    ['email_cabinet_comptable',    '',  'comptabilite', 'email'],
+    ['email_cabinet_cc',           '',  'comptabilite', 'email'],
+    ['nom_cabinet_comptable',      '',  'comptabilite', 'text'],
+  ]
+  for (const [cle, valeur, groupe, type] of seeds) {
+    await pool.query(
+      `INSERT INTO parametres_systeme (cle, valeur, groupe, type) VALUES ($1,$2,$3,$4) ON CONFLICT (cle) DO NOTHING`,
+      [cle, valeur, groupe, type]
+    ).catch(() => {})
+  }
+}
+
 app.get('/parametres', requireAuth, role('dg'), async (c) => {
+  await ensureComptabiliteSeed()
   const { rows } = await pool.query('SELECT * FROM parametres_systeme ORDER BY groupe,cle')
   return c.json(rows)
 })
