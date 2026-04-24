@@ -328,7 +328,8 @@ const echeancesImpayeesTriees = computed<EcheanceItem[]>(() => {
         const parts = moisIso.split('-').map(Number)
         const y = parts[0] ?? new Date().getFullYear()
         const m = parts[1] ?? 1
-        dateLimite = new Date(y, m - 1, 15)
+        // Convention métier UPTECH : la mensualité est due le 5 du mois.
+        dateLimite = new Date(y, m - 1, 5)
       } else {
         dateLimite = new Date()
       }
