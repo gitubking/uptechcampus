@@ -290,11 +290,19 @@ interface PrioritesData {
   classes_sans_date_debut: number
 }
 const priorites = ref<PrioritesData | null>(null)
+const loadingPriorites = ref(true)
+const prioritesError = ref<string | null>(null)
 async function loadPriorites() {
+  loadingPriorites.value = true
+  prioritesError.value = null
   try {
     const { data } = await api.get('/dashboard/priorites')
     priorites.value = data
-  } catch { /* silencieux */ }
+  } catch (e: any) {
+    prioritesError.value = e?.response?.data?.message || e?.message || 'Impossible de charger les priorités.'
+  } finally {
+    loadingPriorites.value = false
+  }
 }
 
 interface PrioriteCard {
@@ -311,7 +319,9 @@ const fmtFcfaShort = (n: number) => n >= 1_000_000
   ? (n / 1_000_000).toFixed(1) + 'M'
   : n >= 1_000 ? (n / 1_000).toFixed(0) + 'k' : Math.round(n).toLocaleString('fr-FR')
 
-// Cartes priorité par rôle — chaque rôle voit 3 à 5 indicateurs actionnables
+// Cartes priorité par rôle — chaque rôle voit 3 à 5 indicateurs actionnables.
+// Fallback : si rôle inconnu on propose un set générique pour ne jamais laisser
+// le widget vide.
 const prioritesCards = computed<PrioriteCard[]>(() => {
   if (!priorites.value) return []
   const p = priorites.value
@@ -355,7 +365,12 @@ const prioritesCards = computed<PrioriteCard[]>(() => {
     { icon: '🎓', label: 'Classes', value: stats.value?.classes_total ?? 0, color: 'blue', route: '/classes' },
   ]
 
-  return []
+  // Rôle inconnu → set générique (encaissé mois + pré-inscrits + retards)
+  return [
+    { icon: '💰', label: 'Encaissé ce mois', value: fmtFcfaShort(p.encaisse_ce_mois), detail: 'FCFA', color: 'green', route: '/paiements' },
+    { icon: '📝', label: 'Pré-inscrits', value: p.pre_inscrits, detail: 'en attente', color: 'blue', route: '/etudiants' },
+    { icon: '⚠️', label: 'Étudiants en retard', value: p.etudiants_en_retard, detail: 'paiement', color: 'red', route: '/suivi-paiements' },
+  ]
 })
 
 // SVG chart helpers
@@ -819,12 +834,31 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
     <template v-else>
 
       <!-- ══ MES PRIORITÉS — cartes dynamiques par rôle ══════════════ -->
-      <div v-if="prioritesCards.length > 0" class="uc-priorities">
+      <div class="uc-priorities">
         <div class="uc-priorities-head">
           <span class="uc-priorities-title">🎯 Mes priorités</span>
-          <span class="uc-priorities-sub">Actions clés pour {{ roleLabel[auth.user?.role ?? ''] ?? 'vous' }}</span>
+          <span class="uc-priorities-sub">Actions clés pour {{ roleLabel[auth.user?.role ?? ''] ?? auth.user?.role ?? 'vous' }}</span>
         </div>
-        <div class="uc-priorities-grid">
+
+        <!-- Skeleton pendant le chargement -->
+        <div v-if="loadingPriorites" class="uc-priorities-grid">
+          <div v-for="n in 4" :key="n" class="uc-priority-card uc-priority-card--skeleton">
+            <span class="uc-priority-icon" style="opacity:0.3">⋯</span>
+            <div class="uc-priority-body">
+              <div class="uc-priority-label" style="opacity:0.5">Chargement…</div>
+              <div class="uc-priority-value" style="opacity:0.25">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Erreur de chargement -->
+        <div v-else-if="prioritesError" style="padding:10px 14px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.3);border-radius:8px;font-size:12.5px;color:#fca5a5;">
+          ⚠️ {{ prioritesError }}
+          <button @click="loadPriorites" style="margin-left:10px;background:rgba(255,255,255,0.1);color:#fff;border:none;padding:3px 10px;border-radius:4px;font-size:11px;cursor:pointer;">Réessayer</button>
+        </div>
+
+        <!-- Cartes -->
+        <div v-else class="uc-priorities-grid">
           <button v-for="(c, i) in prioritesCards" :key="i"
             class="uc-priority-card"
             :class="[`uc-priority-card--${c.color}`, c.urgent ? 'uc-priority-card--urgent' : '']"
