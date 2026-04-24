@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/services/api'
+import { UcNotificationBell } from '@/components/ui'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -424,63 +425,7 @@ const userInitials = computed(() => {
   return (p + n).toUpperCase()
 })
 
-// ── Notifications in-app ────────────────────────────────────────────
-const userNotifs = ref<any[]>([])
-const unreadCount = ref(0)
-const showNotifPanel = ref(false)
-let notifPollTimer: ReturnType<typeof setInterval> | null = null
-
-async function fetchNotifs() {
-  if (!auth.isAuthenticated) return
-  try {
-    const { data } = await api.get('/user-notifications')
-    userNotifs.value = data.notifications ?? []
-    unreadCount.value = data.unread ?? 0
-  } catch { /* silencieux */ }
-}
-
-async function markAllRead() {
-  try {
-    await api.post('/user-notifications/read-all')
-    userNotifs.value = userNotifs.value.map(n => ({ ...n, lu: true }))
-    unreadCount.value = 0
-  } catch { /* silencieux */ }
-}
-
-async function markOneRead(id: number) {
-  try {
-    await api.post(`/user-notifications/${id}/read`)
-    const notif = userNotifs.value.find(n => n.id === id)
-    if (notif && !notif.lu) { notif.lu = true; unreadCount.value = Math.max(0, unreadCount.value - 1) }
-  } catch { /* silencieux */ }
-}
-
-function toggleNotifPanel() {
-  showNotifPanel.value = !showNotifPanel.value
-}
-
-function notifTimeAgo(dateStr: string) {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'à l\'instant'
-  if (mins < 60) return `il y a ${mins} min`
-  const h = Math.floor(mins / 60)
-  if (h < 24) return `il y a ${h}h`
-  const d = Math.floor(h / 24)
-  return `il y a ${d}j`
-}
-
-const notifIconMap: Record<string, string> = {
-  paiement: '✅', note: '📊', echeance: '⏰', info: 'ℹ️',
-}
-
-onMounted(() => {
-  fetchNotifs()
-  notifPollTimer = setInterval(fetchNotifs, 30000)
-})
-onUnmounted(() => {
-  if (notifPollTimer) clearInterval(notifPollTimer)
-})
+// Notifications in-app : désormais gérées par le composant UcNotificationBell
 </script>
 
 <template>
@@ -563,51 +508,8 @@ onUnmounted(() => {
                 d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
             </svg>{{ todayStr }}
           </span>
-          <!-- Cloche notifications -->
-          <div style="position:relative;">
-            <button class="uc-notif-btn" :class="{ 'uc-notif-btn--active': showNotifPanel }" title="Notifications" @click="toggleNotifPanel">
-              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-              <span v-if="unreadCount > 0" class="uc-notif-badge">{{ unreadCount > 9 ? '9+' : unreadCount }}</span>
-              <span v-else class="uc-notif-dot"></span>
-            </button>
-
-            <!-- Overlay transparent pour fermer au clic extérieur -->
-            <div v-if="showNotifPanel" class="uc-notif-overlay" @click="showNotifPanel = false"></div>
-
-            <!-- Dropdown panel -->
-            <Transition name="notif-drop">
-              <div v-if="showNotifPanel" class="uc-notif-panel">
-                <div class="uc-notif-panel-head">
-                  <span>Notifications</span>
-                  <button v-if="unreadCount > 0" class="uc-notif-read-all" @click="markAllRead">Tout marquer lu</button>
-                </div>
-                <div class="uc-notif-list">
-                  <div v-if="userNotifs.length === 0" class="uc-notif-empty">
-                    <svg width="32" height="32" fill="none" stroke="#d1d5db" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
-                    <p>Aucune notification</p>
-                  </div>
-                  <div
-                    v-for="notif in userNotifs"
-                    :key="notif.id"
-                    class="uc-notif-item"
-                    :class="{ 'uc-notif-item--unread': !notif.lu }"
-                    @click="markOneRead(notif.id)"
-                  >
-                    <span class="uc-notif-ico">{{ notifIconMap[notif.type] ?? 'ℹ️' }}</span>
-                    <div class="uc-notif-content">
-                      <p class="uc-notif-titre">{{ notif.titre }}</p>
-                      <p class="uc-notif-msg">{{ notif.message }}</p>
-                      <span class="uc-notif-time">{{ notifTimeAgo(notif.created_at) }}</span>
-                    </div>
-                    <span v-if="!notif.lu" class="uc-notif-unread-dot"></span>
-                  </div>
-                </div>
-              </div>
-            </Transition>
-          </div>
+          <!-- Cloche notifications (composant partagé) -->
+          <UcNotificationBell variant="dark" />
           <div class="uc-topbar-sep"></div>
           <div class="uc-topbar-user">
             <div class="uc-topbar-user-avatar">{{ userInitials }}</div>

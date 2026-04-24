@@ -4485,6 +4485,25 @@ app.post('/inscriptions/:id/valider', requireAuth, role('secretariat', 'dg'), as
     [inscId]
   ).catch(() => {})
   try { await genererEcheances(inscId) } catch (e) { console.error('Erreur genererEcheances update', inscId, e) }
+
+  // Notification in-app : bienvenue à l'étudiant
+  try {
+    const { rows: infoRows } = await pool.query(
+      `SELECT et.user_id, et.prenom, et.nom, f.nom AS filiere_nom
+       FROM inscriptions i JOIN etudiants et ON et.id = i.etudiant_id
+       LEFT JOIN filieres f ON f.id = i.filiere_id
+       WHERE i.id = $1`, [inscId]
+    )
+    if (infoRows[0]?.user_id) {
+      await createUserNotif(
+        infoRows[0].user_id, 'info',
+        '🎓 Inscription validée',
+        `Bienvenue ${infoRows[0].prenom} ! Votre inscription${infoRows[0].filiere_nom ? ' en ' + infoRows[0].filiere_nom : ''} est désormais active.`,
+        { inscription_id: inscId }
+      )
+    }
+  } catch { /* silencieux */ }
+
   return c.json(rows[0])
 })
 
