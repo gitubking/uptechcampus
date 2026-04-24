@@ -1654,8 +1654,12 @@ app.post('/auth/forgot-password', async (c) => {
     const fromEmail = process.env.BREVO_FROM_EMAIL || 'noreply@uptechcampus.com'
     const fromName  = process.env.BREVO_FROM_NAME  || 'UPTECH Campus'
 
-    if (apiKey) {
-      const html = `
+    if (!apiKey) {
+      // En dev local sans Brevo : on renvoie l'OTP pour permettre la suite du flux.
+      return c.json({ message: 'Code envoyé par email.', dev_otp: otp })
+    }
+
+    const html = `
 <!DOCTYPE html><html lang="fr"><body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
 <div style="background:linear-gradient(135deg,#0f172a,#1e293b);color:white;padding:20px 24px;border-radius:10px 10px 0 0">
   <h2 style="margin:0;font-size:18px">UPTECH Campus</h2>
@@ -1672,7 +1676,8 @@ app.post('/auth/forgot-password', async (c) => {
 </div>
 </body></html>`
 
-      await fetch('https://api.brevo.com/v3/smtp/email', {
+    try {
+      const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
@@ -1681,12 +1686,21 @@ app.post('/auth/forgot-password', async (c) => {
           subject: `${otp} — Votre code UPTECH Campus`,
           htmlContent: html,
         }),
-      }).catch(() => {})
+      })
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}))
+        console.error('[forgot-password] Brevo email failed', resp.status, errBody)
+        return c.json({
+          message: `Échec envoi email (${resp.status}) : ${(errBody as any).message || 'Brevo refuse l\'envoi. Vérifiez la clé API et l\'adresse expéditrice.'}`,
+          brevo_error: errBody,
+        }, 500)
+      }
+    } catch (e: any) {
+      console.error('[forgot-password] Brevo email exception', e?.message || e)
+      return c.json({ message: `Échec envoi email : ${e?.message || 'erreur réseau'}` }, 500)
     }
-    return c.json({
-      message: "Code envoyé par email.",
-      dev_otp: apiKey ? undefined : otp,
-    })
+
+    return c.json({ message: 'Code envoyé par email.' })
   }
 })
 
