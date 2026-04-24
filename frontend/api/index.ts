@@ -5627,6 +5627,72 @@ app.get('/stats', requireAuth, async (c) => {
   })
 })
 
+// ─── DASHBOARD / PRIORITÉS PAR RÔLE ──────────────────────────────────────────
+// Compteurs ciblés pour alimenter le widget "Mes priorités" du tableau de bord.
+// Chaque indicateur correspond à une action que l'utilisateur peut faire. Le
+// frontend filtre selon son rôle quelles cartes afficher.
+app.get('/dashboard/priorites', requireAuth, async (c) => {
+  const today = new Date().toISOString().slice(0, 10)
+  const currentMonth = new Date().toISOString().slice(0, 7)
+
+  const [
+    preInscrits,
+    paiementsEnAttente,
+    depensesEnAttente,
+    encaisseAujourdhui,
+    encaisseCeMois,
+    impayesActuels,
+    seancesSansEnseignant,
+    seancesAujourdhui,
+    presencesNonValidees,
+    retardsMensualite,
+    classesSansDateDebut,
+  ] = await Promise.all([
+    pool.query("SELECT COUNT(*)::int AS n FROM inscriptions WHERE statut IN ('pre_inscrit','en_examen')"),
+    pool.query("SELECT COUNT(*)::int AS n, COALESCE(SUM(montant),0)::float AS total FROM paiements WHERE statut='en_attente'"),
+    pool.query("SELECT COUNT(*)::int AS n, COALESCE(SUM(montant),0)::float AS total FROM depenses WHERE statut='en_attente'"),
+    pool.query(`SELECT COALESCE(SUM(montant),0)::float AS total, COUNT(*)::int AS n
+                FROM paiements WHERE statut='confirme' AND confirmed_at::date = $1`, [today]),
+    pool.query(`SELECT COALESCE(SUM(montant),0)::float AS total
+                FROM paiements WHERE statut='confirme'
+                  AND TO_CHAR(confirmed_at,'YYYY-MM') = $1`, [currentMonth]),
+    pool.query(`SELECT COUNT(*)::int AS n, COALESCE(SUM(montant),0)::float AS total
+                FROM echeances WHERE statut='non_paye' AND TO_CHAR(mois,'YYYY-MM') <= $1`, [currentMonth]),
+    pool.query("SELECT COUNT(*)::int AS n FROM seances WHERE enseignant_id IS NULL AND statut != 'annule' AND date_debut >= NOW()"),
+    pool.query(`SELECT COUNT(*)::int AS n FROM seances WHERE statut NOT IN ('annule') AND date_debut::date = $1`, [today]),
+    pool.query(`SELECT COUNT(*)::int AS n
+                FROM seances s
+                WHERE s.statut = 'terminee'
+                  AND s.date_fin::date <= CURRENT_DATE
+                  AND NOT EXISTS (SELECT 1 FROM presences p WHERE p.seance_id = s.id)`).catch(() => ({ rows: [{ n: 0 }] })),
+    pool.query(`SELECT COUNT(DISTINCT etudiant_id)::int AS n
+                FROM (
+                  SELECT i.etudiant_id
+                  FROM echeances e
+                  JOIN inscriptions i ON e.inscription_id = i.id
+                  WHERE e.statut='non_paye' AND e.type_echeance='mensualite'
+                    AND TO_CHAR(e.mois,'YYYY-MM') <= $1
+                    AND i.statut = 'inscrit_actif'
+                ) x`, [currentMonth]),
+    pool.query(`SELECT COUNT(*)::int AS n FROM classes
+                WHERE est_tronc_commun = false AND date_debut_cours IS NULL`),
+  ])
+
+  return c.json({
+    pre_inscrits: preInscrits.rows[0].n,
+    paiements_en_attente: { n: paiementsEnAttente.rows[0].n, total: paiementsEnAttente.rows[0].total },
+    depenses_en_attente: { n: depensesEnAttente.rows[0].n, total: depensesEnAttente.rows[0].total },
+    encaisse_aujourdhui: { n: encaisseAujourdhui.rows[0].n, total: encaisseAujourdhui.rows[0].total },
+    encaisse_ce_mois: encaisseCeMois.rows[0].total,
+    impayes_actuels: { n: impayesActuels.rows[0].n, total: impayesActuels.rows[0].total },
+    seances_sans_enseignant: seancesSansEnseignant.rows[0].n,
+    seances_aujourdhui: seancesAujourdhui.rows[0].n,
+    presences_non_validees: presencesNonValidees.rows[0].n,
+    etudiants_en_retard: retardsMensualite.rows[0].n,
+    classes_sans_date_debut: classesSansDateDebut.rows[0].n,
+  })
+})
+
 // ─── STATS DÉMOGRAPHIQUES ÉTUDIANTS ──────────────────────────────────────────
 // Répartition sexe + handicap + statut pro + régime formation pour reporting
 // (DG, secrétariat, comptabilité).

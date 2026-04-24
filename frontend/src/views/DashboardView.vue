@@ -275,6 +275,89 @@ async function loadStatsAvancees() {
   finally { loadingAvance.value = false }
 }
 
+// ── Mes priorités (par rôle) ────────────────────────────────────────
+interface PrioritesData {
+  pre_inscrits: number
+  paiements_en_attente: { n: number; total: number }
+  depenses_en_attente: { n: number; total: number }
+  encaisse_aujourdhui: { n: number; total: number }
+  encaisse_ce_mois: number
+  impayes_actuels: { n: number; total: number }
+  seances_sans_enseignant: number
+  seances_aujourdhui: number
+  presences_non_validees: number
+  etudiants_en_retard: number
+  classes_sans_date_debut: number
+}
+const priorites = ref<PrioritesData | null>(null)
+async function loadPriorites() {
+  try {
+    const { data } = await api.get('/dashboard/priorites')
+    priorites.value = data
+  } catch { /* silencieux */ }
+}
+
+interface PrioriteCard {
+  icon: string
+  label: string
+  value: string | number
+  detail?: string
+  color: 'red' | 'orange' | 'green' | 'blue' | 'purple' | 'neutral'
+  route: string
+  urgent?: boolean
+}
+const fmtFcfa = (n: number) => Math.round(n).toLocaleString('fr-FR') + ' FCFA'
+const fmtFcfaShort = (n: number) => n >= 1_000_000
+  ? (n / 1_000_000).toFixed(1) + 'M'
+  : n >= 1_000 ? (n / 1_000).toFixed(0) + 'k' : Math.round(n).toLocaleString('fr-FR')
+
+// Cartes priorité par rôle — chaque rôle voit 3 à 5 indicateurs actionnables
+const prioritesCards = computed<PrioriteCard[]>(() => {
+  if (!priorites.value) return []
+  const p = priorites.value
+  const role = auth.user?.role
+
+  if (role === 'dg') return [
+    { icon: '💰', label: 'Encaissé ce mois', value: fmtFcfaShort(p.encaisse_ce_mois), detail: 'FCFA', color: 'green', route: '/paiements' },
+    { icon: '⚠️', label: 'Impayés en cours', value: fmtFcfaShort(p.impayes_actuels.total), detail: `${p.impayes_actuels.n} échéance(s)`, color: 'red', route: '/suivi-paiements', urgent: p.impayes_actuels.n > 0 },
+    { icon: '📋', label: 'Dépenses à valider', value: p.depenses_en_attente.n, detail: fmtFcfa(p.depenses_en_attente.total), color: 'orange', route: '/depenses', urgent: p.depenses_en_attente.n > 0 },
+    { icon: '🚦', label: 'Étudiants à risque', value: risqueCounts.value.red, detail: `${risqueCounts.value.yellow} à surveiller`, color: 'red', route: '/etudiants' },
+    { icon: '📝', label: 'Pré-inscrits', value: p.pre_inscrits, detail: 'en attente', color: 'blue', route: '/etudiants' },
+  ]
+
+  if (role === 'resp_fin') return [
+    { icon: '💵', label: "Encaissé aujourd'hui", value: fmtFcfaShort(p.encaisse_aujourdhui.total), detail: `${p.encaisse_aujourdhui.n} paiement(s)`, color: 'green', route: '/paiements' },
+    { icon: '💰', label: 'Encaissé ce mois', value: fmtFcfaShort(p.encaisse_ce_mois), detail: 'FCFA', color: 'green', route: '/paiements' },
+    { icon: '⚠️', label: 'Impayés en cours', value: fmtFcfaShort(p.impayes_actuels.total), detail: `${p.impayes_actuels.n} échéance(s)`, color: 'red', route: '/suivi-paiements', urgent: p.impayes_actuels.n > 0 },
+    { icon: '📋', label: 'Dépenses à valider', value: p.depenses_en_attente.n, detail: fmtFcfa(p.depenses_en_attente.total), color: 'orange', route: '/depenses', urgent: p.depenses_en_attente.n > 0 },
+    { icon: '⏳', label: 'Paiements en attente', value: p.paiements_en_attente.n, detail: 'à confirmer', color: 'orange', route: '/paiements', urgent: p.paiements_en_attente.n > 0 },
+  ]
+
+  if (role === 'secretariat') return [
+    { icon: '📝', label: 'Pré-inscriptions', value: p.pre_inscrits, detail: 'à valider', color: 'blue', route: '/etudiants', urgent: p.pre_inscrits > 0 },
+    { icon: '⏳', label: 'Paiements en attente', value: p.paiements_en_attente.n, detail: 'à enregistrer', color: 'orange', route: '/paiements', urgent: p.paiements_en_attente.n > 0 },
+    { icon: '⚠️', label: 'Étudiants en retard', value: p.etudiants_en_retard, detail: 'à relancer', color: 'red', route: '/suivi-paiements' },
+    { icon: '📅', label: "Cours aujourd'hui", value: p.seances_aujourdhui, detail: 'planifiés', color: 'blue', route: '/emplois-du-temps' },
+  ]
+
+  if (role === 'dir_peda') return [
+    { icon: '👨‍🏫', label: 'Séances sans enseignant', value: p.seances_sans_enseignant, detail: 'à assigner', color: 'orange', route: '/emplois-du-temps', urgent: p.seances_sans_enseignant > 0 },
+    { icon: '📅', label: 'Classes sans date début', value: p.classes_sans_date_debut, detail: 'à configurer', color: 'orange', route: '/classes', urgent: p.classes_sans_date_debut > 0 },
+    { icon: '🚦', label: 'Étudiants à risque', value: risqueCounts.value.red, detail: `${risqueCounts.value.yellow} à surveiller`, color: 'red', route: '/etudiants' },
+    { icon: '✅', label: "Cours aujourd'hui", value: p.seances_aujourdhui, detail: 'planifiés', color: 'green', route: '/emplois-du-temps' },
+    { icon: '📊', label: 'Taux présence', value: tauxPresence.value !== null ? tauxPresence.value + '%' : '—', detail: `${seancesEffectuees.value}/${seancesTotalPassees.value} séances`, color: 'purple', route: '/suivi-emargements' },
+  ]
+
+  if (role === 'coordinateur') return [
+    { icon: '📅', label: "Cours aujourd'hui", value: p.seances_aujourdhui, detail: 'planifiés', color: 'blue', route: '/emplois-du-temps' },
+    { icon: '👨‍🏫', label: 'Séances sans enseignant', value: p.seances_sans_enseignant, detail: 'à assigner', color: 'orange', route: '/emplois-du-temps', urgent: p.seances_sans_enseignant > 0 },
+    { icon: '📋', label: 'Émargements à valider', value: p.presences_non_validees, detail: 'séances sans présences', color: 'orange', route: '/suivi-emargements' },
+    { icon: '🎓', label: 'Classes', value: stats.value?.classes_total ?? 0, color: 'blue', route: '/classes' },
+  ]
+
+  return []
+})
+
 // SVG chart helpers
 const CHART_W = 300
 const CHART_H = 80
@@ -361,6 +444,7 @@ onMounted(() => {
     loadAdmin()
     loadRisques()
     loadStatsAvancees()
+    loadPriorites()
   }
 })
 onUnmounted(() => { if (ticker) clearInterval(ticker) })
@@ -734,6 +818,29 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
     ════════════════════════════════════════════════════════ -->
     <template v-else>
 
+      <!-- ══ MES PRIORITÉS — cartes dynamiques par rôle ══════════════ -->
+      <div v-if="prioritesCards.length > 0" class="uc-priorities">
+        <div class="uc-priorities-head">
+          <span class="uc-priorities-title">🎯 Mes priorités</span>
+          <span class="uc-priorities-sub">Actions clés pour {{ roleLabel[auth.user?.role ?? ''] ?? 'vous' }}</span>
+        </div>
+        <div class="uc-priorities-grid">
+          <button v-for="(c, i) in prioritesCards" :key="i"
+            class="uc-priority-card"
+            :class="[`uc-priority-card--${c.color}`, c.urgent ? 'uc-priority-card--urgent' : '']"
+            @click="router.push(c.route)"
+            :title="`Aller à ${c.route}`">
+            <span class="uc-priority-icon">{{ c.icon }}</span>
+            <div class="uc-priority-body">
+              <div class="uc-priority-label">{{ c.label }}</div>
+              <div class="uc-priority-value">{{ c.value }}</div>
+              <div v-if="c.detail" class="uc-priority-detail">{{ c.detail }}</div>
+            </div>
+            <svg v-if="c.urgent" class="uc-priority-pulse" width="6" height="6" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" /></svg>
+          </button>
+        </div>
+      </div>
+
       <!-- KPI Pédagogie : 5 cartes -->
       <div class="uc-kpi-grid" style="margin-bottom:16px;">
         <div class="uc-kpi-card blue" @click="router.push('/etudiants')" style="cursor:pointer;">
@@ -1081,6 +1188,100 @@ onUnmounted(() => { if (ticker) clearInterval(ticker) })
 </template>
 
 <style scoped>
+/* ═══════════════════════════════════════════════════════
+   MES PRIORITÉS — widget par rôle
+════════════════════════════════════════════════════════ */
+.uc-priorities {
+  background: linear-gradient(135deg, #0f172a, #1e293b);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  color: #fff;
+}
+.uc-priorities-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.uc-priorities-title {
+  font-size: 15px; font-weight: 700; color: #fff;
+}
+.uc-priorities-sub {
+  font-size: 12px; color: rgba(255, 255, 255, 0.5);
+}
+.uc-priorities-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.uc-priority-card {
+  position: relative;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: #fff;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: all 0.15s;
+  overflow: hidden;
+  min-width: 0;
+}
+.uc-priority-card:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.uc-priority-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+.uc-priority-body { flex: 1; min-width: 0; }
+.uc-priority-label {
+  font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: rgba(255, 255, 255, 0.55);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.uc-priority-value {
+  font-size: 22px; font-weight: 800; color: #fff;
+  margin-top: 1px; line-height: 1.1;
+}
+.uc-priority-detail {
+  font-size: 10.5px; color: rgba(255, 255, 255, 0.5);
+  margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.uc-priority-card--red    .uc-priority-icon { background: rgba(220, 38, 38, 0.18); }
+.uc-priority-card--red    .uc-priority-value { color: #fca5a5; }
+.uc-priority-card--orange .uc-priority-icon { background: rgba(217, 119, 6, 0.18); }
+.uc-priority-card--orange .uc-priority-value { color: #fcd34d; }
+.uc-priority-card--green  .uc-priority-icon { background: rgba(22, 163, 74, 0.18); }
+.uc-priority-card--green  .uc-priority-value { color: #86efac; }
+.uc-priority-card--blue   .uc-priority-icon { background: rgba(37, 99, 235, 0.18); }
+.uc-priority-card--blue   .uc-priority-value { color: #93c5fd; }
+.uc-priority-card--purple .uc-priority-icon { background: rgba(147, 51, 234, 0.18); }
+.uc-priority-card--purple .uc-priority-value { color: #d8b4fe; }
+
+.uc-priority-card--urgent {
+  border-color: rgba(239, 68, 68, 0.35);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.15);
+}
+.uc-priority-pulse {
+  position: absolute; top: 8px; right: 8px;
+  fill: #ef4444;
+  animation: uc-pulse 1.8s ease-in-out infinite;
+}
+@keyframes uc-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(1.4); }
+}
+
 /* ═══════════════════════════════════════════════════════
    DASHBOARD ENSEIGNANT — VERSION MAXIMALE
 ════════════════════════════════════════════════════════ */
