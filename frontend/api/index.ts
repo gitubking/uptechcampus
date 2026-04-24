@@ -4426,7 +4426,13 @@ app.get('/enseignants', requireAuth, async (c) => {
 
 // Profil enseignant du user connecté + ses classes (DOIT être avant /:id)
 app.get('/enseignants/me', requireAuth, async (c) => {
-  const { rows } = await pool.query(`
+  const user = u(c)
+
+  // Recherche prioritairement via user_id. Si rien, on tente par email (fallback
+  // tolérant aux cas où le lien users.id ↔ enseignants.user_id n'a pas été
+  // renseigné à la création). Dans ce cas, on répare le lien pour les appels
+  // futurs.
+  let { rows } = await pool.query(`
     SELECT e.*,
       COALESCE(
         json_agg(DISTINCT jsonb_build_object('id', ue.id, 'classe_id', ue.classe_id, 'code', ue.code, 'intitule', ue.intitule))
@@ -4441,7 +4447,34 @@ app.get('/enseignants/me', requireAuth, async (c) => {
     LEFT JOIN classes cl ON cl.id = ue.classe_id
     WHERE e.user_id=$1
     GROUP BY e.id
-  `, [u(c).id])
+  `, [user.id])
+
+  if (!rows.length && user.email) {
+    const byEmail = await pool.query(`
+      SELECT e.*,
+        COALESCE(
+          json_agg(DISTINCT jsonb_build_object('id', ue.id, 'classe_id', ue.classe_id, 'code', ue.code, 'intitule', ue.intitule))
+          FILTER (WHERE ue.id IS NOT NULL), '[]'
+        ) as mes_ues,
+        COALESCE(
+          json_agg(DISTINCT jsonb_build_object('id', cl.id, 'nom', cl.nom))
+          FILTER (WHERE cl.id IS NOT NULL), '[]'
+        ) as mes_classes
+      FROM enseignants e
+      LEFT JOIN unites_enseignement ue ON ue.enseignant_id = e.id
+      LEFT JOIN classes cl ON cl.id = ue.classe_id
+      WHERE LOWER(e.email)=LOWER($1)
+      GROUP BY e.id
+      ORDER BY e.id DESC
+      LIMIT 1
+    `, [user.email])
+    rows = byEmail.rows
+    if (rows.length) {
+      // Réparer le lien pour les prochains appels
+      await pool.query('UPDATE enseignants SET user_id=$1 WHERE id=$2 AND (user_id IS NULL OR user_id<>$1)', [user.id, rows[0].id]).catch(() => {})
+    }
+  }
+
   if (!rows.length) return c.json({ message: 'Profil enseignant introuvable.' }, 404)
   return c.json(rows[0])
 })
