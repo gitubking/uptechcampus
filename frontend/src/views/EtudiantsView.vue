@@ -6,7 +6,9 @@ import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
 import UcTable from '@/components/ui/UcTable.vue'
+import UcDraftBanner from '@/components/ui/UcDraftBanner.vue'
 import EtudiantsImportModal from '@/components/EtudiantsImportModal.vue'
+import { useFormAutoSave } from '@/composables/useFormAutoSave'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -647,6 +649,65 @@ const fiForm = ref({
 })
 const fiMontantInscription = computed(() => Math.round(fiForm.value.cout_total * fiForm.value.pct_inscription / 100))
 const fiMontantSolde = computed(() => fiForm.value.cout_total - fiMontantInscription.value)
+
+// ── Auto-save brouillon (mode 'inscrire' = création étudiant + inscription) ──
+// Active uniquement quand le panneau de création est ouvert, pour ne pas polluer
+// le localStorage pendant les modifications qui chargent depuis le serveur.
+const autoSavingEnabled = computed(() => showPanel.value && panelMode.value === 'inscrire' && currentStep.value < 3)
+const studentDraft = useFormAutoSave(studentForm, {
+  key: 'etudiant-nouveau',
+  pause: () => !autoSavingEnabled.value,
+})
+const inscriptionDraft = useFormAutoSave(inscriptionForm, {
+  key: 'inscription-nouveau',
+  pause: () => !autoSavingEnabled.value,
+})
+const fiDraft = useFormAutoSave(fiForm, {
+  key: 'fi-nouveau',
+  pause: () => !autoSavingEnabled.value,
+})
+
+// Bannière de restauration : visible au premier affichage du panneau "inscrire"
+// si au moins un brouillon existe.
+const draftBannerShown = ref(false)
+const hasAnyDraft = computed(() =>
+  studentDraft.hasDraft.value || inscriptionDraft.hasDraft.value || fiDraft.hasDraft.value
+)
+const draftAgeLabel = computed(() => {
+  // Choisit l'âge le plus récent parmi les brouillons
+  const ages = [
+    studentDraft.draftAge.value,
+    inscriptionDraft.draftAge.value,
+    fiDraft.draftAge.value,
+  ].filter((v): v is number => v !== null)
+  if (ages.length === 0) return ''
+  const newest = Math.max(...ages)
+  const diff = Date.now() - newest
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'à l\'instant'
+  if (mins < 60) return `il y a ${mins} min`
+  const h = Math.floor(mins / 60)
+  if (h < 24) return `il y a ${h}h`
+  return `il y a ${Math.floor(h / 24)}j`
+})
+
+function restoreAllDrafts() {
+  studentDraft.restoreDraft()
+  inscriptionDraft.restoreDraft()
+  fiDraft.restoreDraft()
+  draftBannerShown.value = false
+  toast.success('Brouillon restauré.')
+}
+function discardAllDrafts() {
+  studentDraft.clearDraft()
+  inscriptionDraft.clearDraft()
+  fiDraft.clearDraft()
+  draftBannerShown.value = false
+}
+
+watch(() => autoSavingEnabled.value, (on) => {
+  if (on && hasAnyDraft.value) draftBannerShown.value = true
+})
 const fiTotalHeures = computed(() => fiForm.value.modules.reduce((s, m) => s + (m.volume_horaire || 0), 0))
 function fiAddModule() { fiForm.value.modules.push({ matiere_id: null, volume_horaire: 0, enseignant_id: null }) }
 function fiRemoveModule(i: number) { if (fiForm.value.modules.length > 1) fiForm.value.modules.splice(i, 1) }
@@ -859,6 +920,10 @@ async function submitInscrire() {
       anneeLabel: annees.value.find(a => a.id === inscriptionForm.value.annee_academique_id)?.libelle ?? '',
     }
     currentStep.value = 3
+    // Inscription validée côté serveur → on efface les brouillons locaux
+    studentDraft.clearDraft()
+    inscriptionDraft.clearDraft()
+    fiDraft.clearDraft()
     fetchEtudiants()
   } catch (err: any) {
     const errs = err.response?.data?.errors as Record<string, string[]> | undefined
@@ -1839,6 +1904,8 @@ onMounted(() => {
 
               <!-- ══ INSCRIRE — ÉTAPE 1 : Identité ══ -->
               <template v-if="panelMode === 'inscrire' && currentStep === 1">
+                <UcDraftBanner :show="draftBannerShown && hasAnyDraft" :age-label="draftAgeLabel"
+                  @restore="restoreAllDrafts" @discard="discardAllDrafts" />
                 <div class="form-section-label">Informations personnelles</div>
                 <div class="form-row">
                   <div class="form-group">
