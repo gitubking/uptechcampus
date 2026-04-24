@@ -2145,6 +2145,85 @@ app.post('/admin/email-mismatches/sync', requireAuth, role('dg'), async (c) => {
   return c.json({ message: 'Synchronisation terminée.', ...results })
 })
 
+// POST /admin/email-mismatches/sync-one — répare un seul enregistrement
+// (étudiant OU enseignant). Payload : { type: 'etudiant'|'enseignant', id: number }.
+// Stratégie identique à la version bulk. Renvoie ce qui a réellement changé.
+app.post('/admin/email-mismatches/sync-one', requireAuth, role('dg'), async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const type = body?.type === 'enseignant' ? 'enseignant' : 'etudiant'
+  const id = Number(body?.id)
+  if (!id) return c.json({ message: 'id requis.' }, 422)
+
+  const table = type === 'etudiant' ? 'etudiants' : 'enseignants'
+  const { rows: ficheRows } = await pool.query(
+    `SELECT id, nom, prenom, email, user_id FROM ${table} WHERE id=$1`, [id]
+  )
+  const fiche = ficheRows[0]
+  if (!fiche) return c.json({ message: `${type} introuvable.` }, 404)
+
+  let actions: string[] = []
+  let linkedUserId: number | null = fiche.user_id ?? null
+  let matchedBy: 'user_id' | 'email' | 'name' | null = linkedUserId ? 'user_id' : null
+
+  if (!linkedUserId && fiche.email) {
+    const { rows: uRows } = await pool.query(
+      'SELECT id FROM users WHERE LOWER(email)=LOWER($1) LIMIT 1', [fiche.email]
+    )
+    if (uRows[0]) { linkedUserId = uRows[0].id; matchedBy = 'email' }
+  }
+  if (!linkedUserId && fiche.nom && fiche.prenom) {
+    const { rows: uRows } = await pool.query(
+      `SELECT u.id FROM users u
+       WHERE u.role=$1
+         AND LOWER(u.nom)=LOWER($2)
+         AND LOWER(u.prenom)=LOWER($3)
+         AND NOT EXISTS (SELECT 1 FROM ${table} x WHERE x.user_id = u.id)
+       ORDER BY u.id DESC LIMIT 1`,
+      [type, fiche.nom, fiche.prenom]
+    )
+    if (uRows[0]) { linkedUserId = uRows[0].id; matchedBy = 'name' }
+  }
+
+  if (!linkedUserId) {
+    return c.json({ ok: false, message: 'Aucun compte utilisateur correspondant trouvé.' }, 404)
+  }
+
+  // Pose le lien si manquant
+  if (!fiche.user_id) {
+    await pool.query(`UPDATE ${table} SET user_id=$1 WHERE id=$2`, [linkedUserId, id])
+    actions.push(`lien posé → user_id=${linkedUserId}`)
+  }
+
+  // Aligne users.email sur la fiche
+  if (fiche.email) {
+    const { rows: uRows } = await pool.query('SELECT email FROM users WHERE id=$1', [linkedUserId])
+    if (uRows[0] && (uRows[0].email || '').toLowerCase() !== (fiche.email || '').toLowerCase()) {
+      await pool.query(
+        'UPDATE users SET nom=$1, prenom=$2, email=$3 WHERE id=$4',
+        [fiche.nom, fiche.prenom, fiche.email, linkedUserId]
+      )
+      actions.push(`email compte : "${uRows[0].email}" → "${fiche.email}"`)
+    }
+  }
+
+  logAudit(c, {
+    action: 'email_mismatch_sync_one',
+    entity_type: type,
+    entity_id: id,
+    description: `${type} #${id} synchronisé (${matchedBy}). ${actions.join(', ') || 'aucun changement'}`,
+    metadata: { user_id: linkedUserId, matched_by: matchedBy, actions },
+    severity: 'warning',
+  })
+
+  return c.json({
+    ok: true,
+    user_id: linkedUserId,
+    matched_by: matchedBy,
+    actions,
+    message: actions.length ? `Corrigé : ${actions.join(', ')}` : 'Déjà synchronisé.',
+  })
+})
+
 // ─── AUDIT LOGS ───────────────────────────────────────────────────────────────
 // Journal d'audit — accès DG uniquement
 app.get('/audit-logs', requireAuth, role('dg'), async (c) => {

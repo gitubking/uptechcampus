@@ -610,6 +610,25 @@ async function synchroniserEmails() {
   }
 }
 
+// Correction ligne par ligne : plus sûr que le bulk quand on n'est pas sûr
+// du lien à poser (risque d'homonymes).
+const syncOneState = ref<Record<string, 'idle' | 'sending' | 'ok' | 'error'>>({})
+const syncOneMsg = ref<Record<string, string>>({})
+async function corrigerLigne(type: 'etudiant' | 'enseignant', id: number, nomComplet: string) {
+  const key = `${type}-${id}`
+  if (!confirm(`Corriger le lien pour ${nomComplet} ? L'email de connexion sera aligné sur l'email de la fiche.`)) return
+  syncOneState.value = { ...syncOneState.value, [key]: 'sending' }
+  syncOneMsg.value = { ...syncOneMsg.value, [key]: '' }
+  try {
+    const { data } = await api.post('/admin/email-mismatches/sync-one', { type, id })
+    syncOneState.value = { ...syncOneState.value, [key]: 'ok' }
+    syncOneMsg.value = { ...syncOneMsg.value, [key]: data?.message || 'Corrigé.' }
+  } catch (err: any) {
+    syncOneState.value = { ...syncOneState.value, [key]: 'error' }
+    syncOneMsg.value = { ...syncOneMsg.value, [key]: err?.response?.data?.message || err?.message || 'Échec.' }
+  }
+}
+
 // Paramètres tenue (si configurés dans la DB)
 const tenueObligatoire = computed(() =>
   parametres.value.find(p => p.cle === 'tenue_obligatoire')
@@ -1918,6 +1937,7 @@ onMounted(() => {
               <h4 style="font-size:13px;font-weight:700;color:#1e293b;margin:0 0 6px;">
                 Étudiants ({{ emailMismatchEtudiants.length }})
               </h4>
+              <p class="pm-hint" style="margin:0 0 6px;">Corrigez ligne par ligne les cas que vous reconnaissez. Le bouton ci-dessus « Tout synchroniser » applique à tous.</p>
               <div style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff;">
                 <table style="width:100%;border-collapse:collapse;font-size:11.5px;">
                   <thead>
@@ -1927,6 +1947,7 @@ onMounted(() => {
                       <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Email fiche</th>
                       <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Email connexion</th>
                       <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Statut</th>
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1941,6 +1962,19 @@ onMounted(() => {
                           color: r.statut_sync === 'mismatch' ? '#b45309' : r.statut_sync === 'sans_compte_users' ? '#b91c1c' : '#4338ca' }">
                           {{ r.statut_sync === 'mismatch' ? 'Email différent' : r.statut_sync === 'sans_compte_users' ? 'Pas de compte' : r.statut_sync === 'fiche_sans_email' ? 'Fiche sans email' : r.statut_sync }}
                         </span>
+                      </td>
+                      <td style="padding:7px 10px;">
+                        <button v-if="syncOneState['etudiant-'+r.etudiant_id] !== 'ok'"
+                          @click="corrigerLigne('etudiant', r.etudiant_id!, (r.prenom||'') + ' ' + (r.nom||''))"
+                          :disabled="syncOneState['etudiant-'+r.etudiant_id] === 'sending'"
+                          style="padding:4px 10px;font-size:11px;font-weight:600;background:#1e293b;color:#fff;border:none;border-radius:5px;cursor:pointer;">
+                          {{ syncOneState['etudiant-'+r.etudiant_id] === 'sending' ? '…' : 'Corriger' }}
+                        </button>
+                        <span v-else style="font-size:11px;font-weight:600;color:#15803d;">✓ Corrigé</span>
+                        <div v-if="syncOneMsg['etudiant-'+r.etudiant_id]" style="margin-top:3px;font-size:10.5px;"
+                          :style="{ color: syncOneState['etudiant-'+r.etudiant_id] === 'error' ? '#b91c1c' : '#64748b' }">
+                          {{ syncOneMsg['etudiant-'+r.etudiant_id] }}
+                        </div>
                       </td>
                     </tr>
                   </tbody>
@@ -1961,6 +1995,7 @@ onMounted(() => {
                       <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Email fiche</th>
                       <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Email connexion</th>
                       <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Statut</th>
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1975,6 +2010,19 @@ onMounted(() => {
                           color: r.statut_sync === 'mismatch' ? '#b45309' : r.statut_sync === 'sans_compte_users' ? '#b91c1c' : '#4338ca' }">
                           {{ r.statut_sync === 'mismatch' ? 'Email différent' : r.statut_sync === 'sans_compte_users' ? 'Pas de compte' : r.statut_sync === 'fiche_sans_email' ? 'Fiche sans email' : r.statut_sync }}
                         </span>
+                      </td>
+                      <td style="padding:7px 10px;">
+                        <button v-if="syncOneState['enseignant-'+r.enseignant_id] !== 'ok'"
+                          @click="corrigerLigne('enseignant', r.enseignant_id!, (r.prenom||'') + ' ' + (r.nom||''))"
+                          :disabled="syncOneState['enseignant-'+r.enseignant_id] === 'sending'"
+                          style="padding:4px 10px;font-size:11px;font-weight:600;background:#1e293b;color:#fff;border:none;border-radius:5px;cursor:pointer;">
+                          {{ syncOneState['enseignant-'+r.enseignant_id] === 'sending' ? '…' : 'Corriger' }}
+                        </button>
+                        <span v-else style="font-size:11px;font-weight:600;color:#15803d;">✓ Corrigé</span>
+                        <div v-if="syncOneMsg['enseignant-'+r.enseignant_id]" style="margin-top:3px;font-size:10.5px;"
+                          :style="{ color: syncOneState['enseignant-'+r.enseignant_id] === 'error' ? '#b91c1c' : '#64748b' }">
+                          {{ syncOneMsg['enseignant-'+r.enseignant_id] }}
+                        </div>
                       </td>
                     </tr>
                   </tbody>
