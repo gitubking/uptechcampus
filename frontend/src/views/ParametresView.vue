@@ -553,6 +553,63 @@ async function envoyerTestCabinet() {
   }
 }
 
+// ── Audit & synchronisation des emails étudiants/enseignants ──────────────
+interface EmailMismatchRow {
+  etudiant_id?: number; enseignant_id?: number
+  numero_etudiant?: string; numero_contrat?: string
+  nom: string; prenom: string
+  email_fiche: string | null
+  user_id: number | null
+  email_compte: string | null
+  statut_sync: 'sans_compte_users' | 'mismatch' | 'fiche_sans_email' | 'sans_email_sans_compte' | 'ok'
+}
+const emailMismatchEtudiants = ref<EmailMismatchRow[]>([])
+const emailMismatchEnseignants = ref<EmailMismatchRow[]>([])
+const emailAuditLoading = ref(false)
+const emailAuditLoaded = ref(false)
+const emailAuditSyncing = ref(false)
+const emailAuditMsg = ref('')
+const emailAuditMsgTone = ref<'info' | 'ok' | 'error'>('info')
+
+async function chargerAuditEmails() {
+  emailAuditLoading.value = true
+  emailAuditMsg.value = ''
+  try {
+    const { data } = await api.get('/admin/email-mismatches')
+    emailMismatchEtudiants.value = data.etudiants || []
+    emailMismatchEnseignants.value = data.enseignants || []
+    emailAuditLoaded.value = true
+    const total = (data.etudiants?.length || 0) + (data.enseignants?.length || 0)
+    emailAuditMsgTone.value = total === 0 ? 'ok' : 'info'
+    emailAuditMsg.value = total === 0
+      ? 'Aucune désynchronisation détectée.'
+      : `${data.etudiants?.length || 0} étudiant(s) et ${data.enseignants?.length || 0} enseignant(s) à vérifier.`
+  } catch (err: any) {
+    emailAuditMsgTone.value = 'error'
+    emailAuditMsg.value = err?.response?.data?.message || err?.message || 'Échec du chargement.'
+  } finally {
+    emailAuditLoading.value = false
+  }
+}
+
+async function synchroniserEmails() {
+  if (!confirm('Cette action va poser le lien users ↔ fiche sur tous les comptes existants et remplacer les emails de connexion par ceux de la fiche. Continuer ?')) return
+  emailAuditSyncing.value = true
+  emailAuditMsg.value = ''
+  try {
+    const { data } = await api.post('/admin/email-mismatches/sync', {})
+    emailAuditMsgTone.value = 'ok'
+    emailAuditMsg.value = `Étudiants : ${data.etudiants?.repaires || 0} réparé(s), ${data.etudiants?.emails_synces || 0} email(s) mis à jour, ${data.etudiants?.sans_compte || 0} sans compte. Enseignants : ${data.enseignants?.repaires || 0} réparé(s), ${data.enseignants?.emails_synces || 0} mis à jour, ${data.enseignants?.sans_compte || 0} sans compte.`
+    // Rafraîchir la liste
+    await chargerAuditEmails()
+  } catch (err: any) {
+    emailAuditMsgTone.value = 'error'
+    emailAuditMsg.value = err?.response?.data?.message || err?.message || 'Échec de la synchronisation.'
+  } finally {
+    emailAuditSyncing.value = false
+  }
+}
+
 // Paramètres tenue (si configurés dans la DB)
 const tenueObligatoire = computed(() =>
   parametres.value.find(p => p.cle === 'tenue_obligatoire')
@@ -1830,6 +1887,102 @@ onMounted(() => {
 
         <div v-if="!isDG" class="pm-empty">Accès réservé au Directeur Général.</div>
         <div v-else class="pm-params-list">
+          <!-- Audit des désynchronisations d'email -->
+          <div class="pm-danger-card" style="border-color:#fde68a;background:#fffbeb;">
+            <h3 class="pm-danger-title" style="color:#b45309;">Audit des emails fiche ↔ compte de connexion</h3>
+            <p class="pm-hint">
+              Quand un étudiant/enseignant s'inscrit avec un email erroné puis que sa fiche est corrigée,
+              son email de connexion peut rester l'ancien (d'où les échecs de « mot de passe oublié »).
+              Cet outil liste tous les cas et permet de remplacer l'email de connexion par celui de la fiche.
+            </p>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+              <button @click="chargerAuditEmails" :disabled="emailAuditLoading"
+                style="padding:8px 16px;background:#1e293b;color:#fff;border:none;border-radius:6px;font-size:12.5px;font-weight:600;cursor:pointer;">
+                {{ emailAuditLoading ? 'Chargement…' : (emailAuditLoaded ? 'Rafraîchir' : 'Vérifier les désynchronisations') }}
+              </button>
+              <button v-if="emailAuditLoaded && (emailMismatchEtudiants.length + emailMismatchEnseignants.length) > 0"
+                @click="synchroniserEmails" :disabled="emailAuditSyncing"
+                style="padding:8px 16px;background:#b45309;color:#fff;border:none;border-radius:6px;font-size:12.5px;font-weight:600;cursor:pointer;">
+                {{ emailAuditSyncing ? 'Synchronisation…' : 'Tout synchroniser' }}
+              </button>
+            </div>
+
+            <p v-if="emailAuditMsg" style="margin-top:10px;font-size:12.5px;font-weight:600;"
+              :style="{ color: emailAuditMsgTone === 'ok' ? '#15803d' : emailAuditMsgTone === 'error' ? '#b91c1c' : '#64748b' }">
+              {{ emailAuditMsg }}
+            </p>
+
+            <!-- Tableaux -->
+            <div v-if="emailAuditLoaded && emailMismatchEtudiants.length > 0" style="margin-top:14px;">
+              <h4 style="font-size:13px;font-weight:700;color:#1e293b;margin:0 0 6px;">
+                Étudiants ({{ emailMismatchEtudiants.length }})
+              </h4>
+              <div style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff;">
+                <table style="width:100%;border-collapse:collapse;font-size:11.5px;">
+                  <thead>
+                    <tr style="background:#f8fafc;">
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Nom</th>
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Matricule</th>
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Email fiche</th>
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Email connexion</th>
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in emailMismatchEtudiants" :key="r.etudiant_id" style="border-top:1px solid #f1f5f9;">
+                      <td style="padding:7px 10px;">{{ r.nom }} {{ r.prenom }}</td>
+                      <td style="padding:7px 10px;color:#64748b;">{{ r.numero_etudiant || '—' }}</td>
+                      <td style="padding:7px 10px;font-family:monospace;font-size:11px;">{{ r.email_fiche || '—' }}</td>
+                      <td style="padding:7px 10px;font-family:monospace;font-size:11px;color:#b45309;">{{ r.email_compte || '—' }}</td>
+                      <td style="padding:7px 10px;">
+                        <span :style="{ fontSize: '10.5px', padding: '2px 7px', borderRadius: '10px', fontWeight: 600,
+                          background: r.statut_sync === 'mismatch' ? '#fef3c7' : r.statut_sync === 'sans_compte_users' ? '#fee2e2' : '#e0e7ff',
+                          color: r.statut_sync === 'mismatch' ? '#b45309' : r.statut_sync === 'sans_compte_users' ? '#b91c1c' : '#4338ca' }">
+                          {{ r.statut_sync === 'mismatch' ? 'Email différent' : r.statut_sync === 'sans_compte_users' ? 'Pas de compte' : r.statut_sync === 'fiche_sans_email' ? 'Fiche sans email' : r.statut_sync }}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div v-if="emailAuditLoaded && emailMismatchEnseignants.length > 0" style="margin-top:14px;">
+              <h4 style="font-size:13px;font-weight:700;color:#1e293b;margin:0 0 6px;">
+                Enseignants ({{ emailMismatchEnseignants.length }})
+              </h4>
+              <div style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff;">
+                <table style="width:100%;border-collapse:collapse;font-size:11.5px;">
+                  <thead>
+                    <tr style="background:#f8fafc;">
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Nom</th>
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">N° contrat</th>
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Email fiche</th>
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Email connexion</th>
+                      <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569;">Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in emailMismatchEnseignants" :key="r.enseignant_id" style="border-top:1px solid #f1f5f9;">
+                      <td style="padding:7px 10px;">{{ r.nom }} {{ r.prenom }}</td>
+                      <td style="padding:7px 10px;color:#64748b;">{{ r.numero_contrat || '—' }}</td>
+                      <td style="padding:7px 10px;font-family:monospace;font-size:11px;">{{ r.email_fiche || '—' }}</td>
+                      <td style="padding:7px 10px;font-family:monospace;font-size:11px;color:#b45309;">{{ r.email_compte || '—' }}</td>
+                      <td style="padding:7px 10px;">
+                        <span :style="{ fontSize: '10.5px', padding: '2px 7px', borderRadius: '10px', fontWeight: 600,
+                          background: r.statut_sync === 'mismatch' ? '#fef3c7' : r.statut_sync === 'sans_compte_users' ? '#fee2e2' : '#e0e7ff',
+                          color: r.statut_sync === 'mismatch' ? '#b45309' : r.statut_sync === 'sans_compte_users' ? '#b91c1c' : '#4338ca' }">
+                          {{ r.statut_sync === 'mismatch' ? 'Email différent' : r.statut_sync === 'sans_compte_users' ? 'Pas de compte' : r.statut_sync === 'fiche_sans_email' ? 'Fiche sans email' : r.statut_sync }}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
           <div class="pm-danger-card">
             <h3 class="pm-danger-title">Clôturer l'année en cours</h3>
             <p class="pm-hint">Archive toutes les données de l'année académique active et prépare la suivante.</p>
