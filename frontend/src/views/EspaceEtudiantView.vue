@@ -307,6 +307,88 @@ const progressionFinanciere = computed(() => {
   return Math.round((totalPaye.value / fraisTotaux.value) * 100)
 })
 
+// ── Prochaine échéance impayée + cours à venir ──────────────────────
+// Date de référence : aujourd'hui (sans heure)
+function jourSeul(d: Date) { const x = new Date(d); x.setHours(0,0,0,0); return x }
+const aujourdhui = computed(() => jourSeul(now.value))
+
+interface EcheanceItem { id: number; type_echeance: string; mois: string; montant: number; statut: string; date_limite: Date; }
+
+// Échéances impayées triées par date la plus proche (utilise mois.15 comme convention)
+const echeancesImpayeesTriees = computed<EcheanceItem[]>(() => {
+  const echs = (dashboardData?.value?.echeances ?? []) as any[]
+  return echs
+    .filter(e => e.statut !== 'paye')
+    .map(e => {
+      const moisIso = e.mois ? (String(e.mois).length === 7 ? String(e.mois) + '-01' : String(e.mois).slice(0, 10)) : null
+      // Convention métier UPTECH : la mensualité est due le 15 du mois.
+      // Pour les frais d'inscription / tenue : date d'inscription + 30j ou immédiat.
+      let dateLimite: Date
+      if (moisIso) {
+        const parts = moisIso.split('-').map(Number)
+        const y = parts[0] ?? new Date().getFullYear()
+        const m = parts[1] ?? 1
+        dateLimite = new Date(y, m - 1, 15)
+      } else {
+        dateLimite = new Date()
+      }
+      return {
+        id: e.id, type_echeance: e.type_echeance, mois: moisIso || '',
+        montant: Number(e.montant) || 0, statut: e.statut,
+        date_limite: dateLimite,
+      }
+    })
+    .sort((a, b) => a.date_limite.getTime() - b.date_limite.getTime())
+})
+
+// Première échéance impayée à venir (dans le futur ou aujourd'hui)
+const prochaineEcheance = computed<EcheanceItem | null>(() => {
+  const upcoming = echeancesImpayeesTriees.value.find(e => e.date_limite >= aujourdhui.value)
+  return upcoming || echeancesImpayeesTriees.value[0] || null
+})
+
+// Total à régler avant la date limite de la prochaine échéance (= cumul des
+// échéances en retard + celle en cours, hors futures)
+const montantAvantProchaine = computed(() => {
+  const proch = prochaineEcheance.value
+  if (!proch) return 0
+  return echeancesImpayeesTriees.value
+    .filter(e => e.date_limite <= proch.date_limite)
+    .reduce((s, e) => s + e.montant, 0)
+})
+
+const echeanceEnRetard = computed(() => {
+  const p = prochaineEcheance.value
+  return p ? p.date_limite < aujourdhui.value : false
+})
+
+const labelDateLimite = computed(() => {
+  const p = prochaineEcheance.value
+  if (!p) return ''
+  const d = p.date_limite
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+})
+
+const typeLabelMap: Record<string, string> = {
+  mensualite: 'Mensualité', frais_inscription: 'Frais d\'inscription',
+  tenue: 'Tenue', rattrapage: 'Rattrapage', tranche: 'Tranche', inscription: 'Inscription',
+}
+
+// Top 3 prochaines échéances impayées
+const top3Echeances = computed(() => echeancesImpayeesTriees.value.slice(0, 3))
+
+// Top 3 prochains cours
+const top3Cours = computed(() => {
+  const seances = [
+    ...(dashboardData?.value?.seances_semaine ?? []),
+    ...(dashboardData?.value?.seances_futures ?? []),
+  ]
+  return seances
+    .filter((s: any) => s.statut !== 'annule' && new Date(s.date_debut) >= now.value)
+    .sort((a: any, b: any) => new Date(a.date_debut).getTime() - new Date(b.date_debut).getTime())
+    .slice(0, 3)
+})
+
 // ── Print reçu ───────────────────────────────────────────────────────
 function printRecu(p: any) {
   const etud = dashboardData?.value?.etudiant
@@ -835,11 +917,26 @@ async function soumettreAvis(seanceId: number) {
     </div>
 
     <!-- ══ ALERTE PAIEMENT — Desktop ═════════════════════════════════ -->
-    <div v-if="restantDu > 0" class="ee-alert-pay ee-alert-desktop" :class="{ 'ee-mobile-hide': true }">
-      <div class="ee-alert-pay-icon"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M2 9h20" stroke="currentColor" stroke-width="1.8"/><rect x="15" y="12" width="4" height="3" rx="1" fill="currentColor"/><path d="M6 4V3a1 1 0 011-1h10a1 1 0 011 1v1" stroke="currentColor" stroke-width="1.5"/></svg></div>
+    <div v-if="prochaineEcheance" class="ee-alert-pay ee-alert-desktop"
+      :class="{ 'ee-mobile-hide': true, 'ee-alert-pay--late': echeanceEnRetard }">
+      <div class="ee-alert-pay-icon">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+          <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" stroke-width="1.8"/>
+          <path d="M2 9h20" stroke="currentColor" stroke-width="1.8"/>
+          <rect x="15" y="12" width="4" height="3" rx="1" fill="currentColor"/>
+          <path d="M6 4V3a1 1 0 011-1h10a1 1 0 011 1v1" stroke="currentColor" stroke-width="1.5"/>
+        </svg>
+      </div>
       <div class="ee-alert-pay-body">
-        <strong>Solde impayé : {{ restantDu.toLocaleString('fr-FR') }} FCFA</strong>
-        <span>Régularisez votre situation pour éviter tout blocage d'accès.</span>
+        <strong>
+          <template v-if="echeanceEnRetard">⚠️ </template>Il vous reste {{ montantAvantProchaine.toLocaleString('fr-FR') }} FCFA à régler
+          <span v-if="echeanceEnRetard">— échéance dépassée le {{ labelDateLimite }}</span>
+          <span v-else>avant le {{ labelDateLimite }}</span>
+        </strong>
+        <span>
+          Prochaine échéance : <em>{{ typeLabelMap[prochaineEcheance.type_echeance] || prochaineEcheance.type_echeance }}</em>.
+          Solde global : {{ restantDu.toLocaleString('fr-FR') }} FCFA. Régularisez pour éviter tout blocage d'accès.
+        </span>
       </div>
       <a href="#finances" @click="activeTab='finances'" class="ee-alert-pay-btn">Voir</a>
     </div>
@@ -858,8 +955,15 @@ async function soumettreAvis(seanceId: number) {
             </svg>
           </div>
           <div class="ee-m-alert-info">
-            <span class="ee-m-alert-label">Solde impayé</span>
-            <span class="ee-m-alert-amount">{{ restantDu.toLocaleString('fr-FR') }} <small>FCFA</small></span>
+            <span class="ee-m-alert-label">
+              <template v-if="prochaineEcheance">
+                {{ echeanceEnRetard ? 'En retard depuis le' : 'À régler avant le' }} {{ labelDateLimite }}
+              </template>
+              <template v-else>Solde impayé</template>
+            </span>
+            <span class="ee-m-alert-amount">
+              {{ (montantAvantProchaine || restantDu).toLocaleString('fr-FR') }} <small>FCFA</small>
+            </span>
           </div>
         </div>
         <button class="ee-m-alert-btn" @click="setMobileTab('finances'); activeTab='finances'">
@@ -892,6 +996,86 @@ async function soumettreAvis(seanceId: number) {
         <span>Ma Carte</span>
         <span v-if="carteFinance.moisEnRetard > 0" class="ee-qa-badge" style="background:#ef4444;">{{ carteFinance.moisEnRetard }}</span>
       </button>
+    </div>
+
+    <!-- ══ À VENIR — Échéances + Cours (Desktop, accueil) ════════════ -->
+    <div class="ee-upcoming ee-alert-desktop" :class="{ 'ee-mobile-hide': true }"
+      v-if="top3Echeances.length > 0 || top3Cours.length > 0">
+      <div class="ee-upcoming-grid">
+        <!-- Échéances -->
+        <div class="ee-upcoming-card" v-if="top3Echeances.length > 0">
+          <div class="ee-upcoming-head">
+            <span class="ee-upcoming-icon">📅</span>
+            <span class="ee-upcoming-title">Prochaines échéances</span>
+            <a href="#finances" @click="activeTab='finances'" class="ee-upcoming-link">Tout voir →</a>
+          </div>
+          <div class="ee-upcoming-body">
+            <div v-for="ech in top3Echeances" :key="ech.id" class="ee-upcoming-row"
+              :class="{ 'ee-upcoming-row--late': ech.date_limite < aujourdhui }">
+              <div class="ee-upcoming-row-date">
+                <span class="ee-upcoming-row-day">{{ ech.date_limite.getDate() }}</span>
+                <span class="ee-upcoming-row-month">{{ ech.date_limite.toLocaleDateString('fr-FR', { month: 'short' }) }}</span>
+              </div>
+              <div class="ee-upcoming-row-info">
+                <div class="ee-upcoming-row-label">{{ typeLabelMap[ech.type_echeance] || ech.type_echeance }}</div>
+                <div class="ee-upcoming-row-sub" v-if="ech.mois">
+                  {{ new Date(ech.mois.length === 7 ? ech.mois + '-01' : ech.mois).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }}
+                </div>
+              </div>
+              <div class="ee-upcoming-row-amount">{{ ech.montant.toLocaleString('fr-FR') }} <small>FCFA</small></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cours à venir -->
+        <div class="ee-upcoming-card" v-if="top3Cours.length > 0">
+          <div class="ee-upcoming-head">
+            <span class="ee-upcoming-icon">🎓</span>
+            <span class="ee-upcoming-title">Prochains cours</span>
+            <a href="#planning" @click="activeTab='planning'" class="ee-upcoming-link">Semaine →</a>
+          </div>
+          <div class="ee-upcoming-body">
+            <div v-for="s in top3Cours" :key="s.id" class="ee-upcoming-row">
+              <div class="ee-upcoming-row-date">
+                <span class="ee-upcoming-row-day">{{ new Date(s.date_debut).getDate() }}</span>
+                <span class="ee-upcoming-row-month">{{ new Date(s.date_debut).toLocaleDateString('fr-FR', { month: 'short' }) }}</span>
+              </div>
+              <div class="ee-upcoming-row-info">
+                <div class="ee-upcoming-row-label">{{ s.matiere }}</div>
+                <div class="ee-upcoming-row-sub">
+                  {{ formatTime(s.date_debut) }} — {{ formatTime(s.date_fin) }}<span v-if="s.salle"> · {{ s.salle }}</span>
+                </div>
+              </div>
+              <div class="ee-upcoming-row-mode" :title="s.mode">{{ modeIcon(s.mode) }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ À VENIR — version mobile compacte (accueil) ═══════════════ -->
+    <div class="ee-upcoming-mobile" :class="{ 'ee-mobile-hide': mobileTab !== 'accueil' }"
+      v-if="top3Echeances.length > 0">
+      <div class="ee-m-section-header">
+        <span class="ee-m-section-title">Prochaines échéances</span>
+        <button class="ee-m-section-link" @click="setMobileTab('finances'); activeTab='finances'">Tout voir →</button>
+      </div>
+      <div class="ee-m-upcoming-card">
+        <div v-for="ech in top3Echeances" :key="ech.id" class="ee-m-upcoming-row"
+          :class="{ 'ee-m-upcoming-row--late': ech.date_limite < aujourdhui }">
+          <div class="ee-m-upcoming-date">
+            <span class="ee-m-upcoming-day">{{ ech.date_limite.getDate() }}</span>
+            <span class="ee-m-upcoming-month">{{ ech.date_limite.toLocaleDateString('fr-FR', { month: 'short' }) }}</span>
+          </div>
+          <div class="ee-m-upcoming-info">
+            <div class="ee-m-upcoming-label">{{ typeLabelMap[ech.type_echeance] || ech.type_echeance }}</div>
+            <div class="ee-m-upcoming-sub" v-if="ech.mois">
+              {{ new Date(ech.mois.length === 7 ? ech.mois + '-01' : ech.mois).toLocaleDateString('fr-FR', { month: 'long' }) }}
+            </div>
+          </div>
+          <div class="ee-m-upcoming-amount">{{ (ech.montant / 1000).toFixed(0) }}k <small>FCFA</small></div>
+        </div>
+      </div>
     </div>
 
     <!-- ══ APERÇU AUJOURD'HUI (mobile accueil uniquement) ═══════════ -->
@@ -2124,13 +2308,95 @@ async function soumettreAvis(seanceId: number) {
 ══════════════════════════════════════════════════════ */
 .ee-alert-pay {
   display: flex; align-items: center; gap: 14px;
-  background: #fef2f2; border: 1px solid #fecaca;
+  background: #fffbeb; border: 1px solid #fde68a;
   border-radius: 12px; padding: 14px 18px; margin-bottom: 14px;
 }
+.ee-alert-pay-body strong { font-size: 14px; font-weight: 700; color: #b45309; }
+.ee-alert-pay-body span   { font-size: 12.5px; color: #92400e; }
+.ee-alert-pay-icon { color: #d97706; }
+.ee-alert-pay--late { background: #fef2f2; border-color: #fecaca; }
+.ee-alert-pay--late .ee-alert-pay-body strong { color: #b91c1c; }
+.ee-alert-pay--late .ee-alert-pay-body span   { color: #dc2626; }
+.ee-alert-pay--late .ee-alert-pay-icon       { color: #dc2626; }
+
+/* ── Widget "À venir" — desktop ─────────────────────────────────────── */
+.ee-upcoming { margin-bottom: 14px; }
+.ee-upcoming-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+}
+.ee-upcoming-card {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+  padding: 14px 16px; min-width: 0;
+}
+.ee-upcoming-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;
+}
+.ee-upcoming-icon { font-size: 16px; }
+.ee-upcoming-title {
+  font-size: 11px; font-weight: 700; color: #64748b;
+  text-transform: uppercase; letter-spacing: .05em; flex: 1;
+}
+.ee-upcoming-link {
+  font-size: 11px; font-weight: 600; color: #2563eb;
+  text-decoration: none;
+}
+.ee-upcoming-link:hover { text-decoration: underline; }
+.ee-upcoming-body { display: flex; flex-direction: column; gap: 8px; }
+.ee-upcoming-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 6px 0; border-bottom: 1px dashed #f1f5f9;
+}
+.ee-upcoming-row:last-child { border-bottom: none; }
+.ee-upcoming-row-date {
+  flex-shrink: 0; width: 40px; text-align: center;
+  background: #f1f5f9; border-radius: 6px; padding: 4px 0;
+}
+.ee-upcoming-row--late .ee-upcoming-row-date {
+  background: #fef2f2; color: #b91c1c;
+}
+.ee-upcoming-row-day { display: block; font-size: 16px; font-weight: 800; color: #0f172a; line-height: 1; }
+.ee-upcoming-row--late .ee-upcoming-row-day { color: #b91c1c; }
+.ee-upcoming-row-month { display: block; font-size: 9.5px; text-transform: uppercase; color: #64748b; margin-top: 2px; }
+.ee-upcoming-row-info { flex: 1; min-width: 0; }
+.ee-upcoming-row-label { font-size: 13px; font-weight: 600; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ee-upcoming-row-sub   { font-size: 11px; color: #64748b; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ee-upcoming-row-amount { font-size: 13px; font-weight: 700; color: #0f172a; flex-shrink: 0; }
+.ee-upcoming-row-amount small { font-size: 9.5px; color: #94a3b8; font-weight: 600; }
+.ee-upcoming-row-mode  { font-size: 18px; flex-shrink: 0; }
+
+@media (max-width: 768px) {
+  .ee-upcoming-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Widget "À venir" — mobile compact ─────────────────────────────── */
+.ee-upcoming-mobile { display: none; padding: 0 12px; margin-bottom: 8px; }
+.ee-m-upcoming-card {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+  padding: 8px 12px;
+}
+.ee-m-upcoming-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px dashed #f1f5f9;
+}
+.ee-m-upcoming-row:last-child { border-bottom: none; }
+.ee-m-upcoming-date {
+  flex-shrink: 0; width: 36px; text-align: center;
+  background: #f1f5f9; border-radius: 6px; padding: 3px 0;
+}
+.ee-m-upcoming-row--late .ee-m-upcoming-date { background: #fef2f2; color: #b91c1c; }
+.ee-m-upcoming-day { display: block; font-size: 15px; font-weight: 800; color: #0f172a; line-height: 1; }
+.ee-m-upcoming-row--late .ee-m-upcoming-day { color: #b91c1c; }
+.ee-m-upcoming-month { display: block; font-size: 9px; text-transform: uppercase; color: #64748b; margin-top: 1px; }
+.ee-m-upcoming-info { flex: 1; min-width: 0; }
+.ee-m-upcoming-label { font-size: 12.5px; font-weight: 600; color: #1e293b; }
+.ee-m-upcoming-sub   { font-size: 10.5px; color: #64748b; margin-top: 1px; }
+.ee-m-upcoming-amount { font-size: 12.5px; font-weight: 700; color: #0f172a; flex-shrink: 0; }
+.ee-m-upcoming-amount small { font-size: 8.5px; color: #94a3b8; }
+
+/* Original .ee-alert-pay-btn rules (preserved) */
 .ee-alert-pay-icon { font-size: 22px; flex-shrink: 0; }
 .ee-alert-pay-body { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.ee-alert-pay-body strong { font-size: 14px; font-weight: 700; color: #b91c1c; }
-.ee-alert-pay-body span { font-size: 12.5px; color: #dc2626; }
 .ee-alert-pay-btn {
   background: #E30613; color: #fff; font-size: 13px; font-weight: 700;
   padding: 8px 16px; border-radius: 8px; text-decoration: none; flex-shrink: 0;
@@ -2723,6 +2989,7 @@ async function soumettreAvis(seanceId: number) {
 
   /* ── Mobile Today section visible ── */
   .ee-mobile-today { display: block; padding: 0; }
+  .ee-upcoming-mobile { display: block; }
   .ee-mobile-plus { display: block; padding: 0; }
 
   /* ── Mobile: prochain cours compact ── */
