@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/releve-cabinet",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/rapport-retards",
+      "schedule": "0 9 15 * *"
     }
   ],
   "headers": [

@@ -312,6 +312,9 @@ pool.query(`CREATE INDEX IF NOT EXISTS idx_user_notif_user_lu ON user_notificati
       ['email_cabinet_comptable',    '',  'comptabilite'],
       ['email_cabinet_cc',           '',  'comptabilite'],
       ['nom_cabinet_comptable',      '',  'comptabilite'],
+      ['envoi_retards_actif',        '0', 'comptabilite'],
+      ['email_destinataire_retards', '',  'comptabilite'],
+      ['email_retards_cc',           '',  'comptabilite'],
     ]
     for (const [cle, valeur, groupe] of seeds) {
       await pool.query(
@@ -1966,6 +1969,9 @@ async function ensureComptabiliteSeed() {
     ['email_cabinet_comptable',    '',  'comptabilite'],
     ['email_cabinet_cc',           '',  'comptabilite'],
     ['nom_cabinet_comptable',      '',  'comptabilite'],
+    ['envoi_retards_actif',        '0', 'comptabilite'],
+    ['email_destinataire_retards', '',  'comptabilite'],
+    ['email_retards_cc',           '',  'comptabilite'],
   ]
   for (const [cle, valeur, groupe] of seeds) {
     await pool.query(
@@ -8814,11 +8820,9 @@ app.get('/classes/:id/suivi-paiements', requireAuth, async (c) => {
 })
 
 // ─── SUIVI PAIEMENTS GLOBAL (toutes les classes) ────────────────────────────
-app.get('/suivi-paiements-global', requireAuth, async (c) => {
-  const moisControle = c.req.query('mois_controle') || new Date().toISOString().slice(0, 7)
-  const anneeId = c.req.query('annee_academique_id')
-
-  // Toutes les classes non-tronc-commun avec leur filière
+// Calcul du suivi paiements global — fonction extraite pour être réutilisée
+// par l'endpoint /suivi-paiements-global ET par le cron de rapport de retards.
+async function computeSuiviPaiementsGlobal(moisControle: string, anneeId?: string) {
   const { rows: classes } = await pool.query(`
     SELECT c.id, c.nom, c.date_debut_cours, c.annee_academique_id,
       f.mensualite, f.frais_inscription, f.duree_mois, f.nom as filiere_nom
@@ -8829,9 +8833,10 @@ app.get('/suivi-paiements-global', requireAuth, async (c) => {
     ORDER BY c.nom
   `, anneeId ? [anneeId] : [])
 
-  // Toutes les inscriptions actives avec paiements
   const classeIds = classes.map((c: any) => c.id)
-  if (classeIds.length === 0) return c.json({ etudiants: [], resume: { total: 0, a_jour: 0, retard_leger: 0, en_retard: 0, total_creances: 0, total_paye: 0 } })
+  if (classeIds.length === 0) {
+    return { mois_controle: moisControle, resume: { total: 0, a_jour: 0, retard_leger: 0, en_retard: 0, total_creances: 0, total_paye: 0 }, etudiants: [], classes: [] }
+  }
 
   const { rows: inscriptions } = await pool.query(`
     SELECT i.id, i.etudiant_id, i.classe_id, i.mois_debut, i.created_at, i.mensualite as insc_mensualite, i.statut,
@@ -8849,7 +8854,7 @@ app.get('/suivi-paiements-global', requireAuth, async (c) => {
   const [ctrlY, ctrlM] = moisControle.split('-').map(Number)
 
   const etudiants = inscriptions.map((ins: any) => {
-    const classe = classeMap.get(ins.classe_id)
+    const classe: any = classeMap.get(ins.classe_id)
     if (!classe) return null
     const mensualiteMontant = parseFloat(ins.insc_mensualite) || parseFloat(classe.mensualite) || 0
     const nbMensualites = classe.duree_mois || 9
@@ -8886,7 +8891,7 @@ app.get('/suivi-paiements-global', requireAuth, async (c) => {
       date_inscription: ins.created_at ?? ins.mois_debut ?? null,
       date_debut_cours: classe.date_debut_cours ?? null,
     }
-  }).filter(Boolean)
+  }).filter(Boolean) as any[]
 
   const resume = {
     total: etudiants.length,
@@ -8897,7 +8902,14 @@ app.get('/suivi-paiements-global', requireAuth, async (c) => {
     total_paye: etudiants.reduce((s: number, e: any) => s + e.total_paye, 0),
   }
 
-  return c.json({ mois_controle: moisControle, resume, etudiants, classes: classes.map((cl: any) => ({ id: cl.id, nom: cl.nom })) })
+  return { mois_controle: moisControle, resume, etudiants, classes: classes.map((cl: any) => ({ id: cl.id, nom: cl.nom })) }
+}
+
+app.get('/suivi-paiements-global', requireAuth, async (c) => {
+  const moisControle = c.req.query('mois_controle') || new Date().toISOString().slice(0, 7)
+  const anneeId = c.req.query('annee_academique_id')
+  const data = await computeSuiviPaiementsGlobal(moisControle, anneeId || undefined)
+  return c.json(data)
 })
 
 // ─── NOTIFICATION PAIEMENTS EN RETARD ───────────────────────────────────────
@@ -11868,6 +11880,296 @@ app.get('/cron/releve-cabinet', async (c) => {
     const res = await envoyerReleveAuCabinet(moisIso)
     if (!res.ok) return c.json({ message: res.error || 'Échec envoi.', ok: false }, 500)
     return c.json({ message: 'Relevé envoyé au cabinet.', ok: true, mois: moisIso, destinataires: res.destinataires })
+  } catch (err: any) {
+    return c.json({ message: err.message }, 500)
+  }
+})
+
+// ─── RAPPORT DE RETARDS DE PAIEMENT (cron mensuel le 15) ─────────────────────
+
+// Construit le classeur XLSX listant les étudiants en retard_leger ET en_retard
+// pour le mois donné. Colonnes : Classe, Filière, Nom, Prénom, Matricule,
+// Téléphone, Email, Mensualité, Mois dus, Mois payés, Mois de retard,
+// Montant dû, Statut. Une feuille récapitulative.
+async function buildRapportRetardsXlsx(data: { mois_controle: string; resume: any; etudiants: any[] }): Promise<Buffer> {
+  const { rows: pRows } = await pool.query(
+    `SELECT cle, valeur FROM parametres_systeme WHERE cle IN ('nom_etablissement')`
+  )
+  const nomEtab = pRows.find(r => r.cle === 'nom_etablissement')?.valeur || 'UPTECH Campus'
+
+  const FMT_FCFA = '#,##0 "FCFA";[Red]-#,##0 "FCFA";"—"'
+  const THIN: Partial<ExcelJS.Borders> = {
+    top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+  }
+  const fillSolid = (argb: string): ExcelJS.FillPattern => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } })
+
+  const wb = new ExcelJS.Workbook()
+  wb.creator = nomEtab
+  wb.created = new Date()
+  wb.title = `Retards paiements ${data.mois_controle}`
+
+  const moisLabel = new Date(data.mois_controle + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+  const retards = (data.etudiants || [])
+    .filter((e: any) => e.statut === 'retard_leger' || e.statut === 'en_retard')
+    .sort((a: any, b: any) => (a.classe_nom || '').localeCompare(b.classe_nom || '') || (a.nom || '').localeCompare(b.nom || ''))
+
+  // ── Feuille principale ───────────────────────────────────────────────────
+  const ws = wb.addWorksheet(`Retards ${moisLabel}`, {
+    pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, paperSize: 9, margins: { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } },
+    headerFooter: { oddHeader: `&L&"Calibri,Bold"&14${nomEtab} — Retards de paiement&R&"Calibri,Italic"${moisLabel}` },
+    views: [{ state: 'frozen', ySplit: 3 }],
+  })
+  ws.columns = [
+    { width: 18 }, { width: 22 }, { width: 18 }, { width: 14 }, { width: 14 },
+    { width: 14 }, { width: 26 }, { width: 14 }, { width: 10 }, { width: 10 },
+    { width: 10 }, { width: 14 }, { width: 14 },
+  ]
+
+  // Titre
+  ws.mergeCells('A1:M1')
+  ws.getCell('A1').value = `ÉTUDIANTS EN RETARD DE PAIEMENT — ${moisLabel.toUpperCase()}`
+  ws.getCell('A1').font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } }
+  ws.getCell('A1').fill = fillSolid('FFE30613')
+  ws.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' }
+  ws.getRow(1).height = 26
+
+  // En-têtes
+  const headers = ['Classe', 'Filière', 'Nom', 'Prénom', 'Matricule',
+                   'Téléphone', 'Email', 'Statut', 'Mois dus', 'Mois payés',
+                   'Retard (mois)', 'Mensualité', 'Montant dû']
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(3, i + 1)
+    cell.value = h
+    cell.font = { size: 11, bold: true, color: { argb: 'FF1E293B' } }
+    cell.fill = fillSolid('FFF1F5F9')
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+    cell.border = THIN
+  })
+  ws.getRow(3).height = 24
+
+  // Lignes
+  retards.forEach((e: any, idx: number) => {
+    const row = 4 + idx
+    const badge = e.statut === 'en_retard' ? 'EN RETARD' : 'Retard léger'
+    const rowFill = e.statut === 'en_retard' ? 'FFFEF2F2' : 'FFFFFBEB'
+    const statutColor = e.statut === 'en_retard' ? 'FFB91C1C' : 'FFB45309'
+
+    ws.getCell(row, 1).value = e.classe_nom || '—'
+    ws.getCell(row, 2).value = e.filiere_nom || '—'
+    ws.getCell(row, 3).value = e.nom || ''
+    ws.getCell(row, 4).value = e.prenom || ''
+    ws.getCell(row, 5).value = e.numero_etudiant || ''
+    ws.getCell(row, 6).value = e.telephone || ''
+    ws.getCell(row, 7).value = e.email || ''
+    ws.getCell(row, 8).value = badge
+    ws.getCell(row, 8).font = { bold: true, color: { argb: statutColor } }
+    ws.getCell(row, 9).value = e.mensualites_dues || 0
+    ws.getCell(row, 10).value = e.mensualites_payees || 0
+    ws.getCell(row, 11).value = Number(e.retard) || 0
+    ws.getCell(row, 11).font = { bold: true }
+    ws.getCell(row, 12).value = Number(e.mensualite) || 0
+    ws.getCell(row, 12).numFmt = FMT_FCFA
+    ws.getCell(row, 13).value = Number(e.montant_du) || 0
+    ws.getCell(row, 13).numFmt = FMT_FCFA
+    ws.getCell(row, 13).font = { bold: true, color: { argb: statutColor } }
+
+    for (let col = 1; col <= 13; col++) {
+      ws.getCell(row, col).border = THIN
+      if (col > 7 && col < 11) ws.getCell(row, col).alignment = { horizontal: 'center' }
+      if (col === 12 || col === 13) ws.getCell(row, col).alignment = { horizontal: 'right' }
+      if (idx % 2 === 0) ws.getCell(row, col).fill = fillSolid(rowFill)
+    }
+  })
+
+  // Total en bas
+  if (retards.length > 0) {
+    const totalRow = 4 + retards.length + 1
+    ws.getCell(`L${totalRow}`).value = 'TOTAL DÛ'
+    ws.getCell(`L${totalRow}`).font = { bold: true }
+    ws.getCell(`L${totalRow}`).alignment = { horizontal: 'right' }
+    const totalDu = retards.reduce((s: number, e: any) => s + (Number(e.montant_du) || 0), 0)
+    ws.getCell(`M${totalRow}`).value = totalDu
+    ws.getCell(`M${totalRow}`).numFmt = FMT_FCFA
+    ws.getCell(`M${totalRow}`).font = { bold: true, size: 12, color: { argb: 'FFB91C1C' } }
+    ws.getCell(`M${totalRow}`).fill = fillSolid('FFFEE2E2')
+    ws.getCell(`M${totalRow}`).border = THIN
+  }
+
+  // ── Feuille Résumé ───────────────────────────────────────────────────────
+  const wsR = wb.addWorksheet('Résumé', {
+    pageSetup: { orientation: 'portrait', fitToPage: true, fitToWidth: 1, paperSize: 9 },
+  })
+  wsR.columns = [{ width: 34 }, { width: 22 }]
+  wsR.mergeCells('A1:B1')
+  wsR.getCell('A1').value = `${nomEtab} — Retards ${moisLabel}`
+  wsR.getCell('A1').font = { size: 13, bold: true, color: { argb: 'FFFFFFFF' } }
+  wsR.getCell('A1').fill = fillSolid('FFE30613')
+  wsR.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' }
+  wsR.getRow(1).height = 22
+
+  const nbLeger = retards.filter((e: any) => e.statut === 'retard_leger').length
+  const nbGrave = retards.filter((e: any) => e.statut === 'en_retard').length
+  const totalDu = retards.reduce((s: number, e: any) => s + (Number(e.montant_du) || 0), 0)
+
+  const rows: [string, string | number, string?][] = [
+    ['Nombre total d\'étudiants suivis', data.resume?.total || 0],
+    ['À jour (ou pas encore dû)',        data.resume?.a_jour || 0],
+    ['Retard léger',                     nbLeger,  'FFB45309'],
+    ['En retard',                        nbGrave,  'FFB91C1C'],
+    ['Total en retard',                  nbLeger + nbGrave],
+    ['Créances totales (en retard)',     totalDu,  'FFB91C1C'],
+  ]
+  rows.forEach(([label, val, color], i) => {
+    const r = 3 + i
+    wsR.getCell(r, 1).value = label
+    wsR.getCell(r, 1).font = { size: 11 }
+    wsR.getCell(r, 2).value = val
+    if (label.includes('Créances')) wsR.getCell(r, 2).numFmt = FMT_FCFA
+    wsR.getCell(r, 2).font = { size: 12, bold: true, color: color ? { argb: color } : undefined }
+    wsR.getCell(r, 2).alignment = { horizontal: 'right' }
+    wsR.getCell(r, 1).border = THIN
+    wsR.getCell(r, 2).border = THIN
+  })
+
+  const buf = await wb.xlsx.writeBuffer()
+  return Buffer.from(buf as ArrayBuffer)
+}
+
+// Construit le corps HTML du mail pour la liste des retards
+function buildRapportRetardsHtml(data: { mois_controle: string; resume: any; etudiants: any[] }, nomEtab: string): { sujet: string; html: string } {
+  const moisLabel = new Date(data.mois_controle + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+  const retards = (data.etudiants || []).filter((e: any) => e.statut === 'retard_leger' || e.statut === 'en_retard')
+  const nbLeger = retards.filter((e: any) => e.statut === 'retard_leger').length
+  const nbGrave = retards.filter((e: any) => e.statut === 'en_retard').length
+  const totalDu = retards.reduce((s: number, e: any) => s + (Number(e.montant_du) || 0), 0)
+  const fmt = (n: number) => Math.round(n).toLocaleString('fr-FR') + ' FCFA'
+
+  const sujet = `Retards de paiement — ${moisLabel} — ${nomEtab}`
+  const corps = `
+  <p style="margin:0 0 8px">Bonjour,</p>
+  <p style="margin:0 0 16px">Voici la situation des <strong>retards de paiement</strong> au <strong>${moisLabel}</strong> pour <strong>${nomEtab}</strong>.</p>
+
+  <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:13px">
+    <tr>
+      <td style="padding:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;width:33%">
+        <div style="font-size:11px;color:#b45309;text-transform:uppercase;font-weight:700;letter-spacing:0.05em">Retard léger</div>
+        <div style="font-size:22px;font-weight:700;color:#78350f;margin-top:4px">${nbLeger}</div>
+        <div style="font-size:11px;color:#b45309">étudiant${nbLeger > 1 ? 's' : ''}</div>
+      </td>
+      <td style="width:8px"></td>
+      <td style="padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;width:33%">
+        <div style="font-size:11px;color:#b91c1c;text-transform:uppercase;font-weight:700;letter-spacing:0.05em">En retard</div>
+        <div style="font-size:22px;font-weight:700;color:#7f1d1d;margin-top:4px">${nbGrave}</div>
+        <div style="font-size:11px;color:#dc2626">étudiant${nbGrave > 1 ? 's' : ''}</div>
+      </td>
+      <td style="width:8px"></td>
+      <td style="padding:12px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;width:33%">
+        <div style="font-size:11px;color:#475569;text-transform:uppercase;font-weight:700;letter-spacing:0.05em">Créances</div>
+        <div style="font-size:20px;font-weight:700;color:#b91c1c;margin-top:4px">${fmt(totalDu)}</div>
+        <div style="font-size:11px;color:#64748b">total dû</div>
+      </td>
+    </tr>
+  </table>
+
+  <p style="margin:16px 0 6px;font-size:13px">
+    Le fichier <strong>Excel</strong> joint <code>retards_paiements_${data.mois_controle}.xlsx</code> détaille chaque étudiant
+    (classe, filière, contact, mois dus, mois payés, montant dû).
+  </p>
+  <p style="margin:4px 0;font-size:12px;color:#64748b">
+    Ce rapport est envoyé automatiquement le 15 de chaque mois lorsque l'option est activée dans Paramètres &gt; Comptabilité.
+  </p>`
+
+  return { sujet, html: emailHtml(corps, nomEtab) }
+}
+
+// Envoie le rapport au destinataire configuré (override pour test)
+async function envoyerRapportRetards(override?: { email?: string; cc?: string }): Promise<{ ok: boolean; error?: string; sujet?: string; destinataires?: string[]; stats?: any }> {
+  const { rows: params } = await pool.query(
+    `SELECT cle, valeur FROM parametres_systeme
+     WHERE cle IN ('envoi_retards_actif','email_destinataire_retards','email_retards_cc','nom_etablissement')`
+  )
+  const map: Record<string, string> = {}
+  for (const r of params) map[r.cle] = r.valeur || ''
+
+  const emailPrincipal = (override?.email ?? map.email_destinataire_retards ?? '').trim()
+  if (!emailPrincipal) return { ok: false, error: 'Aucun email de destinataire configuré pour le rapport de retards.' }
+
+  const emailsCc = (override?.cc ?? map.email_retards_cc ?? '')
+    .split(/[,;]/).map(s => s.trim()).filter(Boolean)
+
+  const moisControle = new Date().toISOString().slice(0, 7)
+  const data = await computeSuiviPaiementsGlobal(moisControle)
+  const nomEtab = map.nom_etablissement || 'UPTECH Campus'
+  const { sujet, html } = buildRapportRetardsHtml(data, nomEtab)
+
+  let attachments: { name: string; content: string }[] = []
+  try {
+    const buf = await buildRapportRetardsXlsx(data)
+    attachments = [{
+      name: `retards_paiements_${moisControle}.xlsx`,
+      content: buf.toString('base64'),
+    }]
+  } catch (e: any) {
+    console.error('[rapport-retards] Échec génération XLSX :', e?.message || e)
+  }
+
+  const destinataires = [emailPrincipal, ...emailsCc]
+  let lastErr: string | undefined
+  let atLeastOne = false
+  for (const to of destinataires) {
+    const res = await sendBrevoEmail(to, sujet, html, attachments)
+    if (res.ok) atLeastOne = true
+    else lastErr = res.error
+  }
+  if (!atLeastOne) return { ok: false, error: lastErr || 'Échec de tous les envois.', sujet, destinataires }
+
+  return { ok: true, sujet, destinataires, stats: data.resume }
+}
+
+// POST /comptabilite/envoi-retards-test — envoi immédiat (DG)
+app.post('/comptabilite/envoi-retards-test', requireAuth, role('dg'), async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({} as any))
+    const res = await envoyerRapportRetards({
+      email: typeof body?.email === 'string' ? body.email : undefined,
+      cc:    typeof body?.cc    === 'string' ? body.cc    : undefined,
+    })
+    if (!res.ok) return c.json({ message: res.error || 'Envoi impossible.' }, 400)
+    return c.json({
+      message: 'Rapport envoyé avec succès.',
+      sujet: res.sujet,
+      destinataires: res.destinataires,
+      stats: res.stats,
+    })
+  } catch (err: any) {
+    return c.json({ message: err.message }, 500)
+  }
+})
+
+// GET /cron/rapport-retards — cron Vercel le 15 du mois
+app.get('/cron/rapport-retards', async (c) => {
+  const secret = c.req.header('x-vercel-cron-signature') || c.req.query('secret')
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret && secret !== cronSecret) {
+    return c.json({ message: 'Non autorisé.' }, 401)
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT valeur FROM parametres_systeme WHERE cle='envoi_retards_actif'`
+    )
+    if (!rows[0] || rows[0].valeur !== '1') {
+      return c.json({ message: 'Envoi désactivé.', skipped: true })
+    }
+    const now = new Date()
+    if (now.getDate() !== 15) {
+      return c.json({ message: `Jour ${now.getDate()} — envoi uniquement le 15.`, skipped: true })
+    }
+    const res = await envoyerRapportRetards()
+    if (!res.ok) return c.json({ message: res.error || 'Échec envoi.', ok: false }, 500)
+    return c.json({ message: 'Rapport retards envoyé.', ok: true, destinataires: res.destinataires, stats: res.stats })
   } catch (err: any) {
     return c.json({ message: err.message }, 500)
   }

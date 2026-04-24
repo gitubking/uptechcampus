@@ -493,6 +493,9 @@ const fieldConfig: Record<string, { label: string; type?: string; textarea?: boo
   email_cabinet_comptable:    { label: 'Email du cabinet comptable', type: 'email' },
   email_cabinet_cc:           { label: 'Email(s) en copie (séparés par des virgules)', type: 'text' },
   nom_cabinet_comptable:      { label: 'Nom du cabinet (affiché dans l\'e-mail)' },
+  envoi_retards_actif:        { label: 'Activer l\'envoi automatique du rapport de retards le 15', toggle: true },
+  email_destinataire_retards: { label: 'Email destinataire du rapport de retards', type: 'email' },
+  email_retards_cc:           { label: 'Email(s) en copie du rapport de retards', type: 'text' },
   heure_debut_notifications:  { label: 'Heure début envoi notifications (0-23)', type: 'number' },
   heure_fin_notifications:    { label: 'Heure fin envoi notifications (0-23)', type: 'number' },
   notif_nouveau_paiement:     { label: 'Notifier à chaque nouveau paiement', toggle: true },
@@ -518,18 +521,47 @@ const financeParamsHorsTenue = computed(() =>
 
 // Paramètres comptabilité (ordre explicite)
 const comptaOrder = ['envoi_releve_cabinet_actif', 'nom_cabinet_comptable', 'email_cabinet_comptable', 'email_cabinet_cc']
+const retardsOrder = ['envoi_retards_actif', 'email_destinataire_retards', 'email_retards_cc']
 const comptaParams = computed(() => {
-  const list = parametres.value.filter(p => p.groupe === 'comptabilite')
-  return list.slice().sort((a, b) => {
-    const ia = comptaOrder.indexOf(a.cle); const ib = comptaOrder.indexOf(b.cle)
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
-  })
+  const list = parametres.value.filter(p => p.groupe === 'comptabilite' && comptaOrder.includes(p.cle))
+  return list.slice().sort((a, b) => comptaOrder.indexOf(a.cle) - comptaOrder.indexOf(b.cle))
 })
+const retardsParams = computed(() => {
+  const list = parametres.value.filter(p => p.groupe === 'comptabilite' && retardsOrder.includes(p.cle))
+  return list.slice().sort((a, b) => retardsOrder.indexOf(a.cle) - retardsOrder.indexOf(b.cle))
+})
+const retardsActif = computed(() => editValues.value['envoi_retards_actif'] === '1')
+const retardsEmail = computed(() => (editValues.value['email_destinataire_retards'] || '').trim())
 const comptaActif = computed(() => editValues.value['envoi_releve_cabinet_actif'] === '1')
 const comptaEmail = computed(() => (editValues.value['email_cabinet_comptable'] || '').trim())
 
 const testCompta = ref<'idle' | 'sending' | 'ok' | 'error'>('idle')
 const testComptaMsg = ref('')
+const testRetards = ref<'idle' | 'sending' | 'ok' | 'error'>('idle')
+const testRetardsMsg = ref('')
+async function envoyerTestRetards() {
+  if (!retardsEmail.value) {
+    testRetards.value = 'error'
+    testRetardsMsg.value = 'Renseignez d\'abord l\'email du destinataire.'
+    return
+  }
+  testRetards.value = 'sending'
+  testRetardsMsg.value = ''
+  try {
+    const { data } = await api.post('/comptabilite/envoi-retards-test', {
+      email: retardsEmail.value,
+      cc: (editValues.value['email_retards_cc'] || '').trim(),
+    })
+    testRetards.value = 'ok'
+    const dests = Array.isArray(data?.destinataires) ? data.destinataires.join(', ') : retardsEmail.value
+    const nbRetards = (data?.stats?.retard_leger || 0) + (data?.stats?.en_retard || 0)
+    testRetardsMsg.value = `Rapport envoyé à ${dests} — ${nbRetards} étudiant(s) en retard listé(s).`
+    setTimeout(() => { if (testRetards.value === 'ok') { testRetards.value = 'idle'; testRetardsMsg.value = '' } }, 8000)
+  } catch (err: any) {
+    testRetards.value = 'error'
+    testRetardsMsg.value = err?.response?.data?.message || err?.message || 'Échec de l\'envoi.'
+  }
+}
 async function envoyerTestCabinet() {
   if (!comptaEmail.value) {
     testCompta.value = 'error'
@@ -1893,6 +1925,75 @@ onMounted(() => {
 
           <p v-if="comptaActif && !comptaEmail" class="pm-hint" style="margin-top:10px;color:#b45309;font-weight:600">
             ⚠️ L'envoi automatique est activé mais aucun email n'est configuré — renseignez l'adresse du cabinet.
+          </p>
+
+          <!-- ───── Rapport de retards (15 du mois) ───────────────────── -->
+          <div class="pm-section-header" style="margin-top:28px;">
+            <h2 class="pm-section-title" style="font-size:15px;">Rapport de retards de paiement</h2>
+            <p class="pm-section-desc">
+              Envoi automatique le <strong>15 de chaque mois</strong> de la liste des étudiants en
+              <strong style="color:#b45309">retard léger</strong> et <strong style="color:#b91c1c">en retard</strong>,
+              avec un fichier Excel détaillé en pièce jointe. Source : page Suivi des paiements.
+            </p>
+          </div>
+
+          <div v-if="retardsParams.length === 0" class="pm-empty">Paramètres en cours de chargement…</div>
+          <div v-else class="pm-params-list">
+            <div v-for="p in retardsParams" :key="p.cle" class="pm-param-card">
+              <div v-if="fieldConfig[p.cle]?.toggle" class="pm-param-row">
+                <div>
+                  <p class="pm-param-label">{{ fieldConfig[p.cle]?.label ?? p.cle }}</p>
+                  <p v-if="p.cle === 'envoi_retards_actif'" class="pm-hint">Lorsque activé, le rapport part automatiquement le 15 du mois à l'adresse configurée ci-dessous.</p>
+                </div>
+                <button @click="toggleValue(p.cle)" :disabled="!isDG" class="pm-toggle" :class="editValues[p.cle] === '1' ? 'pm-toggle--on' : ''">
+                  <span class="pm-toggle-knob" :class="editValues[p.cle] === '1' ? 'pm-toggle-knob--on' : ''" />
+                </button>
+              </div>
+              <div v-else class="pm-param-row pm-param-row--field">
+                <div style="flex:1;min-width:0">
+                  <label :for="`param-${p.cle}`" class="pm-param-label">{{ fieldConfig[p.cle]?.label ?? p.cle }}</label>
+                  <p v-if="p.cle === 'email_retards_cc'" class="pm-hint">Facultatif — séparez plusieurs adresses par une virgule.</p>
+                  <input :id="`param-${p.cle}`" v-model="editValues[p.cle]" :type="fieldConfig[p.cle]?.type ?? 'text'" :disabled="!isDG" class="pm-input pm-input--sm" />
+                </div>
+                <div style="flex-shrink:0">
+                  <button v-if="isDG" @click="save(p.cle)" :disabled="saving === p.cle || editValues[p.cle] === p.valeur" class="pm-btn-save" :class="saved === p.cle ? 'pm-btn-save--ok' : ''">
+                    <svg v-if="saved === p.cle" width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                    {{ saving === p.cle ? '…' : saved === p.cle ? 'Sauvegardé' : 'Sauvegarder' }}
+                  </button>
+                  <span v-else class="pm-readonly">Lecture seule</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bouton test retards -->
+          <div v-if="isDG" class="pm-param-card" style="margin-top:14px;background:#fffbeb;border-color:#fde68a">
+            <div class="pm-param-row pm-param-row--field" style="align-items:center">
+              <div style="flex:1;min-width:0">
+                <p class="pm-param-label">Envoyer un rapport de test</p>
+                <p class="pm-hint">Envoie immédiatement le rapport du mois en cours à l'adresse configurée (et aux copies). Permet de vérifier le contenu du mail et du fichier Excel sans attendre le 15.</p>
+                <p v-if="testRetardsMsg" class="pm-hint" :style="{ color: testRetards === 'ok' ? '#15803d' : testRetards === 'error' ? '#b91c1c' : '#64748b', fontWeight: 600, marginTop:'6px' }">
+                  {{ testRetardsMsg }}
+                </p>
+              </div>
+              <div style="flex-shrink:0">
+                <button
+                  @click="envoyerTestRetards"
+                  :disabled="testRetards === 'sending' || !retardsEmail"
+                  class="pm-btn-save"
+                  :class="testRetards === 'ok' ? 'pm-btn-save--ok' : ''"
+                  :title="!retardsEmail ? 'Renseignez d\'abord l\'email destinataire' : 'Envoyer maintenant'"
+                >
+                  <svg v-if="testRetards === 'ok'" width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                  <svg v-else width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                  {{ testRetards === 'sending' ? 'Envoi…' : testRetards === 'ok' ? 'Envoyé' : 'Envoyer un test' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <p v-if="retardsActif && !retardsEmail" class="pm-hint" style="margin-top:10px;color:#b45309;font-weight:600">
+            ⚠️ L'envoi automatique est activé mais aucun email destinataire n'est configuré.
           </p>
         </template>
       </template>
