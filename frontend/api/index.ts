@@ -2056,21 +2056,42 @@ app.post('/admin/email-mismatches/sync', requireAuth, role('dg'), async (c) => {
   const results = { etudiants: { repaires: 0, emails_synces: 0, sans_compte: 0 },
                     enseignants: { repaires: 0, emails_synces: 0, sans_compte: 0 } }
 
-  // Étudiants : repair link by email if user_id NULL, then sync email
+  // Helper interne : retrouve un user à rattacher via email, puis fallback nom+prenom.
+  async function findUserFor(role: 'etudiant' | 'enseignant', fiche: { email: string | null; nom: string | null; prenom: string | null }, linkedTable: 'etudiants' | 'enseignants'): Promise<number | null> {
+    if (fiche.email) {
+      const { rows } = await pool.query('SELECT id FROM users WHERE LOWER(email)=LOWER($1) LIMIT 1', [fiche.email])
+      if (rows[0]) return rows[0].id
+    }
+    if (fiche.nom && fiche.prenom) {
+      const { rows } = await pool.query(
+        `SELECT u.id FROM users u
+         WHERE u.role=$1
+           AND LOWER(u.nom)=LOWER($2)
+           AND LOWER(u.prenom)=LOWER($3)
+           AND NOT EXISTS (SELECT 1 FROM ${linkedTable} x WHERE x.user_id = u.id)
+         ORDER BY u.id DESC LIMIT 1`,
+        [role, fiche.nom, fiche.prenom]
+      )
+      if (rows[0]) return rows[0].id
+    }
+    return null
+  }
+
+  // Étudiants
   const { rows: etuds } = await pool.query(`
     SELECT e.id, e.nom, e.prenom, e.email, e.user_id
     FROM etudiants e
-    WHERE e.email IS NOT NULL
+    WHERE e.email IS NOT NULL OR e.user_id IS NULL
   `)
   for (const e of etuds) {
     if (!e.user_id) {
-      const { rows: uRows } = await pool.query(
-        'SELECT id FROM users WHERE LOWER(email)=LOWER($1) LIMIT 1', [e.email]
-      )
-      if (uRows[0]) {
-        await pool.query('UPDATE etudiants SET user_id=$1 WHERE id=$2', [uRows[0].id, e.id]).catch(() => {})
-        await pool.query('UPDATE users SET nom=$1, prenom=$2, email=$3 WHERE id=$4',
-          [e.nom, e.prenom, e.email, uRows[0].id]).catch(() => {})
+      const uid = await findUserFor('etudiant', e, 'etudiants')
+      if (uid) {
+        await pool.query('UPDATE etudiants SET user_id=$1 WHERE id=$2', [uid, e.id]).catch(() => {})
+        if (e.email) {
+          await pool.query('UPDATE users SET nom=$1, prenom=$2, email=$3 WHERE id=$4',
+            [e.nom, e.prenom, e.email, uid]).catch(() => {})
+        }
         results.etudiants.repaires++
       } else {
         results.etudiants.sans_compte++
@@ -2085,21 +2106,21 @@ app.post('/admin/email-mismatches/sync', requireAuth, role('dg'), async (c) => {
     }
   }
 
-  // Enseignants : même logique
+  // Enseignants
   const { rows: ensList } = await pool.query(`
     SELECT e.id, e.nom, e.prenom, e.email, e.user_id
     FROM enseignants e
-    WHERE e.email IS NOT NULL
+    WHERE e.email IS NOT NULL OR e.user_id IS NULL
   `)
   for (const e of ensList) {
     if (!e.user_id) {
-      const { rows: uRows } = await pool.query(
-        'SELECT id FROM users WHERE LOWER(email)=LOWER($1) LIMIT 1', [e.email]
-      )
-      if (uRows[0]) {
-        await pool.query('UPDATE enseignants SET user_id=$1 WHERE id=$2', [uRows[0].id, e.id]).catch(() => {})
-        await pool.query('UPDATE users SET nom=$1, prenom=$2, email=$3 WHERE id=$4',
-          [e.nom, e.prenom, e.email, uRows[0].id]).catch(() => {})
+      const uid = await findUserFor('enseignant', e, 'enseignants')
+      if (uid) {
+        await pool.query('UPDATE enseignants SET user_id=$1 WHERE id=$2', [uid, e.id]).catch(() => {})
+        if (e.email) {
+          await pool.query('UPDATE users SET nom=$1, prenom=$2, email=$3 WHERE id=$4',
+            [e.nom, e.prenom, e.email, uid]).catch(() => {})
+        }
         results.enseignants.repaires++
       } else {
         results.enseignants.sans_compte++
@@ -3857,21 +3878,34 @@ app.put('/etudiants/:id', requireAuth, role('secretariat', 'dg'), async (c) => {
      sexe, handicape, typeHandicap, statutPro, employeur, id]
   )
 
-  // Synchroniser le compte users (nom, prenom, email). Si le lien user_id
-  // n'existe pas, on tente une réconciliation via l'ancien email de l'étudiant
-  // (cas fréquent : étudiant créé sans lien, ou lien perdu) puis on synchronise.
+  // Synchroniser le compte users (nom, prenom, email). Stratégie en cascade :
+  //   1) via etudiants.user_id
+  //   2) fallback par ANCIEN email d'étudiant (cas fréquent : user_id jamais posé)
+  //   3) fallback par (nom, prenom, role='etudiant') non encore lié à une fiche
+  // La 3e branche couvre Aïssatou & co : email modifié plusieurs fois côté fiche
+  // sans jamais mettre à jour users — plus aucun email ne correspond.
   let linkedUserId: number | null = current[0]?.user_id ?? null
   if (!linkedUserId && current[0]?.email) {
     const { rows: uRows } = await pool.query(
       'SELECT id FROM users WHERE LOWER(email)=LOWER($1) LIMIT 1',
       [current[0].email]
     )
-    if (uRows[0]) {
-      linkedUserId = uRows[0].id
-      await pool.query('UPDATE etudiants SET user_id=$1 WHERE id=$2', [linkedUserId, id]).catch(() => {})
-    }
+    if (uRows[0]) linkedUserId = uRows[0].id
+  }
+  if (!linkedUserId && b.nom && b.prenom) {
+    const { rows: uRows } = await pool.query(
+      `SELECT u.id FROM users u
+       WHERE u.role='etudiant'
+         AND LOWER(u.nom)=LOWER($1)
+         AND LOWER(u.prenom)=LOWER($2)
+         AND NOT EXISTS (SELECT 1 FROM etudiants e WHERE e.user_id = u.id)
+       ORDER BY u.id DESC LIMIT 1`,
+      [b.nom, b.prenom]
+    )
+    if (uRows[0]) linkedUserId = uRows[0].id
   }
   if (linkedUserId) {
+    await pool.query('UPDATE etudiants SET user_id=$1 WHERE id=$2 AND (user_id IS NULL OR user_id<>$1)', [linkedUserId, id]).catch(() => {})
     await pool.query(
       'UPDATE users SET nom=$1, prenom=$2, email=$3 WHERE id=$4',
       [b.nom, b.prenom, b.email || null, linkedUserId]
@@ -4167,17 +4201,23 @@ app.post('/inscriptions', requireAuth, role('secretariat', 'dg'), async (c) => {
     console.error('Erreur genererEcheances inscription', rows[0].id, e)
   }
 
-  // Créer automatiquement le compte étudiant si l'étudiant a un email
+  // Créer automatiquement le compte étudiant si l'étudiant a un email,
+  // et surtout lier etudiants.user_id pour que la synchro fonctionne ensuite.
   try {
-    const { rows: etud } = await pool.query('SELECT nom,prenom,email FROM etudiants WHERE id=$1', [b.etudiant_id])
+    const { rows: etud } = await pool.query('SELECT id,nom,prenom,email,user_id FROM etudiants WHERE id=$1', [b.etudiant_id])
     if (etud[0]?.email) {
-      const { rows: existing } = await pool.query('SELECT id FROM users WHERE email=$1', [etud[0].email])
-      if (!existing.length) {
+      const { rows: existing } = await pool.query('SELECT id FROM users WHERE LOWER(email)=LOWER($1)', [etud[0].email])
+      let userId: number | null = existing[0]?.id ?? null
+      if (!userId) {
         const hashed = await bcrypt.hash('@2026', 10)
-        await pool.query(
-          'INSERT INTO users (nom,prenom,email,password,role,statut,premier_connexion,cgu_acceptees,created_by) VALUES ($1,$2,$3,$4,$5,$6,true,false,$7)',
+        const { rows: created } = await pool.query(
+          'INSERT INTO users (nom,prenom,email,password,role,statut,premier_connexion,cgu_acceptees,created_by) VALUES ($1,$2,$3,$4,$5,$6,true,false,$7) RETURNING id',
           [etud[0].nom, etud[0].prenom, etud[0].email, hashed, 'etudiant', 'actif', u(c).id]
         )
+        userId = created[0]?.id ?? null
+      }
+      if (userId && !etud[0].user_id) {
+        await pool.query('UPDATE etudiants SET user_id=$1 WHERE id=$2', [userId, etud[0].id])
       }
     }
   } catch { /* silencieux — ne bloque pas l'inscription */ }
@@ -4880,20 +4920,30 @@ app.put('/enseignants/:id', requireAuth, role('dg', 'dir_peda', 'secretariat'), 
      b.specialite || null, b.grade || null, b.type_contrat || 'vacataire', b.tarif_horaire || 0, id]
   )
 
-  // Synchroniser users. Si user_id est NULL, on tente de retrouver le compte via
-  // l'ancien email de l'enseignant et on répare le lien.
+  // Synchroniser users. Stratégie en cascade identique aux étudiants :
+  //   1) enseignants.user_id  2) ancien email  3) (nom, prenom, role='enseignant')
   let linkedUserId: number | null = current[0]?.user_id ?? null
   if (!linkedUserId && current[0]?.email) {
     const { rows: uRows } = await pool.query(
       'SELECT id FROM users WHERE LOWER(email)=LOWER($1) LIMIT 1',
       [current[0].email]
     )
-    if (uRows[0]) {
-      linkedUserId = uRows[0].id
-      await pool.query('UPDATE enseignants SET user_id=$1 WHERE id=$2', [linkedUserId, id]).catch(() => {})
-    }
+    if (uRows[0]) linkedUserId = uRows[0].id
+  }
+  if (!linkedUserId && b.nom && b.prenom) {
+    const { rows: uRows } = await pool.query(
+      `SELECT u.id FROM users u
+       WHERE u.role='enseignant'
+         AND LOWER(u.nom)=LOWER($1)
+         AND LOWER(u.prenom)=LOWER($2)
+         AND NOT EXISTS (SELECT 1 FROM enseignants e WHERE e.user_id = u.id)
+       ORDER BY u.id DESC LIMIT 1`,
+      [b.nom, b.prenom]
+    )
+    if (uRows[0]) linkedUserId = uRows[0].id
   }
   if (linkedUserId) {
+    await pool.query('UPDATE enseignants SET user_id=$1 WHERE id=$2 AND (user_id IS NULL OR user_id<>$1)', [linkedUserId, id]).catch(() => {})
     await pool.query(
       'UPDATE users SET nom=$1, prenom=$2, email=$3 WHERE id=$4',
       [b.nom, b.prenom, b.email || null, linkedUserId]
