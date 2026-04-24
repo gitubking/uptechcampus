@@ -8,6 +8,8 @@ import UcModal from '@/components/ui/UcModal.vue'
 import UcFormGroup from '@/components/ui/UcFormGroup.vue'
 import UcFormGrid from '@/components/ui/UcFormGrid.vue'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
+import UcDraftBanner from '@/components/ui/UcDraftBanner.vue'
+import { useFormAutoSave } from '@/composables/useFormAutoSave'
 
 const auth = useAuthStore()
 const toast = useToast()
@@ -67,7 +69,17 @@ function openCreate() {
   }
   error.value = ''
   showForm.value = true
+  if (ensDraft.hasDraft.value) ensDraftBanner.value = true
 }
+
+// Auto-save brouillon (uniquement en création, pas en édition)
+const ensDraft = useFormAutoSave(form, {
+  key: 'enseignant-nouveau',
+  pause: () => !showForm.value || editTarget.value !== null,
+})
+const ensDraftBanner = ref(false)
+function restoreEnsDraft() { ensDraft.restoreDraft(); ensDraftBanner.value = false; toast.success('Brouillon restauré.') }
+function discardEnsDraft() { ensDraft.clearDraft(); ensDraftBanner.value = false }
 
 function openEdit(i: Enseignant) {
   editTarget.value = i
@@ -140,6 +152,8 @@ async function save() {
       if (idx !== -1) enseignants.value[idx] = { ...enseignants.value[idx], ...data }
     } else {
       await api.post('/enseignants', payload)
+      ensDraft.clearDraft()
+      ensDraftBanner.value = false
       await load()
     }
     showForm.value = false
@@ -335,6 +349,8 @@ onMounted(async () => { await Promise.all([load(), loadRefs()]) })
 
     <!-- Modal formulaire -->
     <UcModal v-model="showForm" :title="editTarget ? 'Modifier l\'enseignant' : 'Nouvel enseignant'" @close="showForm=false">
+      <UcDraftBanner v-if="!editTarget" :show="ensDraftBanner && ensDraft.hasDraft.value" :age-label="ensDraft.draftAgeLabel()"
+        @restore="restoreEnsDraft" @discard="discardEnsDraft" />
       <div v-if="!editTarget" class="ens-info-banner">
         Un compte sera créé automatiquement avec le mot de passe <strong>Uptech@2026</strong>
       </div>

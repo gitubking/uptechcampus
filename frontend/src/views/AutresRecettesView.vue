@@ -3,7 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import api from '@/services/api'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
-import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader } from '@/components/ui'
+import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader, UcDraftBanner } from '@/components/ui'
+import { useFormAutoSave } from '@/composables/useFormAutoSave'
 
 const auth = useAuthStore()
 const toast = useToast()
@@ -155,7 +156,16 @@ function openCreate() {
   }
   error.value = ''
   showForm.value = true
+  if (recetteDraft.hasDraft.value) recetteDraftBanner.value = true
 }
+
+const recetteDraft = useFormAutoSave(form, {
+  key: 'autre-recette-nouveau',
+  pause: () => !showForm.value || editingId.value !== null,
+})
+const recetteDraftBanner = ref(false)
+function restoreRecetteDraft() { recetteDraft.restoreDraft(); recetteDraftBanner.value = false; toast.success('Brouillon restauré.') }
+function discardRecetteDraft() { recetteDraft.clearDraft(); recetteDraftBanner.value = false }
 
 function openEdit(r: Recette) {
   editingId.value = r.id
@@ -184,6 +194,8 @@ async function save() {
       await api.put(`/autres-recettes/${editingId.value}`, form.value)
     } else {
       await api.post('/autres-recettes', form.value)
+      recetteDraft.clearDraft()
+      recetteDraftBanner.value = false
     }
     showForm.value = false
     await load()
@@ -342,6 +354,8 @@ onMounted(load)
       :title="editingId ? 'Modifier la recette' : 'Nouvelle recette'"
       width="560px"
       @close="error = ''">
+      <UcDraftBanner v-if="!editingId" :show="recetteDraftBanner && recetteDraft.hasDraft.value" :age-label="recetteDraft.draftAgeLabel()"
+        @restore="restoreRecetteDraft" @discard="discardRecetteDraft" />
       <div v-if="error" class="uc-alert uc-alert-error" style="margin-bottom:12px;">{{ error }}</div>
       <UcFormGrid :cols="2">
         <UcFormGroup label="Date" :required="true">

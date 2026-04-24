@@ -7,7 +7,9 @@ import { useToast } from '@/composables/useToast'
 import UcModal from '@/components/ui/UcModal.vue'
 import UcFormGroup from '@/components/ui/UcFormGroup.vue'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
+import UcDraftBanner from '@/components/ui/UcDraftBanner.vue'
 import QRCode from 'qrcode'
+import { useFormAutoSave } from '@/composables/useFormAutoSave'
 
 const router = useRouter()
 const toast = useToast()
@@ -151,7 +153,17 @@ function openNew() {
     modules: [{ matiere_id: null, volume_horaire: 0, enseignant_id: null }]
   }
   showModal.value = true
+  if (fiDraft.hasDraft.value) fiDraftBanner.value = true
 }
+
+// Auto-save brouillon FI (création)
+const fiDraft = useFormAutoSave(form, {
+  key: 'fi-nouveau-coord',
+  pause: () => !showModal.value || editingFI.value !== null,
+})
+const fiDraftBanner = ref(false)
+function restoreFiDraft() { fiDraft.restoreDraft(); fiDraftBanner.value = false; toast.success('Brouillon restauré.') }
+function discardFiDraft() { fiDraft.clearDraft(); fiDraftBanner.value = false }
 
 function openEdit(fi: FI) {
   editingFI.value = fi
@@ -235,6 +247,8 @@ async function save() {
       await api.put(`/formations-individuelles/${editingFI.value.id}`, payload)
     } else {
       await api.post('/formations-individuelles', payload)
+      fiDraft.clearDraft()
+      fiDraftBanner.value = false
     }
     showModal.value = false
     await load()
@@ -996,6 +1010,8 @@ onMounted(load)
             <button @click="showModal = false" class="fi-modal-close">&times;</button>
           </div>
           <div class="fi-modal-body">
+            <UcDraftBanner v-if="!editingFI" :show="fiDraftBanner && fiDraft.hasDraft.value" :age-label="fiDraft.draftAgeLabel()"
+              @restore="restoreFiDraft" @discard="discardFiDraft" />
             <!-- Toggle groupe -->
             <div v-if="!editingFI" class="fi-group-toggle">
               <label class="fi-toggle-label">

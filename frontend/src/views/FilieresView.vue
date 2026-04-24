@@ -4,7 +4,8 @@ import * as XLSX from 'xlsx'
 import api from '@/services/api'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
-import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader, UcTable } from '@/components/ui'
+import { UcModal, UcFormGroup, UcFormGrid, UcPageHeader, UcTable, UcDraftBanner } from '@/components/ui'
+import { useFormAutoSave } from '@/composables/useFormAutoSave'
 
 const auth = useAuthStore()
 const toast = useToast()
@@ -91,7 +92,17 @@ function openCreate() {
   }
   error.value = ''
   showForm.value = true
+  if (filiereDraft.hasDraft.value) filiereDraftBanner.value = true
 }
+
+// Auto-save brouillon (création uniquement)
+const filiereDraft = useFormAutoSave(form, {
+  key: 'filiere-nouveau',
+  pause: () => !showForm.value || editTarget.value !== null,
+})
+const filiereDraftBanner = ref(false)
+function restoreFiliereDraft() { filiereDraft.restoreDraft(); filiereDraftBanner.value = false; toast.success('Brouillon restauré.') }
+function discardFiliereDraft() { filiereDraft.clearDraft(); filiereDraftBanner.value = false }
 
 function openEdit(f: Filiere) {
   editTarget.value = f
@@ -146,6 +157,8 @@ async function save() {
     } else {
       const { data } = await api.post('/filieres', payload)
       filieres.value.push(data)
+      filiereDraft.clearDraft()
+      filiereDraftBanner.value = false
     }
     closeForm()
   } catch (e: any) {
@@ -529,6 +542,8 @@ onMounted(load)
       width="560px"
       @close="closeForm"
     >
+      <UcDraftBanner v-if="!editTarget" :show="filiereDraftBanner && filiereDraft.hasDraft.value" :age-label="filiereDraft.draftAgeLabel()"
+        @restore="restoreFiliereDraft" @discard="discardFiliereDraft" />
       <div v-if="error" style="background:#fff0f0;border:1px solid #fecaca;border-radius:4px;padding:10px 14px;font-size:12px;color:#b91c1c;margin-bottom:14px;font-family:'Poppins',sans-serif;">{{ error }}</div>
       <form @submit.prevent="save" style="display:flex;flex-direction:column;gap:14px;">
         <UcFormGrid :cols="2">

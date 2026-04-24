@@ -10,6 +10,8 @@ import UcModal from '@/components/ui/UcModal.vue'
 import UcFormGroup from '@/components/ui/UcFormGroup.vue'
 import UcFormGrid from '@/components/ui/UcFormGrid.vue'
 import UcPageHeader from '@/components/ui/UcPageHeader.vue'
+import UcDraftBanner from '@/components/ui/UcDraftBanner.vue'
+import { useFormAutoSave } from '@/composables/useFormAutoSave'
 
 const auth = useAuthStore()
 const toast = useToast()
@@ -370,15 +372,27 @@ async function calculerVacations() {
 function openAddDepense() {
   formDepense.value = { libelle: '', categorie: 'autre', montant: '', mode_paiement: 'especes', beneficiaire: '', reference_facture: '', notes: '', date_depense: new Date().toISOString().slice(0, 10) }
   showDepenseModal.value = true
+  if (depenseDraft.hasDraft.value) depenseDraftBanner.value = true
 }
 async function saveDepense() {
   saving.value = true
   try {
     await api.post('/depenses', { ...formDepense.value, montant: Number(formDepense.value.montant) })
+    depenseDraft.clearDraft()
+    depenseDraftBanner.value = false
     showDepenseModal.value = false
     await load()
   } finally { saving.value = false }
 }
+
+// Auto-save brouillon dépense (uniquement pendant que le modal est ouvert)
+const depenseDraft = useFormAutoSave(formDepense, {
+  key: 'depense-nouveau',
+  pause: () => !showDepenseModal.value,
+})
+const depenseDraftBanner = ref(false)
+function restoreDepenseDraft() { depenseDraft.restoreDraft(); depenseDraftBanner.value = false; toast.success('Brouillon restauré.') }
+function discardDepenseDraft() { depenseDraft.clearDraft(); depenseDraftBanner.value = false }
 
 async function valider(d: Depense) {
   await api.post(`/depenses/${d.id}/valider`)
@@ -1879,6 +1893,8 @@ watch(budgetAnnee, loadBudget)
     <!-- ══════════ MODAL DÉPENSE AD-HOC ══════════ -->
     <UcModal v-model="showDepenseModal" title="Nouvelle dépense" width="480px" @close="showDepenseModal=false">
       <form @submit.prevent="saveDepense" style="display:flex;flex-direction:column;gap:14px;">
+        <UcDraftBanner :show="depenseDraftBanner && depenseDraft.hasDraft.value" :age-label="depenseDraft.draftAgeLabel()"
+          @restore="restoreDepenseDraft" @discard="discardDepenseDraft" />
         <UcFormGroup label="Libellé" :required="true"><input v-model="formDepense.libelle" required /></UcFormGroup>
         <UcFormGrid :cols="2">
           <UcFormGroup label="Date" :required="true"><input v-model="formDepense.date_depense" type="date" required /></UcFormGroup>
