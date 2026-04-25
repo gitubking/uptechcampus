@@ -4629,16 +4629,29 @@ app.post('/inscriptions', requireAuth, role('secretariat', 'dg'), async (c) => {
     if (etud[0]?.email) {
       const { rows: existing } = await pool.query('SELECT id FROM users WHERE LOWER(email)=LOWER($1)', [etud[0].email])
       let userId: number | null = existing[0]?.id ?? null
+      let isNewAccount = false
+      const defaultPassword = 'Uptech@2026'
       if (!userId) {
-        const hashed = await bcrypt.hash('@2026', 10)
+        const hashed = await bcrypt.hash(defaultPassword, 10)
         const { rows: created } = await pool.query(
           'INSERT INTO users (nom,prenom,email,password,role,statut,premier_connexion,cgu_acceptees,created_by) VALUES ($1,$2,$3,$4,$5,$6,true,false,$7) RETURNING id',
           [etud[0].nom, etud[0].prenom, etud[0].email, hashed, 'etudiant', 'actif', u(c).id]
         )
         userId = created[0]?.id ?? null
+        isNewAccount = true
       }
       if (userId && !etud[0].user_id) {
         await pool.query('UPDATE etudiants SET user_id=$1 WHERE id=$2', [userId, etud[0].id])
+      }
+      // Email de bienvenue uniquement si on vient de créer le compte (pas si déjà existant)
+      if (isNewAccount) {
+        sendWelcomeEmail({
+          to: etud[0].email,
+          prenom: etud[0].prenom,
+          nom: etud[0].nom,
+          password: defaultPassword,
+          role: 'etudiant',
+        }).catch(() => { /* silencieux — ne bloque pas l'inscription */ })
       }
     }
   } catch { /* silencieux — ne bloque pas l'inscription */ }
@@ -5334,9 +5347,11 @@ app.post('/enseignants', requireAuth, role('dg', 'dir_peda', 'secretariat'), asy
   if (!b.annee_academique_id) return c.json({ message: 'annee_academique_id requis.' }, 422)
   // Auto-create user account if user_id not provided
   let userId = b.user_id
+  let isNewEnseignantAccount = false
+  const ensDefaultPassword = 'Uptech@2026'
   if (!userId && b.email) {
-    const hash = await bcrypt.hash('Uptech@2026', 10)
-    const existingUser = await pool.query('SELECT id FROM users WHERE email=$1', [b.email])
+    const hash = await bcrypt.hash(ensDefaultPassword, 10)
+    const existingUser = await pool.query('SELECT id FROM users WHERE LOWER(email)=LOWER($1)', [b.email])
     if (existingUser.rows[0]) {
       userId = existingUser.rows[0].id
     } else {
@@ -5345,7 +5360,18 @@ app.post('/enseignants', requireAuth, role('dg', 'dir_peda', 'secretariat'), asy
         [b.nom, b.prenom, b.email, b.telephone || null, hash]
       )
       userId = newUser.rows[0].id
+      isNewEnseignantAccount = true
     }
+  }
+  // Email de bienvenue si nouveau compte enseignant créé
+  if (isNewEnseignantAccount && b.email) {
+    sendWelcomeEmail({
+      to: b.email,
+      prenom: b.prenom,
+      nom: b.nom,
+      password: ensDefaultPassword,
+      role: 'enseignant',
+    }).catch(() => { /* silencieux — ne bloque pas la création */ })
   }
   const seq = await nextSeq('enseignants')
   const numero = `CONT-${year()}-${pad(seq)}`
@@ -13754,6 +13780,74 @@ async function sendBrevoEmail(
     return { ok: true }
   } catch (e: any) {
     return { ok: false, error: e.message }
+  }
+}
+
+// E-mail de bienvenue envoyé à la création d'un compte étudiant ou enseignant.
+// Contient le lien de l'app, l'email de connexion et le mot de passe par défaut.
+// Fire-and-forget : un échec ne doit jamais bloquer l'inscription / la création.
+async function sendWelcomeEmail(opts: {
+  to: string
+  prenom: string
+  nom: string
+  password: string
+  role: 'etudiant' | 'enseignant'
+}): Promise<void> {
+  if (!opts.to) return
+  const appUrl = process.env.APP_URL || 'https://uptechcampus.vercel.app'
+  const loginUrl = `${appUrl}/login`
+  const roleLabel = opts.role === 'etudiant' ? 'étudiant' : 'enseignant'
+  const fullName = `${opts.prenom || ''} ${opts.nom || ''}`.trim() || 'Bienvenue'
+
+  const subject = `Bienvenue à UPTECH Campus — Vos identifiants de connexion`
+  const html = `
+<!DOCTYPE html><html lang="fr"><body style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;padding:0;background:#f8fafc;">
+  <div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:24px 28px;border-radius:10px 10px 0 0;color:#fff;">
+    <h1 style="margin:0;font-size:20px;font-weight:700;">UPTECH Campus</h1>
+    <p style="margin:4px 0 0;font-size:13px;opacity:.7;">Plateforme de gestion intégrée</p>
+  </div>
+  <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;">
+    <h2 style="margin:0 0 12px;color:#0f172a;font-size:18px;">Bonjour ${fullName},</h2>
+    <p style="font-size:14px;color:#334155;line-height:1.6;margin:0 0 18px;">
+      Votre compte ${roleLabel} a été créé avec succès sur la plateforme UPTECH Campus.
+      Vous pouvez dès à présent vous connecter avec les identifiants ci-dessous.
+    </p>
+
+    <div style="background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:8px;padding:18px;margin:18px 0;">
+      <div style="margin-bottom:10px;">
+        <div style="font-size:11px;text-transform:uppercase;color:#64748b;font-weight:700;letter-spacing:.05em;">Adresse de connexion</div>
+        <a href="${loginUrl}" style="color:#E30613;font-size:14px;font-weight:600;text-decoration:none;">${loginUrl}</a>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:11px;text-transform:uppercase;color:#64748b;font-weight:700;letter-spacing:.05em;">Identifiant (email)</div>
+        <div style="font-size:14px;font-weight:600;color:#0f172a;font-family:monospace;">${opts.to}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;color:#64748b;font-weight:700;letter-spacing:.05em;">Mot de passe temporaire</div>
+        <div style="font-size:16px;font-weight:700;color:#E30613;font-family:monospace;letter-spacing:1.5px;">${opts.password}</div>
+      </div>
+    </div>
+
+    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:12px 14px;margin:18px 0;">
+      <p style="margin:0;font-size:12.5px;color:#92400e;line-height:1.5;">
+        ⚠️ <strong>Important :</strong> changez votre mot de passe à votre première connexion via votre profil pour sécuriser votre compte.
+      </p>
+    </div>
+
+    <p style="font-size:13px;color:#64748b;margin:22px 0 0;line-height:1.5;">
+      Si vous rencontrez un problème de connexion, contactez le secrétariat de l'établissement.
+    </p>
+  </div>
+  <div style="background:#fff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px;padding:14px 28px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#94a3b8;">
+      Sicap Amitié 1, Villa N° 3031 — Dakar, Sénégal · +221 33 821 34 25 / 77 841 50 44
+    </p>
+  </div>
+</body></html>`
+
+  const res = await sendBrevoEmail(opts.to, subject, html)
+  if (!res.ok) {
+    console.error(`[sendWelcomeEmail] échec envoi à ${opts.to}: ${res.error}`)
   }
 }
 
